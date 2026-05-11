@@ -1,0 +1,12 @@
+feedparser>=6.0.11
+httpx>=0.27.0
+pydantic>=2.7.0
+python-dateutil>=2.9.0
+APScheduler>=3.10.4
+pytest>=8.0.0
+# API layer — FastAPI exposes stored posts to the frontend.
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+# AI layer — anthropic is optional. The pipeline runs without it via the
+# deterministic rule-based fallback generator. Install for live Claude calls.
+anthropic>=0.45.0

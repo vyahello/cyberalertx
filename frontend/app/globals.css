@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Force a single dark theme — the product is always-dark by design.
+     Saves us from prefers-color-scheme inversions and flash-of-light. */
+  :root {
+    color-scheme: dark;
+    --font-tnum: "tnum" 1, "ss01" 1;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg-base text-text-primary font-sans antialiased;
+    /* Tabular figures for any numbers in feeds / counters — keeps columns
+       from jittering as values change. */
+    font-feature-settings: var(--font-tnum);
+  }
+
+  /* Reset focus styles so we can apply our own ring through utilities. */
+  *:focus {
+    outline: none;
+  }
+  *:focus-visible {
+    @apply ring-2 ring-accent-ring ring-offset-2 ring-offset-bg-base rounded-sm;
+  }
+
+  /* Subtle scrollbar that matches the surface — visible enough to be useful,
+     not so loud it competes with content. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1F242E;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2A303C;
+  }
+}
+
+@layer components {
+  /* The signature card surface — used by ThreatCard, TrendingCard, sidebars.
+     Encoded once so the visual rhythm is consistent across the product. */
+  .surface-card {
+    @apply bg-bg-elevated border border-border-subtle rounded-lg;
+    @apply transition-colors duration-200;
+  }
+  .surface-card-hover {
+    @apply hover:border-border-strong hover:bg-bg-elevated-2;
+  }
+
+  /* The compact one-liner badge shape — pill, padded, small caps. */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5;
+    @apply text-2xs font-medium uppercase tracking-wider;
+    @apply rounded-md whitespace-nowrap;
+  }
+
+  /* Primary button — calm blue, modest hover, ample tap target. */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2;
+    @apply px-5 py-2.5 min-h-[44px];
+    @apply bg-accent text-white font-medium text-sm;
+    @apply rounded-md transition-all duration-200;
+    @apply hover:bg-[#4A7EE8] hover:shadow-elevated;
+    @apply active:scale-[0.98];
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2;
+    @apply px-4 py-2 min-h-[40px];
+    @apply text-text-secondary font-medium text-sm;
+    @apply rounded-md transition-colors duration-200;
+    @apply hover:bg-bg-elevated-2 hover:text-text-primary;
+  }
+
+  /* "Live dot" — two concentric layers, the outer one pulses outward. */
+  .live-dot {
+    @apply relative inline-flex w-2 h-2 rounded-full;
+  }
+  .live-dot::after {
+    content: "";
+    @apply absolute inset-0 rounded-full;
+    @apply bg-signal-live animate-pulse-ring;
+  }
+}
+
+@layer utilities {
+  /* Mask gradient used on horizontal scrollers (Trending row) — fades the
+     edges so cut-off cards don't look truncated. */
+  .mask-fade-x {
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 24px,
+      black calc(100% - 24px),
+      transparent 100%
+    );
+  }
+
+  /* Subtle radial gradient for the hero — moves slowly via bg-drift. */
+  .hero-gradient {
+    background:
+      radial-gradient(
+        ellipse 80% 50% at 20% 0%,
+        rgba(91, 141, 239, 0.12) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        ellipse 60% 40% at 80% 30%,
+        rgba(79, 203, 156, 0.06) 0%,
+        transparent 50%
+      );
+  }
+}

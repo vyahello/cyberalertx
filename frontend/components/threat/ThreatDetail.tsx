@@ -1,0 +1,341 @@
+import Link from "next/link";
+import { ArrowLeft, ExternalLink, Clock, Users, FileText } from "lucide-react";
+import { ActionPanel } from "./ActionPanel";
+import { ActionabilityBadge } from "./ActionabilityBadge";
+import { CredibilityBadge } from "./CredibilityBadge";
+import { QuickFacts } from "./QuickFacts";
+import { ThreatBadge } from "./ThreatBadge";
+import { strings } from "@/lib/i18n";
+import { contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
+
+interface Props {
+  post: LocalizedThreatPost;
+  lang: Locale;
+}
+
+/**
+ * Detail page body. Layout philosophy:
+ *
+ *   Mobile (single column, stacked):
+ *     hero block ↓ summary ↓ quick facts ↓ why it matters ↓ who's affected
+ *     ↓ action panel ↓ original source link
+ *
+ *   Desktop (two columns from `lg` up):
+ *     LEFT  = narrative content
+ *     RIGHT = sticky action panel — stays in view as you scroll
+ *
+ * The sticky action panel is the productivity payoff of being on desktop:
+ * you can read the analysis while the actions stay one glance away.
+ *
+ * Reads as a structured intelligence dossier, not a blog post — clean
+ * hierarchy, badge-led header, no inline timestamps mid-paragraph.
+ */
+export function ThreatDetail({ post, lang }: Props) {
+  const s = strings(lang);
+  const c = contentFor(post, lang);
+
+  // This shouldn't happen — the page-level route already verified availability.
+  // But guard anyway so a stale link can't crash the layout.
+  if (!c) {
+    return (
+      <NotAvailableInLocale lang={lang} post={post} />
+    );
+  }
+
+  return (
+    <article lang={lang} className="mx-auto max-w-6xl px-5 sm:px-8 py-8 sm:py-12">
+      {/* Back link — small, no chrome, lives in its own row above the title.
+          Treated like a breadcrumb rather than a button to avoid competing
+          with the hero. */}
+      <Link
+        href={`/${lang}#feed`}
+        className="inline-flex items-center gap-1.5 text-sm text-text-secondary
+                   hover:text-text-primary transition-colors mb-6 group"
+      >
+        <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+        {s.detail_back_to_feed}
+      </Link>
+
+      {/* Header block — badge row, title, source line. The title size jumps
+          one rung above the card to anchor the page. */}
+      <header className="mb-8 sm:mb-10">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <ThreatBadge level={post.threat_level} lang={lang} />
+          <ActionabilityBadge level={post.actionability_level} lang={lang} />
+          <span className="text-xs text-text-tertiary inline-flex items-center gap-1.5 ml-1">
+            <Clock className="w-3 h-3" />
+            {s.card_published_relative(post.published_at)}
+          </span>
+          <span className="text-xs text-text-tertiary">
+            {s.card_reading_time(c.reading_time_seconds)}
+          </span>
+        </div>
+
+        <h1 className="text-2xl sm:text-3xl lg:text-[2.125rem] font-semibold
+                       text-text-primary tracking-tight leading-[1.15] mb-4 max-w-4xl">
+          {c.title}
+        </h1>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <CredibilityBadge
+            tier={post.source_tier}
+            source={post.source}
+            lang={lang}
+            score={post.source_credibility_score}
+          />
+          {post.source_url && (
+            <a
+              href={post.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-accent hover:underline"
+            >
+              {s.detail_original_source}
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          )}
+        </div>
+      </header>
+
+      {/* Two-column grid from lg+: narrative left, sticky action panel right.
+          Below lg the action panel slots inline after the narrative — see
+          the second ActionPanel render below. */}
+      <div className="grid gap-10 lg:gap-12 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="space-y-7">
+          {/* "At a glance" block — short summary + quick facts grouped, so
+              the user can decide whether to keep reading in <5 seconds. */}
+          <div>
+            <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+              {s.detail_at_a_glance}
+            </h2>
+            <p className="text-base sm:text-lg text-text-primary leading-relaxed mb-4">
+              {c.short_summary}
+            </p>
+            {c.quick_facts.length > 0 && <QuickFacts facts={c.quick_facts} />}
+          </div>
+
+          {/* Why it matters — the single line that translates technical risk
+              into human impact. Pull-quote treatment with an accent rule. */}
+          {c.why_it_matters && (
+            <div className="border-l-2 border-accent/50 pl-4 py-1">
+              <p className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-1">
+                {s.card_why_it_matters}
+              </p>
+              <p className="text-base text-text-primary leading-relaxed">
+                {c.why_it_matters}
+              </p>
+            </div>
+          )}
+
+          {/* Detail context — short paragraph sections, each rendered only
+              when its field is present on the backend. Adds ~20-40% more
+              material than the card without turning the page into a blog
+              article (sections cap at one short paragraph each). */}
+          <DetailContextBlocks content={c} lang={lang} />
+
+          {/* Who's affected — list, not paragraph. Easier to scan, and the
+              shape matches the data we have. */}
+          {c.affected_users.length > 0 && (
+            <div>
+              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2 inline-flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" /> {s.card_affected_users}
+              </h2>
+              <ul className="space-y-1.5">
+                {c.affected_users.map((u) => (
+                  <li key={u} className="text-sm text-text-primary leading-relaxed">
+                    {u}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Action panel — mobile placement. Hidden on lg+ because the
+              sticky right column already has it. Keeps the visual logic
+              "actions are always reachable" regardless of breakpoint. */}
+          <div className="lg:hidden border-t border-border-subtle pt-6">
+            <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+              {s.detail_action_panel_title}
+            </h2>
+            <ActionPanel
+              toDo={c.what_to_do}
+              notToDo={c.what_not_to_do}
+              lang={lang}
+            />
+          </div>
+
+          {/* "Read on source" link rendered again here, in mobile too, so
+              it's reachable without scrolling back up. */}
+          {post.source_url && (
+            <div className="border-t border-border-subtle pt-6">
+              <a
+                href={post.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-medium
+                           text-accent hover:underline"
+              >
+                <FileText className="w-4 h-4" />
+                {s.detail_original_source}
+                <ExternalLink className="w-3.5 h-3.5 text-accent/70" />
+              </a>
+            </div>
+          )}
+        </section>
+
+        {/* Right column — sticky action panel. `top-20` accounts for the
+            sticky 56px header + breathing room. Not rendered on mobile
+            (the inline copy above takes over). */}
+        <aside className="hidden lg:block">
+          <div className="sticky top-20">
+            <div className="surface-card p-5">
+              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+                {s.detail_action_panel_title}
+              </h2>
+              {/* On the sidebar we want a tight stacked list — pass the
+                  panel an empty notToDo array to suppress the side-by-side
+                  layout, and render the "avoid" list as a follow-up so it
+                  stays compact in the narrow column. */}
+              <SidebarActions
+                toDo={c.what_to_do}
+                notToDo={c.what_not_to_do}
+                lang={lang}
+              />
+            </div>
+          </div>
+        </aside>
+      </div>
+    </article>
+  );
+}
+
+// -------------------- internals ------------------------------------------
+
+/**
+ * Stacked action list optimized for a narrow sidebar. The full ActionPanel
+ * uses a grid that's too wide here; we render two simple lists with the
+ * same iconography for consistency.
+ */
+function SidebarActions({
+  toDo,
+  notToDo,
+  lang,
+}: {
+  toDo: string[];
+  notToDo: string[];
+  lang: Locale;
+}) {
+  const s = strings(lang);
+  return (
+    <div className="space-y-5">
+      {toDo.length > 0 && (
+        <div>
+          <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
+            {s.card_what_to_do}
+          </h3>
+          <ul className="space-y-2">
+            {toDo.map((t) => (
+              <li
+                key={t}
+                className="flex items-start gap-2 text-sm text-text-primary leading-relaxed"
+              >
+                <span className="w-1 h-1 rounded-full bg-trust-trusted-fg mt-2 flex-shrink-0" />
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {notToDo.length > 0 && (
+        <div>
+          <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
+            {s.card_what_not_to_do}
+          </h3>
+          <ul className="space-y-2">
+            {notToDo.map((t) => (
+              <li
+                key={t}
+                className="flex items-start gap-2 text-sm text-text-secondary leading-relaxed"
+              >
+                <span className="w-1 h-1 rounded-full bg-level-critical-fg/70 mt-2 flex-shrink-0" />
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Renders the four detail-context paragraphs (how-it-works, who's-affected,
+ * attacker-motivation, realistic-impact) as a compact two-column grid on
+ * tablets+ and a single column on phones. Each section appears only when
+ * its field is present on the backend.
+ */
+function DetailContextBlocks({
+  content,
+  lang,
+}: {
+  content: import("@/lib/types").LocalizedContent;
+  lang: Locale;
+}) {
+  const s = strings(lang);
+  const blocks: Array<{ label: string; text?: string }> = [
+    { label: s.detail_how_it_works, text: content.how_it_works },
+    { label: s.detail_who_is_affected, text: content.who_is_affected },
+    { label: s.detail_attacker_motivation, text: content.attacker_motivation },
+    { label: s.detail_realistic_impact, text: content.realistic_impact },
+  ].filter((b) => b.text && b.text.trim().length > 0) as Array<{
+    label: string;
+    text: string;
+  }>;
+  if (blocks.length === 0) return null;
+  return (
+    <section
+      aria-label="Threat context"
+      className="grid gap-5 sm:grid-cols-2 sm:gap-x-8 sm:gap-y-6
+                 border-t border-border-subtle pt-6"
+    >
+      {blocks.map((b) => (
+        <div key={b.label}>
+          <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-1.5">
+            {b.label}
+          </h3>
+          <p className="text-sm text-text-primary leading-relaxed">{b.text}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+
+/** Empty state when the post exists but doesn't have content in this locale. */
+function NotAvailableInLocale({
+  lang,
+  post,
+}: {
+  lang: Locale;
+  post: LocalizedThreatPost;
+}) {
+  const s = strings(lang);
+  return (
+    <div className="mx-auto max-w-2xl px-5 sm:px-8 py-16 text-center">
+      <h1 className="text-xl font-semibold text-text-primary mb-2">
+        {s.detail_not_available_in_locale}
+      </h1>
+      <p className="text-sm text-text-secondary mb-6">
+        {s.detail_not_available_hint}
+      </p>
+      {post.available_locales.length > 0 && (
+        <Link
+          href={`/${post.available_locales[0]}/threat/${post.id}`}
+          className="btn-primary"
+        >
+          {post.available_locales[0].toUpperCase()}
+        </Link>
+      )}
+    </div>
+  );
+}
