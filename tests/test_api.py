@@ -66,7 +66,7 @@ def client() -> TestClient:
         _item(url_id="b", threat_score=40.0, actionability_level="recommended_action",
               category="phishing"),
         _item(url_id="c", threat_score=15.0, actionability_level="informational",
-              category="other", language="uk", title="Звичайна новина"),
+              category="other", language="ua", title="Звичайна новина"),
     ]
     app = build_app(service=_FakeService(items))
     return TestClient(app)
@@ -104,20 +104,29 @@ def test_list_posts_filters_by_language(client: TestClient) -> None:
     r = client.get("/posts?language=uk")
     assert r.status_code == 200
     items = r.json()["items"]
-    assert len(items) == 1
-    # New shape: filter against available_locales, not a flat language field.
-    assert "uk" in items[0]["available_locales"]
-    assert "uk" in items[0]["translations"]
+    # Rule-based generator now produces BOTH locales for every item
+    # (English title/summary stay in source language; metadata + actions
+    # localize), so every item is locale-available. The filter still works,
+    # but it doesn't shrink the result set — it just guarantees the
+    # locale is present.
+    assert items, "expected at least one UK-available item"
+    for it in items:
+        assert "ua" in it["available_locales"]
+        assert "ua" in it["translations"]
 
 
 # ---------- /posts/trending ----------
 
-def test_trending_includes_only_urgent_or_critical(client: TestClient) -> None:
+def test_trending_returns_severity_sorted_top_n(client: TestClient) -> None:
+    """Trending now mirrors the frontend `dangerSort` semantic exactly:
+    top-N most-dangerous items by (AI-assigned threat_level,
+    actionability_score, published_at). No strict 'urgent_action only'
+    filter — the section surfaces the highest-signal items overall.
+    Fixture: 3 items, all should appear with the urgent_action one first."""
     r = client.get("/posts/trending")
     assert r.status_code == 200
     items = r.json()["items"]
-    # Only the urgent_action item qualifies (the score=15 one doesn't).
-    assert len(items) == 1
+    assert len(items) == 3
     assert items[0]["actionability_level"] == "urgent_action"
 
 

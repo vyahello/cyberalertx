@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Open Graph card. 1200×630 is the OG/Twitter standard. Composition: a
+       fixed dark background, centered horizontal lockup at 100px glyph
+       height, calm tagline beneath. Convert to PNG via Sharp before
+       deploying to social — most platforms still prefer raster OG images.
+       Sharp command:
+           npx sharp -i og-mark.svg -o ../og-image.png resize 1200 630
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0E1116"/>
+      <stop offset="100%" stop-color="#161A21"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#4F8AC9" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#4F8AC9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Lockup: glyph (100×100) + 32px gap + wordmark, vertically centered. -->
+  <!-- Glyph centered roughly at canvas center horizontally; wordmark continues. -->
+  <g transform="translate(360 265)">
+    <g fill="none" stroke="#4F8AC9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 17 A33 33 0 0 1 12 83" opacity="0.30"/>
+      <path d="M21 30 A21 21 0 0 1 21 70" opacity="0.55"/>
+      <path d="M29 40 A10 10 0 0 1 29 60" opacity="0.85"/>
+    </g>
+    <circle cx="66" cy="50" r="10" fill="#4F8AC9"/>
+    <text x="132" y="72"
+          font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+          font-size="64" font-weight="600" letter-spacing="-0.015em"
+          fill="#E6E8EC">CyberAlertX</text>
+  </g>
+
+  <text x="600" y="400" text-anchor="middle"
+        font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="28" font-weight="400" letter-spacing="0"
+        fill="#9CA3AF">Cybersecurity intel — calm, filtered, scannable.</text>
+
+  <text x="600" y="555" text-anchor="middle"
+        font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="18" font-weight="500" letter-spacing="0.18em"
+        fill="#6B7280">CYBERALERTX.IO</text>
+</svg>

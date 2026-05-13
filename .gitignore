@@ -1,6 +1,59 @@
+# ============================================================================
+# Python
+# ============================================================================
 venv/
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .pytest_cache/
-data/items.json
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ============================================================================
+# Secrets & local config
+# ============================================================================
+# Real secrets — never commit.
+.env
+.env.local
+.env.*.local
+.resume_session
+
+# ============================================================================
+# Runtime state — written by the pipeline at runtime, never source-of-truth.
+# Code recreates `data/` via DATA_DIR.mkdir(...), so the folder doesn't need
+# to be in git. Ignoring the whole dir keeps a stray `git add data/foo.json`
+# from committing JSON/JSONL state that would conflict between machines.
+# ============================================================================
+data/
+
+# ============================================================================
+# Frontend (Next.js)
+# ============================================================================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/.vercel/
+frontend/build/
+frontend/dist/
+frontend/coverage/
+
+# ============================================================================
+# IDE / editor
+# ============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ============================================================================
+# OS
+# ============================================================================
 .DS_Store
+Thumbs.db

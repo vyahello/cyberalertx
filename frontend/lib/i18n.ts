@@ -85,6 +85,59 @@ type StringTable = {
   detail_who_is_affected: string;
   detail_attacker_motivation: string;
   detail_realistic_impact: string;
+  // Intelligence layer (signals + corroboration + presets)
+  intel_who_should_care: string;
+  intel_potential_impact: string;
+  intel_threat_snapshot: string;
+  intel_also_reported_by: string;
+  intel_signal_active_exploitation: string;
+  intel_signal_credential_risk: string;
+  intel_signal_email_risk: string;
+  intel_signal_financial_risk: string;
+  intel_signal_enterprise_risk: string;
+  intel_signal_consumer_risk: string;
+  intel_signal_session_hijack: string;
+  intel_signal_data_exposure: string;
+  intel_signal_malware_delivery: string;
+  trending_why_label: string;
+  trending_reason_active_exploitation: string;
+  trending_reason_corroborated: (n: number) => string;
+  trending_reason_critical: string;
+  trending_reason_urgent: string;
+  trending_reason_email_accounts: string;
+  trending_reason_credentials: string;
+  // Filter presets
+  preset_label: string;
+  preset_clear: string;
+  preset_most_relevant: string;
+  preset_critical: string;
+  preset_scams_phishing: string;
+  preset_normal_users: string;
+  preset_enterprise: string;
+  preset_mobile: string;
+  preset_account_security: string;
+  // Freshness + stale-feed indicators
+  freshness_updated_prefix: string;
+  freshness_quiet_day: string;
+  freshness_just_now: string;
+  freshness_hours_ago: (n: number) => string;
+  freshness_minutes_ago: (n: number) => string;
+  freshness_days_ago: (n: number) => string;
+  // Feedback widget
+  feedback_prompt: string;
+  feedback_helpful: string;
+  feedback_too_vague: string;
+  feedback_too_technical: string;
+  feedback_incorrect: string;
+  feedback_not_relevant: string;
+  feedback_thanks: string;
+  // Additional empty / unavailable copy
+  empty_filter_hint: string;
+  empty_backend_updating: string;
+  empty_locale_unavailable: string;
+  // Detail-page extras
+  references_heading: string;
+  detail_analysis_heading: string;
 };
 
 /**
@@ -105,7 +158,7 @@ function formatPublished(iso: string, lang: Locale): string {
   const diffMs = Math.max(0, now.getTime() - then.getTime());
   const diffHours = diffMs / 3600_000;
 
-  if (lang === "uk") {
+  if (lang === "ua") {
     if (diffHours < 1) return "щойно";
     if (diffHours < 24) return `${Math.round(diffHours)} год тому`;
     if (diffHours < 48) return "вчора";
@@ -125,6 +178,35 @@ function formatPublished(iso: string, lang: Locale): string {
   }).format(then);
 }
 
+/**
+ * Reading-time formatter.
+ *
+ * Splits seconds into minutes + remainder seconds and drops the empty
+ * unit. Why: a single "85 с" reads like a stopwatch, not a hint. Showing
+ * "1 хв 25 с" / "1 min 25 sec" matches how humans estimate time.
+ *
+ *   12  → "12 с"           / "12 sec"
+ *   60  → "1 хв"           / "1 min"
+ *   85  → "1 хв 25 с"      / "1 min 25 sec"
+ *   180 → "3 хв"           / "3 min"
+ *
+ * Anything below 1 second is clamped to 1 — the value comes from the
+ * backend rounded to 5s already, so the clamp is defensive.
+ */
+function formatReadingTime(total: number, lang: Locale): string {
+  const seconds = Math.max(1, Math.round(total));
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (lang === "ua") {
+    if (m === 0) return `${s} с`;
+    if (s === 0) return `${m} хв`;
+    return `${m} хв ${s} с`;
+  }
+  if (m === 0) return `${s} sec`;
+  if (s === 0) return `${m} min`;
+  return `${m} min ${s} sec`;
+}
+
 const EN: StringTable = {
   brand: "CyberAlertX",
   tagline_short: "Threat intelligence for everyone",
@@ -132,7 +214,7 @@ const EN: StringTable = {
   hero_eyebrow: "Real-time cybersecurity awareness",
   hero_headline: "Cyber threats. Before they hit you.",
   hero_subhead:
-    "A calm, filtered view of what's actually happening — ranked for impact, written for humans, fast to scan.",
+    "What matters in cybersecurity right now — explained clearly, ranked by real-world impact.",
   hero_cta: "View Live Threats",
   hero_pulse_label: (n) => `${n} active threats now`,
 
@@ -159,7 +241,7 @@ const EN: StringTable = {
   card_what_not_to_do: "What to avoid",
   card_affected_users: "Who's affected",
   card_quick_facts: "Quick facts",
-  card_reading_time: (s) => `${s}s read`,
+  card_reading_time: (s) => formatReadingTime(s, "en"),
   card_published_relative: (s) => formatPublished(s, "en"),
 
   level: {
@@ -218,6 +300,64 @@ const EN: StringTable = {
   detail_who_is_affected: "Who is realistically affected",
   detail_attacker_motivation: "Why attackers use this",
   detail_realistic_impact: "Realistic impact",
+  // --- intelligence layer ---
+  intel_who_should_care: "Who should care",
+  intel_potential_impact: "Potential impact",
+  intel_threat_snapshot: "Threat snapshot",
+  intel_also_reported_by: "Also reported by",
+  intel_signal_active_exploitation: "Active exploitation",
+  intel_signal_credential_risk: "Credential theft",
+  intel_signal_email_risk: "Email account risk",
+  intel_signal_financial_risk: "Financial risk",
+  intel_signal_enterprise_risk: "Enterprise risk",
+  intel_signal_consumer_risk: "Consumer risk",
+  intel_signal_session_hijack: "Session hijacking",
+  intel_signal_data_exposure: "Data exposure",
+  intel_signal_malware_delivery: "Malware delivery",
+  trending_why_label: "Why trending",
+  trending_reason_active_exploitation: "Active exploitation detected",
+  trending_reason_corroborated: (n) =>
+    n === 1 ? "Confirmed by 1 other trusted source"
+            : `Confirmed by ${n} trusted sources`,
+  trending_reason_critical: "Critical-tier threat",
+  trending_reason_urgent: "Urgent action required",
+  trending_reason_email_accounts: "Impacts email accounts",
+  trending_reason_credentials: "Credential compromise risk",
+  // --- filter presets ---
+  preset_label: "Quick views",
+  preset_clear: "All threats",
+  preset_most_relevant: "Most relevant today",
+  preset_critical: "Critical threats",
+  preset_scams_phishing: "Scams & phishing",
+  preset_normal_users: "For everyday users",
+  preset_enterprise: "Enterprise threats",
+  preset_mobile: "Mobile threats",
+  preset_account_security: "Account security",
+  // --- freshness ---
+  freshness_updated_prefix: "Feed updated",
+  // Subtle annotation when no urgent threat has landed for >12h. NOT an
+  // alarm — the reader should take comfort, not panic.
+  freshness_quiet_day: "Quiet so far · no urgent threats in the last 12h",
+  freshness_just_now: "just now",
+  freshness_minutes_ago: (n) => `${n} min ago`,
+  freshness_hours_ago: (n) => (n === 1 ? "1 hr ago" : `${n} hrs ago`),
+  freshness_days_ago: (n) => (n === 1 ? "1 day ago" : `${n} days ago`),
+  // --- feedback ---
+  feedback_prompt: "Was this brief useful?",
+  feedback_helpful: "Helpful",
+  feedback_too_vague: "Too vague",
+  feedback_too_technical: "Too technical",
+  feedback_incorrect: "Incorrect",
+  feedback_not_relevant: "Not relevant to me",
+  feedback_thanks: "Thanks — your signal helps us tune the briefings.",
+  // --- empty states (additions) ---
+  empty_filter_hint: "Try a different quick-view or clear the filters.",
+  empty_backend_updating:
+    "Threat feed is updating. Try again in a moment.",
+  empty_locale_unavailable:
+    "This story is not yet available in your selected language.",
+  references_heading: "References",
+  detail_analysis_heading: "Analysis",
 };
 
 const UK: StringTable = {
@@ -227,7 +367,7 @@ const UK: StringTable = {
   hero_eyebrow: "Кіберобізнаність у реальному часі",
   hero_headline: "Кіберзагрози. Перш ніж вони дістануться вас.",
   hero_subhead:
-    "Спокійний, відфільтрований огляд того, що дійсно відбувається — за впливом, людською мовою, швидко проглядається.",
+    "Найважливіше у кібербезпеці прямо зараз — пояснено просто та відсортовано за реальним впливом.",
   hero_cta: "Переглянути загрози",
   hero_pulse_label: (n) => `${n} активних загроз зараз`,
 
@@ -254,8 +394,8 @@ const UK: StringTable = {
   card_what_not_to_do: "Чого не робити",
   card_affected_users: "Кого це стосується",
   card_quick_facts: "Коротко",
-  card_reading_time: (s) => `${s} с читання`,
-  card_published_relative: (s) => formatPublished(s, "uk"),
+  card_reading_time: (s) => formatReadingTime(s, "ua"),
+  card_published_relative: (s) => formatPublished(s, "ua"),
 
   level: {
     Critical: "Критично",
@@ -313,9 +453,68 @@ const UK: StringTable = {
   detail_who_is_affected: "Кого це реально стосується",
   detail_attacker_motivation: "Чому атакують саме так",
   detail_realistic_impact: "Реальний вплив",
+  // --- intelligence layer ---
+  intel_who_should_care: "Кого це стосується",
+  intel_potential_impact: "Потенційний вплив",
+  intel_threat_snapshot: "Огляд загрози",
+  intel_also_reported_by: "Також повідомили",
+  intel_signal_active_exploitation: "Активна експлуатація",
+  intel_signal_credential_risk: "Крадіжка облікових даних",
+  intel_signal_email_risk: "Ризик для пошти",
+  intel_signal_financial_risk: "Фінансовий ризик",
+  intel_signal_enterprise_risk: "Корпоративний ризик",
+  intel_signal_consumer_risk: "Особистий ризик",
+  intel_signal_session_hijack: "Перехоплення сесії",
+  intel_signal_data_exposure: "Розкриття даних",
+  intel_signal_malware_delivery: "Шкідливе ПЗ",
+  trending_why_label: "Чому в тренді",
+  trending_reason_active_exploitation: "Виявлено активну експлуатацію",
+  trending_reason_corroborated: (n) =>
+    n === 1 ? "Підтверджено ще 1 довіреним джерелом"
+            : `Підтверджено ${n} довіреними джерелами`,
+  trending_reason_critical: "Критичний рівень загрози",
+  trending_reason_urgent: "Потрібна термінова дія",
+  trending_reason_email_accounts: "Уражає поштові акаунти",
+  trending_reason_credentials: "Ризик компрометації паролів",
+  // --- filter presets ---
+  preset_label: "Швидкі підбірки",
+  preset_clear: "Усі загрози",
+  preset_most_relevant: "Найважливіше сьогодні",
+  preset_critical: "Критичні загрози",
+  preset_scams_phishing: "Шахрайство і фішинг",
+  preset_normal_users: "Для звичайних користувачів",
+  preset_enterprise: "Корпоративні загрози",
+  preset_mobile: "Мобільні загрози",
+  preset_account_security: "Безпека акаунтів",
+  // --- freshness ---
+  freshness_updated_prefix: "Стрічка оновлена",
+  freshness_quiet_day:
+    "Спокійно — за останні 12 год термінових загроз не було",
+  freshness_just_now: "щойно",
+  freshness_minutes_ago: (n) => `${n} хв тому`,
+  freshness_hours_ago: (n) => `${n} год тому`,
+  freshness_days_ago: (n) => (n === 1 ? "1 день тому" : `${n} дн тому`),
+  // --- feedback ---
+  feedback_prompt: "Чи був цей огляд корисним?",
+  feedback_helpful: "Корисно",
+  feedback_too_vague: "Надто загально",
+  feedback_too_technical: "Надто технічно",
+  feedback_incorrect: "Неточно",
+  feedback_not_relevant: "Не моя тема",
+  feedback_thanks:
+    "Дякуємо — ваш сигнал допомагає налаштувати огляди.",
+  // --- empty states ---
+  empty_filter_hint:
+    "Спробуйте іншу підбірку або очистіть фільтри.",
+  empty_backend_updating:
+    "Стрічка оновлюється. Спробуйте за хвилину.",
+  empty_locale_unavailable:
+    "Цей матеріал ще не доступний обраною мовою.",
+  references_heading: "Посилання",
+  detail_analysis_heading: "Аналіз",
 };
 
-const TABLES: Record<Locale, StringTable> = { en: EN, uk: UK };
+const TABLES: Record<Locale, StringTable> = { en: EN, ua: UK };
 
 export function strings(lang: Locale): StringTable {
   return TABLES[lang] ?? EN;

@@ -10,3 +10,11 @@ uvicorn[standard]>=0.32.0
 # AI layer — anthropic is optional. The pipeline runs without it via the
 # deterministic rule-based fallback generator. Install for live Claude calls.
 anthropic>=0.45.0
+# Storage layer — Postgres backend (shadow-write only in PR-1; reads stay
+# on JSON). SQLAlchemy Core 2.0 + psycopg3. Required only when
+# CYBERALERTX_STORAGE_BACKEND=dual; the JSON-only default doesn't import them.
+SQLAlchemy>=2.0,<2.1
+psycopg[binary]>=3.1
+# .env loader. Optional — package falls back to plain os.getenv if missing,
+# so production deploys that set env vars directly don't need it.
+python-dotenv>=1.0.0

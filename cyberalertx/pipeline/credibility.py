@@ -95,8 +95,11 @@ SOURCE_PROFILES: Mapping[str, SourceProfile] = {
     "itc.ua":                   SourceProfile(base_score=0.66, tier=TIER_VERIFIED),
     "ain.ua":                   SourceProfile(base_score=0.62, tier=TIER_VERIFIED),
     "dev.ua":                   SourceProfile(base_score=0.60, tier=TIER_VERIFIED),
-    # CERT-UA reserved for the day they publish an RSS feed:
-    # "CERT-UA":                SourceProfile(base_score=0.92, tier=TIER_TRUSTED),
+    # dou.ua is a developer community publication — solid for technical
+    # incidents and platform-level coverage.
+    "dou.ua":                   SourceProfile(base_score=0.62, tier=TIER_VERIFIED),
+    # cybersec.net.ua reserved for when they expose a public feed:
+    # "cybersec.net.ua":        SourceProfile(base_score=0.70, tier=TIER_VERIFIED),
 }
 
 # Default for any source we haven't profiled. The unverified default is
@@ -171,16 +174,26 @@ def _sensationalism_penalty(text_lower: str) -> float:
     return min(_MAX_PENALTY, hits * _PENALTY_PER_HIT)
 
 
-def _corroboration_bonus(
+def _find_corroborating_sources(
     target: NewsItem,
     target_tokens: set[str],
     batch: Sequence[NewsItem],
-) -> float:
+) -> list[str]:
+    """Return the names of OTHER trusted sources reporting the same story.
+
+    Same logic as the bonus calculation, but exposes the source list so
+    callers can both (a) compute the bonus score and (b) populate the
+    item's `corroborating_sources` field for the API to surface as
+    "Also reported by …".
+    """
     if not batch or not target_tokens:
-        return 0.0
-    corroborating_sources: set[str] = set()
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
     for other in batch:
         if other is target or other.source == target.source:
+            continue
+        if other.source in seen:
             continue
         # Only TRUSTED corroborators count — see module docstring.
         other_profile = SOURCE_PROFILES.get(other.source, DEFAULT_PROFILE)
@@ -191,36 +204,63 @@ def _corroboration_bonus(
         if len(shared) < _CORROBORATION_MIN_SHARED_TOKENS:
             continue
         if _jaccard(target_tokens, other_tokens) >= _CORROBORATION_JACCARD:
-            corroborating_sources.add(other.source)
-    return min(_CORROBORATION_MAX_BONUS, len(corroborating_sources) * _CORROBORATION_PER_SOURCE)
+            seen.add(other.source)
+            found.append(other.source)
+    return found
+
+
+def _corroboration_bonus(
+    target: NewsItem,
+    target_tokens: set[str],
+    batch: Sequence[NewsItem],
+) -> tuple[float, list[str]]:
+    """Compute the score bonus AND the source list that produced it.
+
+    Kept tuple-returning to keep the score computation honest — anyone
+    reading credibility scoring sees exactly which sources triggered the
+    bonus. The list is also handed back to the caller so it can stash it
+    on the item for the API to surface.
+    """
+    sources = _find_corroborating_sources(target, target_tokens, batch)
+    bonus = min(
+        _CORROBORATION_MAX_BONUS,
+        len(sources) * _CORROBORATION_PER_SOURCE,
+    )
+    return bonus, sources
 
 
 def analyze_credibility(
     item: NewsItem,
     *,
     batch: Optional[Sequence[NewsItem]] = None,
-) -> Tuple[str, float]:
-    """Pure function. Same `(item, batch)` always yields the same `(tier, score)`.
+) -> Tuple[str, float, list[str]]:
+    """Pure function. Same `(item, batch)` always yields the same `(tier, score, sources)`.
 
-    Pass `batch` when calling from the pipeline so the corroboration bonus can
-    fire; omit it for unit tests / one-off scoring (corroboration = 0).
+    Returns the credibility tier, the continuous score, and the list of
+    trusted corroborating sources (empty when single-source coverage).
+
+    Pass `batch` when calling from the pipeline so the corroboration bonus
+    can fire; omit it for unit tests / one-off scoring (corroboration = 0,
+    sources = []).
     """
     profile = SOURCE_PROFILES.get(item.source, DEFAULT_PROFILE)
     text_lower = f"{item.title}\n{item.raw_content}".lower()
 
     penalty = _sensationalism_penalty(text_lower)
     target_tokens = _title_tokens(item.title)
-    bonus = _corroboration_bonus(item, target_tokens, batch or [])
+    bonus, corroborating = _corroboration_bonus(item, target_tokens, batch or [])
 
     score = max(0.0, min(1.0, profile.base_score - penalty + bonus))
-    return _tier_for(score), score
+    return _tier_for(score), score, corroborating
 
 
 def analyze_for_item(item: NewsItem, *, batch: Optional[Sequence[NewsItem]] = None) -> NewsItem:
-    """In-place enrichment: assign source_tier + source_credibility_score."""
-    tier, score = analyze_credibility(item, batch=batch)
+    """In-place enrichment: assign source_tier, source_credibility_score,
+    and the list of trusted corroborating sources."""
+    tier, score, corroborating = analyze_credibility(item, batch=batch)
     item.source_tier = tier
     item.source_credibility_score = score
+    item.corroborating_sources = corroborating
     return item
 
 

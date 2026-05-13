@@ -140,12 +140,12 @@ def test_no_provider_uses_rule_based_directly() -> None:
 
 def test_force_language_routes_to_ukrainian_template() -> None:
     provider = MockProvider()
-    gen = ContentGenerator(provider=provider, cache=None, force_language="uk")
+    gen = ContentGenerator(provider=provider, cache=None, force_language="ua")
     gen.generate(_item(language="en"))
 
     system, _ = provider.calls[0]
     # Ukrainian-default template's persona starts with "Ви пишете для CyberAlertX".
-    assert "Ви пишете" in system or "uk" in system
+    assert "Ви пишете" in system or "ua" in system
 
 
 def test_prefer_audience_routes_to_developer_template() -> None:

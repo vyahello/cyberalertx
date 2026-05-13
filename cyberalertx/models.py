@@ -29,7 +29,7 @@ class NewsItem:
     tags: list[str] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=_utcnow)
     # --- enrichment fields (added in v0.2; old JSON loads with defaults) ---
-    # Current content language (BCP-47-ish: "en", "uk", "other", "unknown").
+    # Current content language (BCP-47-ish: "en", "ua", "other", "unknown").
     # `original_language` preserves what the feed served, even if later layers
     # translate `title`/`raw_content` into another language.
     language: str = "unknown"
@@ -59,6 +59,12 @@ class NewsItem:
     # Continuous score in [0.0, 1.0] backing the tier. Combines registry
     # reputation, sensationalism penalty, and cross-source corroboration.
     source_credibility_score: float = 0.0
+    # Names of OTHER trusted sources in the same fetch batch that reported
+    # the same story. Populated by the credibility analyzer when it computes
+    # the corroboration bonus. Surfaces in the API as "Also reported by …"
+    # so the reader sees independent confirmation at a glance. Stays empty
+    # for items in single-source coverage.
+    corroborating_sources: list[str] = field(default_factory=list)
 
     @property
     def fingerprint(self) -> str:
@@ -90,6 +96,7 @@ class NewsItem:
             "actionability_score": round(float(self.actionability_score), 3),
             "source_tier": self.source_tier,
             "source_credibility_score": round(float(self.source_credibility_score), 3),
+            "corroborating_sources": list(self.corroborating_sources),
         }
 
     def to_storage_dict(self) -> Dict[str, Any]:
@@ -103,7 +110,17 @@ class NewsItem:
     def from_storage_dict(cls, data: Dict[str, Any]) -> "NewsItem":
         """Tolerant loader. Every enrichment field uses .get(default) so older
         JSON snapshots (written before v0.2) load with safe defaults.
+
+        Legacy locale code `uk` is silently upgraded to `ua` here so older
+        on-disk items.json (written before the rename) become correct in
+        memory without forcing a re-ingest.
         """
+        legacy_lang = data.get("language", "unknown")
+        legacy_orig = data.get("original_language", legacy_lang)
+        if legacy_lang == "uk":
+            legacy_lang = "ua"
+        if legacy_orig == "uk":
+            legacy_orig = "ua"
         return cls(
             title=data["title"],
             source=data["source"],
@@ -113,8 +130,8 @@ class NewsItem:
             threat_score=float(data.get("threat_score", 0.0)),
             tags=list(data.get("tags", [])),
             fetched_at=_parse_dt(data.get("fetched_at")) or _utcnow(),
-            language=data.get("language", "unknown"),
-            original_language=data.get("original_language", data.get("language", "unknown")),
+            language=legacy_lang,
+            original_language=legacy_orig,
             category=data.get("category", "other"),
             category_confidence=float(data.get("category_confidence", 0.0)),
             affected_platforms=list(data.get("affected_platforms", [])),
@@ -124,6 +141,7 @@ class NewsItem:
             actionability_score=float(data.get("actionability_score", 0.0)),
             source_tier=data.get("source_tier", "unverified"),
             source_credibility_score=float(data.get("source_credibility_score", 0.0)),
+            corroborating_sources=list(data.get("corroborating_sources", [])),
         )
 
 

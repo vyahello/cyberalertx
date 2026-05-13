@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { ArrowUpRight, Clock, Users } from "lucide-react";
+import { ArrowUpRight, Clock } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { strings } from "@/lib/i18n";
 import { contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
-import { ActionPanel } from "./ActionPanel";
 import { ActionabilityBadge } from "./ActionabilityBadge";
+import { AudienceChip } from "./AudienceChip";
+import { CategoryIconChip } from "./CategoryIconChip";
+import { CorroborationLine } from "./CorroborationLine";
 import { CredibilityBadge } from "./CredibilityBadge";
 import { QuickFacts } from "./QuickFacts";
+import { SignalIndicators } from "./SignalIndicators";
 import { ThreatBadge } from "./ThreatBadge";
 
 interface Props {
@@ -19,22 +22,29 @@ interface Props {
 }
 
 /**
- * Mobile-first card hierarchy (top → bottom, in order of "what the user
- * needs to know first"):
+ * Compact feed card — tuned for thumb-scrolling on mobile.
  *
- *   1. Threat-level + actionability badges      ← "should I care?"
- *   2. Title (clickable — entire card links to /[locale]/threat/[id])
- *   3. Source + relative time + reading time
- *   4. Short summary
- *   5. Quick facts (chips)
- *   6. Why-it-matters
- *   7. Affected users
- *   8. Action panel (do / don't)
+ * What's IN the card:
+ *   1. Threat-level + actionability badges          ← "should I care?"
+ *   2. AudienceChip ("Microsoft 365 users")          ← "is this about ME?"
+ *   3. Title — entire card links to /[locale]/threat/[id]
+ *   4. CredibilityBadge + (subtle) corroboration    ← "who's saying this?"
+ *   5. Short summary (one tight editorial brief)
+ *   6. SignalIndicators (max 3 chips)               ← "what does it DO?"
+ *   7. Quick facts (chips)
  *
- * Linking strategy: the entire card is wrapped in a <Link> so any tap
- * navigates to the detail page. A small "open" affordance sits in the
- * top-right corner as a visual cue; we don't add it as a separate target
- * (the whole card is the target) but the icon hints at clickability.
+ * What's NOT in the card (moved to detail page exclusively):
+ *   * Why-it-matters paragraph
+ *   * Affected users list
+ *   * What to do / what not to do action panel
+ *
+ * Rationale: in the feed, a reader scans. They commit to a card by
+ * tapping it. The detail page is where actionable content lives. Mixing
+ * both layers in the card made every entry 600px tall — bad UX on a
+ * phone, and made the feed feel like a wall of repeat content.
+ *
+ * The `compact` prop is preserved for the Trending strip variant that
+ * needs an even tighter card (no summary, no signals).
  */
 export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
   const s = strings(lang);
@@ -43,6 +53,17 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
   // have content in `lang` (the parent filters). If it happens anyway,
   // render nothing rather than a partial card.
   if (!content) return null;
+
+  // Defensive normalization — the API contract types these as required,
+  // but a degraded backend / partial cache hit could deliver sparse data.
+  // We normalize to safe defaults here so a missing field renders as
+  // absence (block skipped) instead of "undefined" in the DOM.
+  const title = content.title?.trim() || s.empty_locale_unavailable;
+  const summary = content.short_summary?.trim() || "";
+  const quickFacts = content.quick_facts ?? [];
+  const readingTime = Number.isFinite(content.reading_time_seconds)
+    ? content.reading_time_seconds
+    : 25;
 
   const delay = `${Math.min(index, 8) * 60}ms`;
 
@@ -72,6 +93,13 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
         />
 
         <header className="flex flex-wrap items-center gap-x-2 gap-y-2 mb-3 pr-6">
+          {/* Category icon — visual anchor for thumb-scrolling. Sits
+              first in the header so the eye latches onto the chip before
+              reading the threat-level badge. Hidden on the compact
+              trending variant where vertical space is tighter. */}
+          {!compact && (
+            <CategoryIconChip category={post.category} lang={lang} />
+          )}
           <ThreatBadge level={post.threat_level} lang={lang} />
           <ActionabilityBadge level={post.actionability_level} lang={lang} />
           <div className="ml-auto flex items-center gap-3 text-xs text-text-tertiary">
@@ -79,61 +107,54 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
               <Clock className="w-3 h-3" />
               {s.card_published_relative(post.published_at)}
             </span>
-            <span aria-label={s.card_reading_time(content.reading_time_seconds)}>
-              {s.card_reading_time(content.reading_time_seconds)}
+            <span aria-label={s.card_reading_time(readingTime)}>
+              {s.card_reading_time(readingTime)}
             </span>
           </div>
         </header>
 
+        {/* "Is this about me?" line — sits between the severity badges
+            and the title so a scanning reader sees audience before
+            content. Renders nothing when who_should_care isn't available
+            (older API shapes / sparse signals). */}
+        <AudienceChip post={post} lang={lang} className="mb-2.5" />
+
         <h2 className="text-lg sm:text-xl font-semibold text-text-primary leading-snug mb-2 break-words">
-          {content.title}
+          {title}
         </h2>
 
-        <div className="mb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-4">
           <CredibilityBadge
             tier={post.source_tier}
             source={post.source}
             lang={lang}
             score={post.source_credibility_score}
           />
+          {/* Trust anchor — "Also reported by …" appears inline next to
+              the source when at least one trusted peer covers the story.
+              Compact: same line as credibility when there's room, wraps
+              below on narrow viewports. */}
+          <CorroborationLine
+            sources={post.corroborating_sources}
+            lang={lang}
+            withIcon={false}
+          />
         </div>
 
-        <p className="text-base text-text-primary leading-relaxed mb-4">
-          {content.short_summary}
-        </p>
-
-        {content.quick_facts.length > 0 && (
-          <QuickFacts facts={content.quick_facts} className="mb-5" />
+        {summary && (
+          <p className="text-base text-text-primary leading-relaxed mb-3">
+            {summary}
+          </p>
         )}
 
-        {!compact && (
-          <>
-            {content.why_it_matters && (
-              <div className="border-l-2 border-accent/40 pl-3 mb-5">
-                <p className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-1">
-                  {s.card_why_it_matters}
-                </p>
-                <p className="text-sm text-text-primary leading-relaxed">
-                  {content.why_it_matters}
-                </p>
-              </div>
-            )}
+        {/* Signal indicators — at most 3 icon-chips describing what the
+            threat actually does to the reader. The only colored chip is
+            `active_exploitation`; everything else is monochromatic so
+            the card never reads as a panic dashboard. */}
+        <SignalIndicators signals={post.signals} lang={lang} max={3} className="mb-4" />
 
-            {content.affected_users.length > 0 && (
-              <div className="flex items-start gap-2 text-sm text-text-secondary mb-5">
-                <Users className="w-4 h-4 mt-0.5 flex-shrink-0 text-text-tertiary" />
-                <span>{content.affected_users.join(" · ")}</span>
-              </div>
-            )}
-
-            <hr className="border-border-subtle mb-5" />
-
-            <ActionPanel
-              toDo={content.what_to_do}
-              notToDo={content.what_not_to_do}
-              lang={lang}
-            />
-          </>
+        {!compact && quickFacts.length > 0 && (
+          <QuickFacts facts={quickFacts} />
         )}
       </article>
     </Link>

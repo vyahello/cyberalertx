@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="CyberAlertX">
+  <title>CyberAlertX</title>
+  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 4 A8 8 0 0 1 3 20" opacity="0.30"/>
+    <path d="M5 7 A5 5 0 0 1 5 17" opacity="0.55"/>
+    <path d="M7 9.5 A2.5 2.5 0 0 1 7 14.5" opacity="0.85"/>
+  </g>
+  <circle cx="16" cy="12" r="2.5" fill="currentColor"/>
+</svg>

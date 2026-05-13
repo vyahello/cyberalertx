@@ -16,6 +16,7 @@ import { Hero } from "../hero/Hero";
 import { ThreatFeed } from "../threat/ThreatFeed";
 import { TrendingSection } from "../trending/TrendingSection";
 import { FilterPanel, countActiveFilters } from "../filters/FilterPanel";
+import { FilterPresets } from "../filters/FilterPresets";
 import { MobileFilterDrawer } from "../filters/MobileFilterDrawer";
 import { Header } from "./Header";
 
@@ -73,15 +74,18 @@ export function HomeShell({ lang, initialPosts }: Props) {
   );
   const activeCount = countActiveFilters(filters);
 
-  // "Active threats now" — anything urgent or recent + (Critical | High).
-  const activeThreats = useMemo(() => {
-    const cutoff = Date.now() - 12 * 60 * 60 * 1000;
-    return localePosts.filter((p) => {
-      if (p.actionability_level === "urgent_action") return true;
-      const t = new Date(p.published_at).getTime();
-      return (p.threat_level === "Critical" || p.threat_level === "High") && t >= cutoff;
-    }).length;
-  }, [localePosts]);
+  // "Active threats now" — anything in the feed where the reader actually
+  // has something to do. That's `actionability_level !== "informational"`
+  // (i.e. urgent_action + recommended_action). We deliberately drop the
+  // earlier "urgent_action OR recent Critical/High" rule: it produced
+  // confusing zeros ("20 stories in feed but 0 active threats?") whenever
+  // the locale's pool didn't include a fresh urgent item. The counter now
+  // reflects "items asking for an action", which is what the hero copy
+  // actually means.
+  const activeThreats = useMemo(
+    () => localePosts.filter((p) => p.actionability_level !== "informational").length,
+    [localePosts],
+  );
 
   return (
     <>
@@ -120,6 +124,11 @@ export function HomeShell({ lang, initialPosts }: Props) {
               )}
             </div>
           </header>
+
+          {/* Quick-view presets — sit above the filter+feed grid so a
+              first-time visitor reaches a useful slice of the feed
+              without engaging with the filter chips at all. */}
+          <FilterPresets state={filters} onChange={setFilters} lang={lang} />
 
           <div className="grid gap-8 lg:gap-10 lg:grid-cols-[260px_minmax(0,1fr)]">
             <aside className="hidden lg:block">

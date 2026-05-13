@@ -33,6 +33,7 @@ export const MOCK_POSTS: LocalizedThreatPost[] = [
     actionability_level: "urgent_action",
     actionability_score: 0.93,
     emotional_weight: 0.92,
+    source_language: "en",
     available_locales: ["en"],
     translations: {
       en: {
@@ -70,9 +71,10 @@ export const MOCK_POSTS: LocalizedThreatPost[] = [
     actionability_level: "recommended_action",
     actionability_score: 0.62,
     emotional_weight: 0.66,
-    available_locales: ["uk"],
+    source_language: "ua",
+    available_locales: ["ua"],
     translations: {
-      uk: {
+      ua: {
         title:
           "Хвиля фішингу маскується під сповіщення Microsoft 365 з фальшивою сторінкою входу",
         short_summary:
@@ -111,7 +113,8 @@ export const MOCK_POSTS: LocalizedThreatPost[] = [
     // Dual-locale example: both EN and UK content present. In production
     // this only happens when the LLM path is wired up. Useful for verifying
     // the language-switch flow in dev.
-    available_locales: ["en", "uk"],
+    source_language: "en",
+    available_locales: ["en", "ua"],
     translations: {
       en: {
         title:
@@ -129,7 +132,7 @@ export const MOCK_POSTS: LocalizedThreatPost[] = [
         quick_facts: ["Affects Kubernetes", "Vulnerability"],
         reading_time_seconds: 35,
       },
-      uk: {
+      ua: {
         title:
           "Неправильна конфігурація Kubernetes RBAC дозволяє ескалацію від pod до cluster admin",
         short_summary:

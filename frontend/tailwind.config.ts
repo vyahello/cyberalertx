@@ -24,26 +24,32 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // ---------------- Graphite surfaces ----------------
+        // Tuned to read calm in dark mode; no pure black.
         bg: {
-          base: "#0A0C10",
-          elevated: "#11141B",
-          "elevated-2": "#181C25",
-          inset: "#070910",
+          base: "#0E1116",         // page background
+          elevated: "#161A21",     // card surface
+          "elevated-2": "#1F242D", // sticky / floating surfaces, header on scroll
+          inset: "#0A0D12",        // input fields, inset panels
         },
         border: {
-          subtle: "#1F242E",
-          strong: "#2A303C",
-          focus: "#5B8DEF",
+          subtle: "#2A2F38",
+          strong: "#3A4250",
+          focus: "#4F8AC9",        // matches accent
         },
         text: {
-          primary: "#E8ECF2",
-          secondary: "#8B94A4",
-          tertiary: "#5A6573",
+          primary: "#E6E8EC",
+          secondary: "#9CA3AF",
+          tertiary: "#6B7280",
         },
+        // ---------------- Brand accent ----------------
+        // Muted azure. Used on ≤5% of any screen — brand mark, ONE CTA,
+        // ONE focus ring at a time. Severity colors are NOT brand.
         accent: {
-          DEFAULT: "#5B8DEF",
-          soft: "rgba(91, 141, 239, 0.10)",
-          ring: "rgba(91, 141, 239, 0.35)",
+          DEFAULT: "#4F8AC9",
+          hover: "#5E9BD8",
+          soft: "rgba(79, 138, 201, 0.10)",
+          ring: "rgba(79, 138, 201, 0.40)",
         },
         level: {
           critical: {
@@ -131,7 +137,7 @@ const config: Config = {
         card: "0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 1px rgba(0, 0, 0, 0.15)",
         elevated:
           "0 8px 24px -8px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)",
-        "focus-ring": "0 0 0 3px rgba(91, 141, 239, 0.35)",
+        "focus-ring": "0 0 0 3px rgba(79, 138, 201, 0.40)",
       },
       animation: {
         // Two motion primitives — both subtle, both purposeful.

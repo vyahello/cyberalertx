@@ -35,9 +35,9 @@ def test_unknown_audience_in_unknown_category_lands_on_default_default():
 
 def test_ukrainian_specific_template_used_when_present():
     reg = default_template_registry()
-    t = reg.select("uk", "phishing", "normal_users")
+    t = reg.select("ua", "phishing", "normal_users")
     assert t.id == "uk/phishing/normal_users"
-    assert t.language == "uk"
+    assert t.language == "ua"
 
 
 def test_unknown_language_falls_through_to_english_default():

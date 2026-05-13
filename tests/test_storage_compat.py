@@ -59,8 +59,8 @@ def test_round_trip_preserves_enrichments(tmp_path: Path) -> None:
         published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
         raw_content="",
         threat_score=10.0,
-        language="uk",
-        original_language="uk",
+        language="ua",
+        original_language="ua",
         category="ransomware",
         category_confidence=0.85,
         affected_platforms=["Windows", "Linux"],
@@ -70,8 +70,8 @@ def test_round_trip_preserves_enrichments(tmp_path: Path) -> None:
     reopened = JsonNewsStore(path).all()
     assert len(reopened) == 1
     r = reopened[0]
-    assert r.language == "uk"
-    assert r.original_language == "uk"
+    assert r.language == "ua"
+    assert r.original_language == "ua"
     assert r.category == "ransomware"
     assert r.category_confidence == 0.85
     assert r.affected_platforms == ["Windows", "Linux"]

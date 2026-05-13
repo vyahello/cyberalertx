@@ -36,14 +36,10 @@ class Settings:
         SourceConfig("Securelist (Kaspersky)", "https://securelist.com/feed/"),
         SourceConfig("CISA Alerts", "https://www.cisa.gov/cybersecurity-advisories/all.xml"),
         # --- Ukrainian (secondary, for the UK locale) ---
-        # itc.ua and ain.ua are established UA tech outlets with consistent
-        # cyber coverage; dev.ua adds dev-focused security items.
-        #
-        # CERT-UA (cert.gov.ua) does NOT publish a public RSS feed as of 2026;
-        # if/when they do, add them as "trusted" tier in credibility.py.
-        SourceConfig("itc.ua", "https://itc.ua/feed/"),
+        SourceConfig("itc.ua", "https://itc.ua/ua/feed/"),
         SourceConfig("ain.ua", "https://ain.ua/feed/"),
         SourceConfig("dev.ua", "https://dev.ua/rss"),
+        SourceConfig("dou.ua", "https://dou.ua/feed/"),
     ])
 
 

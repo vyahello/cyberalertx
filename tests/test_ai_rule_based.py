@@ -101,9 +101,9 @@ def test_phishing_category_produces_phishing_specific_actions():
 
 
 def test_ukrainian_item_preserves_language_tag():
-    item = _item(language="uk")
+    item = _item(language="ua")
     post = RuleBasedGenerator().generate(item)
-    assert post.language == "uk"
+    assert post.language == "ua"
 
 
 def test_unknown_language_falls_back_to_en():

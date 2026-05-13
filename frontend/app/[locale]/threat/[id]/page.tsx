@@ -44,9 +44,22 @@ export default async function ThreatDetailPage({
   const { locale, id } = await params;
   if (!isLocale(locale)) notFound();
 
-  // Parallel fetches: the single post + the full pool for related-threats.
-  // The pool fetch is cheap (ISR-cached at 60s) and reused across detail pages.
-  const [post, pool] = await Promise.all([fetchPost(id), fetchPosts(50)]);
+  // Parallel fetches: the single post + a small pool for related-threats.
+  //
+  // Two non-obvious choices in this fetch:
+  //   * `limit = 20`, not 50. RelatedThreats picks 4 items from the pool;
+  //     20 is plenty of candidates while shrinking the per-render cost
+  //     by 60%.
+  //   * `cachedOnly: true`. The pool is a *suggestion surface*, not
+  //     content the user is asking for. We never want browsing a detail
+  //     page to spend AI tokens speculatively-rendering items the user
+  //     might not even read. If an item isn't already AI-cached it's
+  //     simply skipped from the pool; related-threats will still find
+  //     4 good matches because category-only overlap is plentiful.
+  const [post, pool] = await Promise.all([
+    fetchPost(id),
+    fetchPosts(locale, 20, { cachedOnly: true }),
+  ]);
 
   if (!post) {
     return (
@@ -74,7 +87,7 @@ export default async function ThreatDetailPage({
   );
 }
 
-function NotFound({ lang }: { lang: "en" | "uk" }) {
+function NotFound({ lang }: { lang: "en" | "ua" }) {
   const s = strings(lang);
   return (
     <main className="mx-auto max-w-2xl px-5 sm:px-8 py-24 text-center">

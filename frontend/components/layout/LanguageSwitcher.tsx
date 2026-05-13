@@ -10,19 +10,23 @@ interface Props {
   lang: Locale;
 }
 
-const LABELS: Record<Locale, string> = { en: "EN", uk: "UK" };
+const LABELS: Record<Locale, string> = { en: "EN", ua: "UA" };
 
 /**
  * Two-state language toggle.
  *
  * Switching navigates to the same page in the other locale (e.g.
- * `/en/threat/abc` ↔ `/uk/threat/abc`). The URL is the source of truth
+ * `/en/threat/abc` ↔ `/ua/threat/abc`). The URL is the source of truth
  * — no client state, no flash-of-wrong-locale on refresh, every page is
  * bookmarkable per language.
  *
- * `prefetch={false}` because we'd otherwise prefetch the entire other-locale
- * tree on every page render, which doubles RSC traffic for a feature most
- * users never tap.
+ * Prefetch strategy: we explicitly prefetch the INACTIVE locale's URL
+ * once the switcher is in the viewport. That trades one extra RSC fetch
+ * per page load for a near-instant tap on the language toggle — critical
+ * on mobile where every SSR roundtrip feels like a stall. We do NOT
+ * prefetch the active locale (we're already on it). Earlier versions used
+ * `prefetch={false}` to save bandwidth; the resulting UX hang on locale
+ * switch was worse than the cost of one extra payload.
  */
 export function LanguageSwitcher({ lang }: Props) {
   const pathname = usePathname() || "/";
@@ -51,7 +55,10 @@ export function LanguageSwitcher({ lang }: Props) {
           <Link
             key={l}
             href={pathInLocale(l)}
-            prefetch={false}
+            // Prefetch ONLY the inactive locale — we never need the
+            // active one preloaded. `undefined` (Next default) → intent-
+            // based prefetch when the link is visible; matches our need.
+            prefetch={active ? false : undefined}
             aria-current={active ? "page" : undefined}
             className={cn(
               "px-2.5 py-1 rounded text-xs font-semibold tracking-wider",

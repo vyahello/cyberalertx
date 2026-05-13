@@ -2,9 +2,14 @@ import Link from "next/link";
 import { ArrowLeft, ExternalLink, Clock, Users, FileText } from "lucide-react";
 import { ActionPanel } from "./ActionPanel";
 import { ActionabilityBadge } from "./ActionabilityBadge";
+import { CategoryIconChip } from "./CategoryIconChip";
 import { CredibilityBadge } from "./CredibilityBadge";
+import { DetailBody } from "./DetailBody";
+import { FeedbackWidget } from "./FeedbackWidget";
 import { QuickFacts } from "./QuickFacts";
+import { References } from "./References";
 import { ThreatBadge } from "./ThreatBadge";
+import { ThreatSnapshot } from "./ThreatSnapshot";
 import { strings } from "@/lib/i18n";
 import { contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
 
@@ -60,6 +65,11 @@ export function ThreatDetail({ post, lang }: Props) {
           one rung above the card to anchor the page. */}
       <header className="mb-8 sm:mb-10">
         <div className="flex flex-wrap items-center gap-2 mb-4">
+          {/* Category chip — same small plate as the feed card so the
+              visual identity stays consistent between feed and detail.
+              No standalone hero block: a wide gradient banner above the
+              title felt too heavy for what is an information-dense page. */}
+          <CategoryIconChip category={post.category} lang={lang} />
           <ThreatBadge level={post.threat_level} lang={lang} />
           <ActionabilityBadge level={post.actionability_level} lang={lang} />
           <span className="text-xs text-text-tertiary inline-flex items-center gap-1.5 ml-1">
@@ -76,6 +86,10 @@ export function ThreatDetail({ post, lang }: Props) {
           {c.title}
         </h1>
 
+        {/* Just the credibility badge in the hero. The "Read on source"
+            CTA is intentionally NOT rendered here — it appears once at
+            the bottom of the article, in the footer slot, so the reader
+            finishes the brief before deciding to leave for the source. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <CredibilityBadge
             tier={post.source_tier}
@@ -83,19 +97,14 @@ export function ThreatDetail({ post, lang }: Props) {
             lang={lang}
             score={post.source_credibility_score}
           />
-          {post.source_url && (
-            <a
-              href={post.source_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-accent hover:underline"
-            >
-              {s.detail_original_source}
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          )}
         </div>
       </header>
+
+      {/* Threat snapshot — the above-the-fold intelligence block. Sits
+          BETWEEN the hero (badges + title + source) and the narrative.
+          The reader sees "who's affected" and "what can happen" before
+          scrolling into the editorial summary. */}
+      <ThreatSnapshot post={post} lang={lang} className="mb-8 sm:mb-10" />
 
       {/* Two-column grid from lg+: narrative left, sticky action panel right.
           Below lg the action panel slots inline after the narrative — see
@@ -127,6 +136,21 @@ export function ThreatDetail({ post, lang }: Props) {
             </div>
           )}
 
+          {/* AI-generated expanded analysis — 2-5 paragraphs, present
+              only when the journalist layer ran (cache hits from the
+              AI path). Rule-based renders leave this empty; the
+              per-category context blocks below provide a substitute.
+              Heading is hidden when there's no body so we don't show
+              an empty "Analysis" label. */}
+          {c.detail_body && c.detail_body.trim() && (
+            <div>
+              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+                {s.detail_analysis_heading}
+              </h2>
+              <DetailBody body={c.detail_body} />
+            </div>
+          )}
+
           {/* Detail context — short paragraph sections, each rendered only
               when its field is present on the backend. Adds ~20-40% more
               material than the card without turning the page into a blog
@@ -151,12 +175,10 @@ export function ThreatDetail({ post, lang }: Props) {
           )}
 
           {/* Action panel — mobile placement. Hidden on lg+ because the
-              sticky right column already has it. Keeps the visual logic
-              "actions are always reachable" regardless of breakpoint. */}
+              sticky right column already has it. The inner panel already
+              labels its What to do / What to avoid columns; we don't need
+              an outer "Take action" heading on top of those. */}
           <div className="lg:hidden border-t border-border-subtle pt-6">
-            <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
-              {s.detail_action_panel_title}
-            </h2>
             <ActionPanel
               toDo={c.what_to_do}
               notToDo={c.what_not_to_do}
@@ -181,6 +203,17 @@ export function ThreatDetail({ post, lang }: Props) {
               </a>
             </div>
           )}
+
+          {/* External references — CVE, CISA, vendor, CERT bulletins.
+              Compact grid, opens in new tab. Only present on detail
+              pages; cards never carry references. */}
+          <References refs={c.references} lang={lang} />
+
+          {/* Internal feedback loop — collects a coarse quality signal
+              for prompt/ranking tuning. Lightweight: 5 chips, one click,
+              no public counter. Placed below "Read on source" so it
+              sits at the natural end of the reading flow. */}
+          <FeedbackWidget postId={post.id} lang={lang} />
         </section>
 
         {/* Right column — sticky action panel. `top-20` accounts for the
@@ -189,13 +222,9 @@ export function ThreatDetail({ post, lang }: Props) {
         <aside className="hidden lg:block">
           <div className="sticky top-20">
             <div className="surface-card p-5">
-              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
-                {s.detail_action_panel_title}
-              </h2>
-              {/* On the sidebar we want a tight stacked list — pass the
-                  panel an empty notToDo array to suppress the side-by-side
-                  layout, and render the "avoid" list as a follow-up so it
-                  stays compact in the narrow column. */}
+              {/* The sidebar's What to do / What to avoid subheadings already
+                  identify the panel. An outer "Take action" header would be
+                  a third stacked label on top of those — visually noisy. */}
               <SidebarActions
                 toDo={c.what_to_do}
                 notToDo={c.what_not_to_do}

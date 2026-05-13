@@ -36,6 +36,17 @@ interface PostsResponse {
   total: number;
 }
 
+/** Healthz body — duck-typed; backend may add fields without breaking us.
+ *  All freshness fields are nullable on cold start (empty store). */
+export interface FeedHealth {
+  ok: boolean;
+  stored_items: number;
+  timestamp: string;
+  latest_published_at: string | null;
+  latest_urgent_at: string | null;
+  minutes_since_last_urgent: number | null;
+}
+
 /** Fetch a single post by id — used by the detail page. Returns null on
  *  any failure, including 404, so the detail route can render an explicit
  *  "not found" UI without try/catch sprawl. */
@@ -81,21 +92,39 @@ async function getJson<T>(path: string, opts: FetchOptions = {}): Promise<T | nu
   }
 }
 
-/** Main feed — ranked by threat_score. */
+interface FetchPostsOptions extends FetchOptions {
+  /** When true, the backend skips items that aren't already AI-cached
+   *  instead of generating them on the fly. Use for related-threats
+   *  pool fetches: a list view should never speculate-generate. */
+  cachedOnly?: boolean;
+}
+
+/** Main feed — ranked by threat_score, filtered to a single source language.
+ *
+ * `language` is required: each locale page (en, uk) sees only items whose
+ * original publication language matches. This keeps the feed monolingual
+ * even though the metadata layer is bilingual. */
 export async function fetchPosts(
+  language: "en" | "ua",
   limit = 50,
-  opts: FetchOptions = {},
+  opts: FetchPostsOptions = {},
 ): Promise<LocalizedThreatPost[]> {
-  const data = await getJson<PostsResponse>(`/posts?limit=${limit}`, opts);
+  const params = new URLSearchParams({ language, limit: String(limit) });
+  if (opts.cachedOnly) params.set("cached_only", "1");
+  const data = await getJson<PostsResponse>(`/posts?${params.toString()}`, opts);
   return data?.items ?? [];
 }
 
-/** Trending — urgent_action or Critical. */
+/** Trending — urgent_action or Critical, scoped to a source language. */
 export async function fetchTrending(
+  language: "en" | "ua",
   limit = 10,
   opts: FetchOptions = {},
 ): Promise<LocalizedThreatPost[]> {
-  const data = await getJson<PostsResponse>(`/posts/trending?limit=${limit}`, opts);
+  const data = await getJson<PostsResponse>(
+    `/posts/trending?language=${language}&limit=${limit}`,
+    opts,
+  );
   return data?.items ?? [];
 }
 
@@ -106,4 +135,30 @@ export async function fetchLatest(
 ): Promise<LocalizedThreatPost[]> {
   const data = await getJson<PostsResponse>(`/posts/latest?limit=${limit}`, opts);
   return data?.items ?? [];
+}
+
+/** Lightweight liveness + freshness probe. Used by the header's "Updated
+ *  X ago" indicator. Returns null on any failure — the indicator silently
+ *  disappears rather than showing a stale or misleading time. */
+export async function fetchFeedHealth(
+  opts: FetchOptions = {},
+): Promise<FeedHealth | null> {
+  return getJson<FeedHealth>("/healthz", opts);
+}
+
+/** Submit one feedback record. Returns true on accept, false otherwise.
+ *  Failures are silent — feedback is fire-and-forget, never blocking. */
+export async function submitFeedback(
+  body: { id: string; locale: "en" | "ua"; signal: string },
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

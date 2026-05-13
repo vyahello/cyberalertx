@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Cancel older runs on the same branch — saves CI minutes when you push
+# rapidly and only the latest commit matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------
+  # Backend — Python tests. Live Postgres tests are gated by env and
+  # skip cleanly here because CYBERALERTX_TEST_DB_URL is not set.
+  # ------------------------------------------------------------------
+  backend:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        run: pytest -q --tb=short
+
+  # ------------------------------------------------------------------
+  # Frontend — Next.js type-check + production build. We don't run
+  # client-side tests (none yet) but a clean build catches type errors,
+  # broken imports, and missing assets.
+  # ------------------------------------------------------------------
+  frontend:
+    name: Frontend build (Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Build
+        run: npm run build
+        env:
+          # The build hits /healthz during static-page generation. With no
+          # API up in CI, fetch fails — that's OK; the page still renders
+          # via fallback. Suppress the connection-refused noise.
+          NEXT_TELEMETRY_DISABLED: "1"

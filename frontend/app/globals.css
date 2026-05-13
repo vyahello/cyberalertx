@@ -8,6 +8,24 @@
   :root {
     color-scheme: dark;
     --font-tnum: "tnum" 1, "ss01" 1;
+
+    /* ---------- Brand tokens as CSS vars ----------
+       Mirror of the Tailwind palette for non-Tailwind contexts: inline SVG,
+       third-party widgets, embeds, ad-hoc CSS. Keep in sync with
+       tailwind.config.ts — these are the same hex literals. */
+    --brand-bg:           #0E1116;
+    --brand-bg-elevated:  #161A21;
+    --brand-bg-elevated-2:#1F242D;
+    --brand-border:       #2A2F38;
+    --brand-text:         #E6E8EC;
+    --brand-text-secondary:#9CA3AF;
+    --brand-text-tertiary:#6B7280;
+    --brand-accent:       #4F8AC9;
+    --brand-accent-hover: #5E9BD8;
+    --brand-accent-ring:  rgba(79, 138, 201, 0.40);
+    --brand-level-critical:#FF6B6E;
+    --brand-level-high:   #F5A623;
+    --brand-signal-live:  #4FCB9C;
   }
 
   html {
@@ -41,11 +59,11 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #1F242E;
+    background: var(--brand-border);
     border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #2A303C;
+    background: #3A4250;
   }
 }
 
@@ -67,14 +85,29 @@
     @apply rounded-md whitespace-nowrap;
   }
 
-  /* Primary button — calm blue, modest hover, ample tap target. */
+  /* Primary button — calm azure, modest hover, ample tap target. */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2;
     @apply px-5 py-2.5 min-h-[44px];
     @apply bg-accent text-white font-medium text-sm;
     @apply rounded-md transition-all duration-200;
-    @apply hover:bg-[#4A7EE8] hover:shadow-elevated;
+    @apply hover:bg-accent-hover hover:shadow-elevated;
     @apply active:scale-[0.98];
+  }
+
+  /* The brand lockup — used in the header. Wrap glyph + wordmark.
+     The wordmark is a sibling <span>, not <text> in SVG, so the same Inter
+     loaded by the app renders it. Glyph inherits text color via currentColor. */
+  .brand-lockup {
+    @apply inline-flex items-center gap-2.5 text-accent;
+    @apply transition-colors duration-200;
+  }
+  .brand-lockup .brand-glyph {
+    @apply h-6 w-6 flex-shrink-0;
+  }
+  .brand-lockup .brand-wordmark {
+    @apply font-semibold text-text-primary text-base tracking-tight;
+    @apply hidden sm:inline;
   }
 
   .btn-ghost {
@@ -114,7 +147,7 @@
     background:
       radial-gradient(
         ellipse 80% 50% at 20% 0%,
-        rgba(91, 141, 239, 0.12) 0%,
+        rgba(79, 138, 201, 0.12) 0%,
         transparent 50%
       ),
       radial-gradient(

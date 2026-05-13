@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable, List, Sequence
 
 from ..models import NewsItem
+from ..observability import get_quality_metrics, get_source_health
 from ..sources.base import Source
 from ..storage.json_store import NewsRepository
 from .actionability import analyze_all as analyze_actionability_all
@@ -36,6 +37,11 @@ from .filter import filter_relevant
 from .normalize import normalize_all
 from .platforms import extract_all
 from .ranker import score_items
+from .relevance import (
+    AIRelevanceClassifier,
+    RelevanceCache,
+    filter_relevant_hybrid,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +76,22 @@ class Pipeline:
         repository: NewsRepository,
         post_processors: Iterable[PostProcessor] = (),
         max_workers: int = 8,
+        *,
+        ai_classifier: AIRelevanceClassifier | None = None,
+        relevance_cache: RelevanceCache | None = None,
     ) -> None:
         self._sources = list(sources)
         self._repo = repository
         self._post_processors = list(post_processors)
         self._max_workers = max_workers
+        # Optional AI relevance layer. When None, the filter stage uses the
+        # legacy deterministic-only path. When set, items in the score
+        # gray zone are routed through Haiku for a final yes/no.
+        self._ai_classifier = ai_classifier
+        self._relevance_cache = relevance_cache
 
     def run_once(self) -> CycleResult:
-        fetched = self._fetch_all()
+        fetched, fetched_by_source = self._fetch_all_with_source_map()
         # Pre-filter dedup against what's already on disk → don't waste
         # downstream work on items we've already processed.
         known = self._repo.known_fingerprints()
@@ -86,8 +100,26 @@ class Pipeline:
         # Runs on EVERY fresh item so language is recorded even on items the
         # filter rejects — useful for telemetry on what we're dropping.
         normalize_all(fresh)
-        # Stage: filter. Drops corporate/IT noise.
-        relevant = filter_relevant(fresh)
+        # Stage: filter. Hybrid scoring + optional AI for the gray zone.
+        # When neither classifier nor cache is configured AND we want the
+        # exact legacy behavior, fall back to filter_relevant() — keeps
+        # unit tests stable when AI is off.
+        if self._ai_classifier is not None or self._relevance_cache is not None:
+            relevant, stats = filter_relevant_hybrid(
+                fresh,
+                classifier=self._ai_classifier,
+                cache=self._relevance_cache,
+            )
+            logger.info("relevance stats: %s", stats.as_log_string())
+            # Roll the cycle's counts into the cumulative metrics file.
+            # Done synchronously per cycle — the JSON write is microseconds
+            # and the data is invaluable for "is the AI getting worse?".
+            try:
+                get_quality_metrics().merge_relevance_stats(stats)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("metrics rollup failed: %s", exc)
+        else:
+            relevant = filter_relevant(fresh)
         # Stage: categorize + extract platforms. Cheap pure-text passes.
         categorize_all(relevant)
         extract_all(relevant)
@@ -105,6 +137,13 @@ class Pipeline:
         score_items(relevant)
         new_items = self._repo.upsert_many(relevant)
         self._notify(new_items)
+        # Per-source health update — runs after the full pipeline so it
+        # can split fetched-vs-kept counts by source. Cheap (one JSON
+        # write); never raises into the cycle.
+        try:
+            get_source_health().record_cycle(fetched_by_source, relevant)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("source health update failed: %s", exc)
         result = CycleResult(
             fetched=len(fetched),
             relevant=len(relevant),
@@ -120,20 +159,33 @@ class Pipeline:
         return result
 
     def _fetch_all(self) -> List[NewsItem]:
-        """Fan out across sources. IO-bound → threads are fine and avoid
-        forcing async on every Source implementation.
+        """Convenience wrapper — for callers that don't need the
+        source-keyed map."""
+        items, _ = self._fetch_all_with_source_map()
+        return items
+
+    def _fetch_all_with_source_map(
+        self,
+    ) -> tuple[List[NewsItem], dict[str, List[NewsItem]]]:
+        """Fan out across sources. Returns (flat_list, by_source_map).
+
+        The map is needed by `source_health` so it can attribute fetch
+        counts back to individual feeds; we build it once here instead
+        of having downstream code re-group by `item.source`.
         """
         items: List[NewsItem] = []
+        by_source: dict[str, List[NewsItem]] = {}
         if not self._sources:
-            return items
+            return items, by_source
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             for src, batch in zip(
                 self._sources,
                 pool.map(self._safe_fetch, self._sources),
             ):
                 logger.info("source %s -> %d items", src.name, len(batch))
+                by_source[src.name] = batch
                 items.extend(batch)
-        return items
+        return items, by_source
 
     @staticmethod
     def _safe_fetch(source: Source) -> List[NewsItem]:

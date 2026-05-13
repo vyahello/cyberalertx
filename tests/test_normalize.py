@@ -59,7 +59,7 @@ def test_detect_ukrainian():
     # Real Ukrainian with і / ї / є
     assert detect_language(
         "Кібератака на українські банки: зафіксовано витік даних клієнтів"
-    ) == "uk"
+    ) == "ua"
 
 
 def test_non_ukrainian_cyrillic_returns_other():
@@ -85,14 +85,14 @@ def test_detect_mixed_script_prefers_dominant():
 def test_normalize_item_sets_language_and_cleans_text():
     item = _item("Атака на банк", body="Зафіксовано фішингову кампанію\x00")
     normalize_item(item)
-    assert item.language == "uk"
-    assert item.original_language == "uk"
+    assert item.language == "ua"
+    assert item.original_language == "ua"
     assert "\x00" not in item.raw_content
 
 
 def test_normalize_item_preserves_original_language_when_already_set():
     item = _item("Phishing campaign", body="Targets banks")
-    item.original_language = "uk"  # imagine a future translator set this
+    item.original_language = "ua"  # imagine a future translator set this
     normalize_item(item)
     assert item.language == "en"
-    assert item.original_language == "uk"
+    assert item.original_language == "ua"

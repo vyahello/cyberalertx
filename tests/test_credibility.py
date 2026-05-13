@@ -23,18 +23,18 @@ def _item(source: str, title: str = "Critical RCE in widget", body: str = "") ->
 # ---------- registry lookup ----------
 
 def test_registered_trusted_source_scores_high():
-    tier, score = analyze_credibility(_item("CISA Alerts"))
+    tier, score, _ = analyze_credibility(_item("CISA Alerts"))
     assert tier == "trusted"
     assert score >= 0.7
 
 
 def test_registered_bleeping_computer_is_trusted():
-    tier, _ = analyze_credibility(_item("BleepingComputer"))
+    tier, _, _ = analyze_credibility(_item("BleepingComputer"))
     assert tier == "trusted"
 
 
 def test_unknown_source_defaults_to_unverified():
-    tier, score = analyze_credibility(_item("Random Repost Blog"))
+    tier, score, _ = analyze_credibility(_item("Random Repost Blog"))
     assert tier == "unverified"
     assert score == DEFAULT_PROFILE.base_score
 
@@ -53,8 +53,8 @@ def test_sensational_wording_reduces_score():
         title="SHOCKING TRUTH: you won't believe this jaw-dropping bombshell",
         body="The shocking truth that nobody wants you to read.",
     )
-    _, plain_score = analyze_credibility(plain)
-    _, sens_score = analyze_credibility(sens)
+    _, plain_score, _ = analyze_credibility(plain)
+    _, sens_score, _ = analyze_credibility(sens)
     assert sens_score < plain_score
 
 
@@ -67,7 +67,7 @@ def test_sensationalism_cannot_drop_trusted_below_verified():
         title="SHOCKING bombshell you won't believe — unbelievable apocalypse",
         body="mind-blowing shocking truth secret revealed click here must read",
     )
-    tier, _ = analyze_credibility(sens)
+    tier, _, _ = analyze_credibility(sens)
     assert tier in {"trusted", "verified"}  # never "unverified"
 
 
@@ -82,8 +82,8 @@ def test_corroboration_from_trusted_peers_boosts_score():
         _item("BleepingComputer", title="Ransomware strain devastates hospital networks"),
         _item("Krebs on Security", title="Hospitals worldwide hit by new ransomware strain"),
     ]
-    _, solo_score = analyze_credibility(target)
-    _, group_score = analyze_credibility(target, batch=[target] + peers)
+    _, solo_score, _ = analyze_credibility(target)
+    _, group_score, _ = analyze_credibility(target, batch=[target] + peers)
     assert group_score > solo_score
 
 
@@ -100,8 +100,8 @@ def test_corroboration_ignores_unverified_peers():
         _item("Random Repost Blog B", title="Hospitals worldwide hit by new ransomware strain"),
         _item("Random Repost Blog C", title="New ransomware strain hits hospital networks"),
     ]
-    _, solo_score = analyze_credibility(target)
-    _, group_score = analyze_credibility(target, batch=[target] + spam_peers)
+    _, solo_score, _ = analyze_credibility(target)
+    _, group_score, _ = analyze_credibility(target, batch=[target] + spam_peers)
     assert group_score == solo_score  # bonus exactly zero
 
 
@@ -125,7 +125,7 @@ def test_score_is_within_unit_interval():
         title="Critical advisory: emergency patch, mass exploitation observed",
         body="shocking SHOCKING shocking truth bombshell mind-blowing apocalypse",
     )
-    _, score = analyze_credibility(item)
+    _, score, _ = analyze_credibility(item)
     assert 0.0 <= score <= 1.0
 
 
@@ -133,17 +133,17 @@ def test_score_is_within_unit_interval():
 
 def test_cisa_advisory_is_trusted():
     """CISA advisory → trusted (per spec example)."""
-    tier, _ = analyze_credibility(_item("CISA Alerts"))
+    tier, _, _ = analyze_credibility(_item("CISA Alerts"))
     assert tier == "trusted"
 
 
 def test_bleeping_computer_is_trusted():
     """BleepingComputer → trusted (per spec example)."""
-    tier, _ = analyze_credibility(_item("BleepingComputer"))
+    tier, _, _ = analyze_credibility(_item("BleepingComputer"))
     assert tier == "trusted"
 
 
 def test_random_repost_blog_is_unverified():
     """Random repost blog → unverified (per spec example)."""
-    tier, _ = analyze_credibility(_item("SomeRandom Reposting Blog"))
+    tier, _, _ = analyze_credibility(_item("SomeRandom Reposting Blog"))
     assert tier == "unverified"

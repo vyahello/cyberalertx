@@ -28,6 +28,13 @@ export function ThreatFeed({ posts, lang, totalAvailable }: Props) {
   if (!posts.length) {
     const s = strings(lang);
     const isEmptySource = totalAvailable === 0;
+    // Three distinct empty states, each with calm, non-alarmist copy:
+    //   * totalAvailable === 0 → "Threat feed is updating" (backend up but
+    //     no posts yet, or backend unreachable — we collapse both because
+    //     the user's correct action is the same: wait, refresh later).
+    //   * totalAvailable > 0  → "No threats match this filter" + hint to
+    //     try a preset. Filters are usually too narrow on purpose; we
+    //     point the reader at the quick-views row.
     return (
       <div
         role="status"
@@ -39,13 +46,11 @@ export function ThreatFeed({ posts, lang, totalAvailable }: Props) {
           aria-hidden
         />
         <p className="text-text-primary font-medium mb-1">
-          {isEmptySource ? s.empty_no_data : s.empty_feed}
+          {isEmptySource ? s.empty_backend_updating : s.empty_feed}
         </p>
-        {isEmptySource && (
-          <p className="text-sm text-text-secondary max-w-md mx-auto">
-            {s.empty_no_data_hint}
-          </p>
-        )}
+        <p className="text-sm text-text-secondary max-w-md mx-auto">
+          {isEmptySource ? s.empty_no_data_hint : s.empty_filter_hint}
+        </p>
       </div>
     );
   }

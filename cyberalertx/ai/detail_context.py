@@ -573,7 +573,7 @@ _UK: Mapping[str, DetailContext] = {
 }
 
 
-_TABLES: Mapping[str, Mapping[str, DetailContext]] = {"en": _EN, "uk": _UK}
+_TABLES: Mapping[str, Mapping[str, DetailContext]] = {"en": _EN, "ua": _UK}
 
 
 def detail_context_for(category: str, locale: str) -> DetailContext:

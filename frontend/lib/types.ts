@@ -23,9 +23,9 @@ export type ActionabilityLevel =
 
 export type SourceTier = "trusted" | "verified" | "unverified";
 
-export type Locale = "en" | "uk";
+export type Locale = "en" | "ua";
 
-export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "uk"] as const;
+export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "ua"] as const;
 
 export const DEFAULT_LOCALE: Locale = "en";
 
@@ -62,6 +62,17 @@ export type Audience =
  * category × locale table; absent for categories without a context entry.
  * The detail page renders each section only when its field is non-empty.
  */
+/** External reference attached to a threat post (CVE, advisory, etc.).
+ *  Rendered only on the detail page, never on feed cards. */
+export interface ThreatReference {
+  /** "cve" | "advisory" | "vendor" | "cert" | "news" — drives the icon. */
+  type: string;
+  /** Display label (e.g. "CVE-2026-1234", "CISA AA26-001A"). */
+  label: string;
+  /** Absolute URL. */
+  url: string;
+}
+
 export interface LocalizedContent {
   title: string;
   short_summary: string;
@@ -71,11 +82,39 @@ export interface LocalizedContent {
   what_not_to_do: string[];
   quick_facts: string[];
   reading_time_seconds: number;
+  /** Multi-paragraph operational analysis for the detail page. Empty
+   *  when no expanded body was generated (rule-based path or older
+   *  cached posts). */
+  detail_body?: string;
+  /** External references — CVEs, advisories, vendor blogs, CERT bulletins. */
+  references?: ThreatReference[];
   /** Detail-page context (optional). */
   how_it_works?: string;
   who_is_affected?: string;
   attacker_motivation?: string;
   realistic_impact?: string;
+}
+
+/** Threat signal bundle (intelligence-layer enrichment, computed at render
+ *  time on the backend). Booleans describing the *shape* of the threat —
+ *  used by the UI to surface concise indicators ("active exploitation",
+ *  "email account risk") and by future personalization to filter without
+ *  the user having to think in categories.
+ *
+ *  Field names match the backend's `ThreatSignals` dataclass byte-for-byte.
+ *  All optional so legacy API responses (or test fixtures) that predate
+ *  this enrichment still hydrate cleanly. */
+export interface ThreatSignals {
+  active_exploitation?: boolean;
+  credential_theft_risk?: boolean;
+  financial_risk?: boolean;
+  enterprise_risk?: boolean;
+  consumer_risk?: boolean;
+  requires_immediate_action?: boolean;
+  affects_email_accounts?: boolean;
+  steals_sessions?: boolean;
+  data_exposure_risk?: boolean;
+  malware_delivery?: boolean;
 }
 
 /** A threat post with translations for one or more locales. */
@@ -93,10 +132,31 @@ export interface LocalizedThreatPost {
   actionability_level: ActionabilityLevel;
   actionability_score: number;
   emotional_weight: number;
-  /** Locales this post has content for. Filtering ensures no mixed text. */
+  /** Language of the original article body — the canonical "which audience
+   *  does this item belong to" signal. The metadata layer (why_it_matters,
+   *  what_to_do, etc.) can be rendered in either locale via the rule-based
+   *  generator, but the title/summary stay in the source language. Feeds
+   *  filter on this so each locale page presents a single-language reading
+   *  experience. */
+  source_language: Locale;
+  /** Locales this post has content for. With locale-aware rule-based
+   *  rendering, this is currently always both `en` and `uk`. Kept on the
+   *  shape because deep-link routes (`/uk/threat/{id}`) still consult it
+   *  to fall back to the "not available in this locale" state. */
   available_locales: Locale[];
   /** Locale → text content. Partial because not every post is multilingual. */
   translations: Partial<Record<Locale, LocalizedContent>>;
+  // ----- intelligence-layer enrichment (optional for back-compat) -----
+  /** Boolean signals describing the threat's shape — see `ThreatSignals`. */
+  signals?: ThreatSignals;
+  /** One-line "does this affect me?" label, per locale. */
+  who_should_care?: Partial<Record<Locale, string>>;
+  /** Ranked list of realistic-impact labels ("Account takeover",
+   *  "Credential compromise"), per locale, capped at ~3 entries. */
+  potential_impact?: Partial<Record<Locale, string[]>>;
+  /** Names of OTHER trusted sources reporting the same story.
+   *  Empty for single-source items. */
+  corroborating_sources?: string[];
 }
 
 /** Filter state. All arrays act as "any of" filters. */
@@ -122,7 +182,7 @@ export const EMPTY_FILTERS: FilterState = {
 
 /** Type guard for locale strings (used to validate URL params). */
 export function isLocale(x: string | undefined): x is Locale {
-  return x === "en" || x === "uk";
+  return x === "en" || x === "ua";
 }
 
 /** Pick a post's content for a locale, or return null if absent. */
