@@ -1,0 +1,28 @@
+# /etc/systemd/system/cyberalertx-api.service
+#
+# FastAPI server (cache-only, never calls Anthropic at runtime).
+# Listens on 127.0.0.1:8000 — nginx fronts it at :443.
+#
+# Adjust APP_USER and WorkingDirectory if your install path differs.
+
+[Unit]
+Description=CyberAlertX FastAPI server
+After=network.target
+
+[Service]
+Type=simple
+User=cax
+Group=cax
+WorkingDirectory=/home/cax/cax
+EnvironmentFile=/home/cax/cax/.env
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Safety: even if the process leaks file descriptors, cap at 4096.
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

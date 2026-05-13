@@ -42,6 +42,7 @@ frontend/.vercel/
 frontend/build/
 frontend/dist/
 frontend/coverage/
+frontend/.env.production
 
 # ============================================================================
 # IDE / editor

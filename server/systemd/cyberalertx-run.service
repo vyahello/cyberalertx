@@ -1,0 +1,28 @@
+# /etc/systemd/system/cyberalertx-run.service
+#
+# Ingest scheduler. Runs `main run --interval 15`, which uses APScheduler
+# to call pipeline.run_once() every 15 minutes. Pulls RSS, filters,
+# categorizes, ranks, persists to data/items.json + Postgres news_items
+# (via dual-write).
+#
+# NEVER calls Anthropic. AI rendering is exclusively `generate --use-llm`
+# triggered manually via SSH.
+
+[Unit]
+Description=CyberAlertX ingest scheduler (RSS fetch every 15 min)
+After=network.target
+
+[Service]
+Type=simple
+User=cax
+Group=cax
+WorkingDirectory=/home/cax/cax
+EnvironmentFile=/home/cax/cax/.env
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main run --interval 15
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

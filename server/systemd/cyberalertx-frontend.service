@@ -1,0 +1,25 @@
+# /etc/systemd/system/cyberalertx-frontend.service
+#
+# Next.js production server (output of `npm run build`). Listens on
+# 127.0.0.1:3000 — nginx fronts it at :443. Restart-on-failure so a
+# transient OOM or signal kill self-heals.
+
+[Unit]
+Description=CyberAlertX Next.js frontend
+After=network.target cyberalertx-api.service
+
+[Service]
+Type=simple
+User=cax
+Group=cax
+WorkingDirectory=/home/cax/cax/frontend
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
