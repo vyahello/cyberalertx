@@ -13,10 +13,26 @@
  */
 import type { LocalizedThreatPost } from "./types";
 
-/** Where the API lives. In dev, http://localhost:8000. In Vercel, set via
- *  `API_URL` env var; falls back to localhost for safety so a missing env
- *  doesn't break `next build`. */
-export const API_BASE = process.env.API_URL ?? "http://localhost:8000";
+/** Where the API lives. Context-aware:
+ *
+ *  - SERVER-SIDE (SSR/ISR/RSC) → use the full URL. Configurable via
+ *    `API_URL` env, defaults to localhost:8000 for local dev. This is
+ *    the path Next.js renderer uses to populate pages.
+ *
+ *  - CLIENT-SIDE (browser, `useEffect` fetches) → use a RELATIVE URL
+ *    (empty base). nginx on the same host routes `/healthz`, `/posts`,
+ *    `/feedback` to the FastAPI upstream. A literal `http://localhost:8000`
+ *    on the client would point at the *user's* machine — silent failure.
+ *
+ *  This is why FeedFreshness (a client-side polling component) used to
+ *  render blank in production: the env var wasn't exposed to the browser
+ *  (Next.js only ships `NEXT_PUBLIC_*` to the client), and the fallback
+ *  hit the user's own port 8000.
+ */
+const _IS_SERVER = typeof window === "undefined";
+export const API_BASE = _IS_SERVER
+  ? (process.env.API_URL ?? "http://localhost:8000")
+  : "";
 
 /** ISR window — how long Next.js may serve a cached response before
  *  refreshing in the background. 60s = "live enough" without hammering. */
