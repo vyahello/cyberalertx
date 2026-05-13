@@ -13,22 +13,21 @@ interface Props {
 /**
  * Subtle "Feed updated X ago" indicator for the header.
  *
- * Polls `/healthz` once on mount and again every 60s. Renders nothing
+ * Polls `/healthz` once on mount and every 60s thereafter. Renders nothing
  * while loading or on failure — the indicator is decorative; missing it
  * never breaks the page.
  *
- * Two-line of intent visible to the reader:
- *   * The TIMESTAMP communicates pipeline aliveness without fake urgency.
- *   * The "Quiet day" annotation appears only when no urgent threat has
- *     landed for >12h — calming, not alarming. We frame the absence of
- *     news as a positive.
- *
- * Client component, but the JS payload is tiny (one fetch + state hook).
+ * Facts-only. An earlier version appended a "Quiet day · no urgent
+ * threats in 12h" annotation when `minutes_since_last_urgent > 720`.
+ * Removed: the calming meta-message contradicted itself whenever the
+ * feed had recent Critical / High items that weren't tagged
+ * urgent_action — the card grid showed real threats while the header
+ * claimed it was quiet. Card grid speaks for itself; the header should
+ * only carry the freshness timestamp.
  */
 export function FeedFreshness({ lang }: Props) {
   const s = strings(lang);
   const [latestPublishedAt, setLatestPublishedAt] = useState<string | null>(null);
-  const [minutesSinceUrgent, setMinutesSinceUrgent] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +35,6 @@ export function FeedFreshness({ lang }: Props) {
       const health = await fetchFeedHealth({ revalidate: 0, timeoutMs: 4000 });
       if (cancelled || !health) return;
       setLatestPublishedAt(health.latest_published_at);
-      setMinutesSinceUrgent(health.minutes_since_last_urgent);
     };
     refresh();
     const id = setInterval(refresh, 60_000);
@@ -49,7 +47,6 @@ export function FeedFreshness({ lang }: Props) {
   if (!latestPublishedAt) return null;
 
   const ago = formatRelative(latestPublishedAt, s);
-  const isQuiet = minutesSinceUrgent !== null && minutesSinceUrgent > 720; // 12h
 
   return (
     <div className="hidden sm:flex items-center gap-1.5 text-2xs text-text-tertiary">
@@ -59,18 +56,6 @@ export function FeedFreshness({ lang }: Props) {
         {" "}
         <span className="font-medium text-text-primary tabular-nums">{ago}</span>
       </span>
-      {isQuiet && (
-        // Calming annotation only — separate visual layer so it doesn't
-        // compete with the timestamp. Dot prefix keeps it parsed as
-        // metadata rather than as an alert.
-        <span
-          className="hidden md:inline-flex items-center text-text-tertiary"
-          aria-label={s.freshness_quiet_day}
-        >
-          <span className="mx-2 w-1 h-1 rounded-full bg-border-strong" />
-          {s.freshness_quiet_day}
-        </span>
-      )}
     </div>
   );
 }
