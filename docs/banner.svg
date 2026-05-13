@@ -35,15 +35,17 @@
           fill="#E6E8EC">CyberAlertX</text>
   </g>
 
-  <!-- Tagline beneath, centered horizontally to the lockup. -->
+  <!-- Tagline beneath, left-aligned with the lockup. Two lines:
+       (1) brand promise — short, confident.
+       (2) editorial frame — the three questions that drive every post. -->
   <text x="110" y="225"
         font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-        font-size="22" font-weight="400" letter-spacing="0"
-        fill="#9CA3AF">Today's cybersecurity threats in plain English.</text>
-  <text x="110" y="252"
+        font-size="24" font-weight="500" letter-spacing="-0.005em"
+        fill="#E6E8EC">Daily cyber intel for real users.</text>
+  <text x="110" y="258"
         font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-        font-size="22" font-weight="400" letter-spacing="0"
-        fill="#9CA3AF">What happened, who it hits, what to do — without the panic or the jargon.</text>
+        font-size="20" font-weight="400" letter-spacing="0"
+        fill="#9CA3AF">What happened. Who it hits. What to do.</text>
 
   <!-- Right side: small section indicators (visual rhythm only). -->
   <g transform="translate(1100 110)" font-family="'Inter', system-ui, sans-serif"

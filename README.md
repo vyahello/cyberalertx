@@ -10,6 +10,9 @@
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white"/>
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white"/>
   <img alt="Supabase" src="https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white"/>
+  <a href="LICENSE">
+    <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"/>
+  </a>
 </p>
 
 # CyberAlertX
@@ -440,4 +443,7 @@ Expected. Set `CYBERALERTX_TEST_DB_URL` to a separate DB to enable.
 - `.env` — local secrets (gitignored)
 - `data/` — runtime state (gitignored)
 
-License: TBD.
+## License
+
+[MIT](LICENSE) — © 2026 Volodymyr Yahello. Free to use, modify, and
+redistribute commercially or otherwise; just keep the copyright notice.

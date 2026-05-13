@@ -39,9 +39,11 @@ jobs:
         run: pytest -q --tb=short
 
   # ------------------------------------------------------------------
-  # Frontend — Next.js type-check + production build. We don't run
-  # client-side tests (none yet) but a clean build catches type errors,
-  # broken imports, and missing assets.
+  # Frontend — Next.js production build. `next build` already runs the
+  # TypeScript compiler internally, so type errors fail the job. We
+  # intentionally skip a separate lint step: ESLint isn't configured in
+  # the repo, and `next lint` is deprecated as of Next.js 15 (it prompts
+  # for an interactive setup that hangs in CI).
   # ------------------------------------------------------------------
   frontend:
     name: Frontend build (Next.js)
@@ -63,13 +65,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint --if-present
+      - name: Type-check
+        run: npm run type-check
 
       - name: Build
         run: npm run build
         env:
-          # The build hits /healthz during static-page generation. With no
-          # API up in CI, fetch fails — that's OK; the page still renders
-          # via fallback. Suppress the connection-refused noise.
+          # Build hits /healthz during static-page generation; with no API
+          # up in CI, fetch fails — the page still renders via fallback.
+          # Telemetry off to keep logs clean.
           NEXT_TELEMETRY_DISABLED: "1"
