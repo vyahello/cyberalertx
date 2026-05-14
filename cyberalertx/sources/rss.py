@@ -53,13 +53,26 @@ class RssSource(Source):
 
     def _download(self) -> Optional[bytes]:
         """We download bytes ourselves (instead of letting feedparser do it)
-        so we control timeout, retry, and user-agent. Network errors are
-        swallowed and logged — one bad source must not break the pipeline.
+        so we control timeout, retry, and request headers. Network errors
+        are swallowed and logged — one bad source must not break the
+        pipeline.
+
+        Header set mimics a real browser/RSS-reader: Cloudflare-fronted
+        feeds (ain.ua, dev.ua) and CISA reject minimal/bot-shaped requests
+        with 403. Sending UA + Accept + Accept-Language gets us through.
         """
+        headers = {
+            "User-Agent": self._user_agent,
+            "Accept": (
+                "application/rss+xml, application/atom+xml, "
+                "application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5"
+            ),
+            "Accept-Language": "en-US,en;q=0.9,uk;q=0.6",
+        }
         try:
             with httpx.Client(
                 timeout=self._timeout,
-                headers={"User-Agent": self._user_agent},
+                headers=headers,
                 follow_redirects=True,
             ) as client:
                 resp = client.get(self._url)
