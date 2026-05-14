@@ -63,6 +63,7 @@ _AI_CLICHES_EN = (
     # Generic threat-landscape sludge.
     "evolving threat landscape",
     "evolving cyber threat",
+    "threat landscape",
     "in today's digital",
     "in today's evolving",
     "robust security posture",
@@ -70,6 +71,16 @@ _AI_CLICHES_EN = (
     "leverages cutting-edge",
     "best-in-class",
     "navigate the complex",
+    # Marketing-coloured threat prose. These mark the model drifting
+    # into AI-news-blog tone — exactly what the CyberAlertX brief is
+    # not. Tripping any of these rejects the output; rule_based is
+    # the better fallback.
+    "malicious actors may leverage",
+    "malicious actors can leverage",
+    "cybercriminals increasingly",
+    "could allow attackers to gain elevated privileges and compromise",
+    "this is a classic",
+    "that means access to every",
     # Generic security-hygiene filler — what_to_do entries the user
     # has flagged as worthless. If any of these appear anywhere in
     # the output we reject; the brief is supposed to give specific
@@ -90,6 +101,8 @@ _AI_CLICHES_EN = (
     "it is important to note",
     "in conclusion",
     "understanding this attack",
+    "in summary",
+    "furthermore",
     # Chatbot self-references.
     "as an ai",
     "i cannot",
@@ -100,8 +113,13 @@ _AI_CLICHES_UK = (
     # AI sludge + chatbot disclaimers in Ukrainian.
     "у сучасному ландшафті",
     "сучасний ландшафт загроз",
+    "ландшафт загроз",
     "надійна позиція з безпеки",
     "комплексний підхід",
+    # Marketing-coloured threat prose in UA.
+    "зловмисники все частіше",
+    "зловмисники можуть використовувати",
+    "класичний сценарій",
     # Generic hygiene filler in UA.
     "будьте пильними",
     "дотримуйтеся кібергігієни",
@@ -114,6 +132,7 @@ _AI_CLICHES_UK = (
     "розглянемо як працює",
     "важливо зазначити",
     "на завершення",
+    "більш того",
     "як ші",
     "як штучний інтелект",
     "я не можу",
