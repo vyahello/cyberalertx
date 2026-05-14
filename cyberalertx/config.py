@@ -26,7 +26,11 @@ class Settings:
         "CyberAlertX/0.1 (+https://example.invalid/cyberalertx)",
     )
     storage_path: Path = DATA_DIR / "items.json"
-    max_items_retained: int = int(os.getenv("CYBERALERTX_MAX_ITEMS", "5000"))
+    # Storage cap. Auto-prunes oldest items beyond this count on each ingest.
+    # 20 is the current product cap: feed shows 15 newest, trending highlights
+    # 5 by danger from the same pool. Bump via CYBERALERTX_MAX_ITEMS if you
+    # need a larger archive.
+    max_items_retained: int = int(os.getenv("CYBERALERTX_MAX_ITEMS", "20"))
     recency_half_life_hours: float = float(os.getenv("CYBERALERTX_HALF_LIFE_H", "12"))
     sources: List[SourceConfig] = field(default_factory=lambda: [
         # --- English (primary intelligence) ---

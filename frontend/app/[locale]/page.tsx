@@ -22,16 +22,16 @@ export default async function LocaleHomePage({
   // Homepage policy: show only AI-rendered items (cachedOnly=true) so the
   // rule-based fallback never leaks into the public feed. The API no
   // longer applies a freshness window — every AI-rendered item is in
-  // scope, sorted newest-first. 30 entries gives ~2-3 weeks of typical
-  // ingest at a glance without becoming a wall.
+  // scope, sorted newest-first. 15 entries — current product cap (the
+  // store itself holds at most 20 items; trending picks 5 of those by
+  // danger, latest shows 15 newest).
   //
   // Operationally: `python -m cyberalertx.main generate --limit N` adds
   // N more posts; they show up here at the top by published_at. Old
-  // items don't disappear — they just slide below the limit and remain
-  // reachable via direct links (and, eventually, pagination).
+  // items beyond the 20-cap auto-prune at ingest time.
   //
   // The empty-state copy ("Threat feed is updating") covers the
   // first-run / no-warm-cache case gracefully.
-  const posts = await fetchPosts(locale, 30, { cachedOnly: true });
+  const posts = await fetchPosts(locale, 15, { cachedOnly: true });
   return <HomeShell lang={locale} initialPosts={posts} />;
 }

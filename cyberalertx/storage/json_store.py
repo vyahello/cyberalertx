@@ -57,9 +57,16 @@ class JsonNewsStore:
             self._cache = {}
 
     def _flush(self) -> None:
+        # Reverse-chronological prune — keep the newest `max_items`. This
+        # matches the product cap ("show the latest 15-20 stories"); the
+        # feed and trending layers both work from this same recent pool.
+        # (The earlier sort key — (threat_score, published_at) DESC — was
+        # stickier for old criticals, which at max_items=5000 was fine but
+        # at max_items=20 surfaces 2-month-old advisories above today's
+        # news. With a small cap, "newest wins" is the right product.)
         items_sorted = sorted(
             self._cache.values(),
-            key=lambda i: (i.threat_score, i.published_at),
+            key=lambda i: i.published_at,
             reverse=True,
         )[: self._max_items]
         self._cache = {i.fingerprint: i for i in items_sorted}
