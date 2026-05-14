@@ -217,6 +217,36 @@ python -m cyberalertx.main generate --limit 5 --use-llm
 Typical cost at Haiku 4.5: ~$0.008-0.015 per `(fingerprint, locale)`
 pair. `--limit 5` → ~7 API calls (5 items × ~1.5 locales) ≈ $0.05-0.10.
 
+### Delete a post — `delete_post`
+
+Sometimes a non-security item slips through the relevance filter and
+shows up in the feed. Remove it from every store with one command:
+
+```bash
+ssh cax@cyberalertx.com
+cd ~/cax && source venv/bin/activate
+
+# By URL (paste from browser)
+python -m cyberalertx.tools.delete_post https://cyberalertx.com/ua/threat/97ef5824aababb5e
+
+# By fingerprint (16 hex chars)
+python -m cyberalertx.tools.delete_post 97ef5824aababb5e
+
+# Multiple at once
+python -m cyberalertx.tools.delete_post 97ef5824aababb5e 1e80b9662a6d9493
+
+# Preview first (no writes)
+python -m cyberalertx.tools.delete_post --dry-run https://cyberalertx.com/ua/threat/97ef5824aababb5e
+```
+
+The tool removes the fingerprint from `items.json`, `threat_posts.json`,
+PG `news_items`, and PG `threat_posts`. Idempotent — running twice is
+safe.
+
+The live page refreshes within ~60s (Next.js ISR window). Cloudflare
+might serve cached HTML for a few minutes more; purge in the dashboard
+if you need it gone instantly.
+
 ### Editorial reset — `refresh_feed.py`
 
 Use after a prompt change to force every visible item into the new
@@ -610,6 +640,7 @@ Postgres data lives on Supabase — restore via their dashboard
 | Update prod after code change | `git push && ssh cax@cyberalertx.com 'cd ~/cax && ./server/deploy.sh'` |
 | Trigger AI render | `ssh cax@cyberalertx.com 'sudo systemctl start cyberalertx-generate.service'` |
 | Manual generate with custom limit | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m cyberalertx.main generate --limit 5 --use-llm'` |
+| Delete a post that slipped through | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
 | Editorial reset (after prompt change) | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m server.scripts.refresh_feed --regen'` |
 | Pull prod logs | `ssh cax@cyberalertx.com 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
 | Check AI timer next-fire | `ssh cax@cyberalertx.com 'systemctl list-timers --no-pager \| grep generate'` |
