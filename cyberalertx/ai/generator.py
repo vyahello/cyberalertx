@@ -225,15 +225,18 @@ class ContentGenerator:
         ]
         refs = merge_references(deterministic_refs, ai_refs)
 
+        # Hard caps enforced silently (the prompt asks for these; the caps
+        # are a safety net for occasional model over-production). Operational
+        # briefing rules: ≤3 actions, ≤2 anti-patterns, ≤5 quick_facts.
         return ThreatPost(
             title=response.title.strip()[:160],
             short_summary=response.short_summary.strip(),
             threat_level=response.threat_level,
             why_it_matters=response.why_it_matters.strip(),
             affected_users=[s.strip() for s in response.affected_users if s.strip()],
-            what_to_do=[s.strip() for s in response.what_to_do if s.strip()],
-            what_not_to_do=[s.strip() for s in response.what_not_to_do if s.strip()],
-            quick_facts=[s.strip() for s in response.quick_facts if s.strip()][:4],
+            what_to_do=[s.strip() for s in response.what_to_do if s.strip()][:3],
+            what_not_to_do=[s.strip() for s in response.what_not_to_do if s.strip()][:2],
+            quick_facts=[s.strip() for s in response.quick_facts if s.strip()][:5],
             emotional_weight=max(0.0, min(1.0, float(response.emotional_weight))),
             reading_time_seconds=max(10, min(120, int(response.reading_time_seconds))),
             detail_body=(response.detail_body or "").strip(),

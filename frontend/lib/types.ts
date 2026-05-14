@@ -57,10 +57,7 @@ export type Audience =
  * Card-tier fields (always present): title, short_summary, why_it_matters,
  * affected_users, what_to_do, what_not_to_do, quick_facts, reading_time.
  *
- * Detail-tier fields (optional): how_it_works, who_is_affected,
- * attacker_motivation, realistic_impact. Populated server-side from a
- * category × locale table; absent for categories without a context entry.
- * The detail page renders each section only when its field is non-empty.
+ * Detail-tier fields (optional): detail_body, references.
  */
 /** External reference attached to a threat post (CVE, advisory, etc.).
  *  Rendered only on the detail page, never on feed cards. */
@@ -88,11 +85,6 @@ export interface LocalizedContent {
   detail_body?: string;
   /** External references — CVEs, advisories, vendor blogs, CERT bulletins. */
   references?: ThreatReference[];
-  /** Detail-page context (optional). */
-  how_it_works?: string;
-  who_is_affected?: string;
-  attacker_motivation?: string;
-  realistic_impact?: string;
 }
 
 /** Threat signal bundle (intelligence-layer enrichment, computed at render

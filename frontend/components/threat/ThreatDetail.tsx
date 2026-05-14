@@ -136,10 +136,11 @@ export function ThreatDetail({ post, lang }: Props) {
             </div>
           )}
 
-          {/* AI-generated expanded analysis — 2-5 paragraphs, present
-              only when the journalist layer ran (cache hits from the
-              AI path). Rule-based renders leave this empty; the
-              per-category context blocks below provide a substitute.
+          {/* AI-generated operational analysis — 2-4 short paragraphs,
+              120-220 words, structured around: what happened / why this
+              matters / what's still unknown / what defenders should do.
+              Present only when the journalist layer ran (cache hits from
+              the AI path). Rule-based renders leave this empty.
               Heading is hidden when there's no body so we don't show
               an empty "Analysis" label. */}
           {c.detail_body && c.detail_body.trim() && (
@@ -150,12 +151,6 @@ export function ThreatDetail({ post, lang }: Props) {
               <DetailBody body={c.detail_body} />
             </div>
           )}
-
-          {/* Detail context — short paragraph sections, each rendered only
-              when its field is present on the backend. Adds ~20-40% more
-              material than the card without turning the page into a blog
-              article (sections cap at one short paragraph each). */}
-          <DetailContextBlocks content={c} lang={lang} />
 
           {/* Who's affected — list, not paragraph. Easier to scan, and the
               shape matches the data we have. */}
@@ -296,49 +291,6 @@ function SidebarActions({
     </div>
   );
 }
-
-/**
- * Renders the four detail-context paragraphs (how-it-works, who's-affected,
- * attacker-motivation, realistic-impact) as a compact two-column grid on
- * tablets+ and a single column on phones. Each section appears only when
- * its field is present on the backend.
- */
-function DetailContextBlocks({
-  content,
-  lang,
-}: {
-  content: import("@/lib/types").LocalizedContent;
-  lang: Locale;
-}) {
-  const s = strings(lang);
-  const blocks: Array<{ label: string; text?: string }> = [
-    { label: s.detail_how_it_works, text: content.how_it_works },
-    { label: s.detail_who_is_affected, text: content.who_is_affected },
-    { label: s.detail_attacker_motivation, text: content.attacker_motivation },
-    { label: s.detail_realistic_impact, text: content.realistic_impact },
-  ].filter((b) => b.text && b.text.trim().length > 0) as Array<{
-    label: string;
-    text: string;
-  }>;
-  if (blocks.length === 0) return null;
-  return (
-    <section
-      aria-label="Threat context"
-      className="grid gap-5 sm:grid-cols-2 sm:gap-x-8 sm:gap-y-6
-                 border-t border-border-subtle pt-6"
-    >
-      {blocks.map((b) => (
-        <div key={b.label}>
-          <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-1.5">
-            {b.label}
-          </h3>
-          <p className="text-sm text-text-primary leading-relaxed">{b.text}</p>
-        </div>
-      ))}
-    </section>
-  );
-}
-
 
 /** Empty state when the post exists but doesn't have content in this locale. */
 function NotAvailableInLocale({

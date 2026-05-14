@@ -81,10 +81,6 @@ type StringTable = {
   detail_not_found_title: string;
   detail_not_found_hint: string;
   detail_action_panel_title: string;
-  detail_how_it_works: string;
-  detail_who_is_affected: string;
-  detail_attacker_motivation: string;
-  detail_realistic_impact: string;
   // Intelligence layer (signals + corroboration + presets)
   intel_who_should_care: string;
   intel_potential_impact: string;
@@ -296,10 +292,6 @@ const EN: StringTable = {
   detail_not_found_hint:
     "This item may have been replaced, archived, or never existed.",
   detail_action_panel_title: "Take action",
-  detail_how_it_works: "How it works",
-  detail_who_is_affected: "Who is realistically affected",
-  detail_attacker_motivation: "Why attackers use this",
-  detail_realistic_impact: "Realistic impact",
   // --- intelligence layer ---
   intel_who_should_care: "Who should care",
   intel_potential_impact: "Potential impact",
@@ -449,10 +441,6 @@ const UK: StringTable = {
   detail_not_found_hint:
     "Можливо, її замінили, заархівували, або такої ніколи не існувало.",
   detail_action_panel_title: "Що зробити",
-  detail_how_it_works: "Як це працює",
-  detail_who_is_affected: "Кого це реально стосується",
-  detail_attacker_motivation: "Чому атакують саме так",
-  detail_realistic_impact: "Реальний вплив",
   // --- intelligence layer ---
   intel_who_should_care: "Кого це стосується",
   intel_potential_impact: "Потенційний вплив",

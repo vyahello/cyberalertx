@@ -61,11 +61,15 @@ class AISettings:
     # room for the full ThreatPost schema (title + summary + why_it_matters
     # + detail_body + 3 actions + 2 avoids + quick_facts + references).
     #
-    # 1200 fits a tight EN ThreatPost. UA responses can occasionally
-    # truncate mid-string on this cap (Cyrillic tokenizes 1.5-2x denser
-    # than Latin); bump to ~2000-2500 if you see frequent truncation in
-    # logs. Cost impact is nil — Haiku bills per actual output token.
-    max_output_tokens: int = int(os.getenv("CYBERALERTX_AI_MAX_TOKENS", "1200"))
+    # Default 2000: comfortably fits a 120-220 word detail_body even in
+    # Ukrainian, where Cyrillic tokenizes ~1.5-2x denser than Latin. The
+    # earlier default of 1200 truncated UA responses mid-JSON ("EOF while
+    # parsing a string at column N") and was the second-largest cause of
+    # EN-source items not appearing on the UA page (after the title-
+    # language slip, which the prompt now enforces explicitly). Cost
+    # impact of the bump is nil — providers bill per actual output token,
+    # not the cap.
+    max_output_tokens: int = int(os.getenv("CYBERALERTX_AI_MAX_TOKENS", "2000"))
     # Cache location for generated ThreatPosts (keyed by NewsItem fingerprint).
     cache_path: Path = DATA_DIR / "threat_posts.json"
     # If True, the generator caches LLM outputs to disk. Disable to force

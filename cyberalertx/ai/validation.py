@@ -60,6 +60,7 @@ _THREAT_LEVELS = frozenset({"Critical", "High", "Medium", "Low"})
 # Trip ANY of these and the response is rejected — better to fall back to
 # the deterministic copy than ship one of these to a reader.
 _AI_CLICHES_EN = (
+    # Generic threat-landscape sludge.
     "evolving threat landscape",
     "evolving cyber threat",
     "in today's digital",
@@ -69,7 +70,27 @@ _AI_CLICHES_EN = (
     "leverages cutting-edge",
     "best-in-class",
     "navigate the complex",
+    # Generic security-hygiene filler — what_to_do entries the user
+    # has flagged as worthless. If any of these appear anywhere in
+    # the output we reject; the brief is supposed to give specific
+    # actions, not motivational reminders.
     "stay vigilant",
+    "be cautious",
+    "maintain good cyber hygiene",
+    "maintain cyber hygiene",
+    "follow vendor recommendations",
+    "follow best practices",
+    "review your security posture",
+    "implement defense in depth",
+    "educate users",
+    # Educational / essay-style framing markers — operational briefs
+    # don't teach; they brief. If the model drops into textbook mode
+    # these phrases are the tell.
+    "let's break down",
+    "it is important to note",
+    "in conclusion",
+    "understanding this attack",
+    # Chatbot self-references.
     "as an ai",
     "i cannot",
     "i'm sorry",
@@ -81,6 +102,18 @@ _AI_CLICHES_UK = (
     "сучасний ландшафт загроз",
     "надійна позиція з безпеки",
     "комплексний підхід",
+    # Generic hygiene filler in UA.
+    "будьте пильними",
+    "дотримуйтеся кібергігієни",
+    "дотримуйтесь кібергігієни",
+    "навчайте користувачів",
+    "дотримуйтеся рекомендацій вендора",
+    "дотримуйтесь рекомендацій вендора",
+    # Educational / essay markers in UA.
+    "розглянемо, як працює",
+    "розглянемо як працює",
+    "важливо зазначити",
+    "на завершення",
     "як ші",
     "як штучний інтелект",
     "я не можу",

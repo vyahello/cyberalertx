@@ -29,7 +29,6 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..ai.detail_context import detail_context_for
 from ..ai.generator import ContentGenerator, build_default_generator
 from ..ai.models import ThreatPost
 from ..config import DATA_DIR, SETTINGS
@@ -281,9 +280,7 @@ class _PostService:
                 continue
             if primary_post is None:
                 primary_post = post
-            translations[lang] = _attach_detail_context(
-                _localized_content_dict(post), item.category, lang,
-            )
+            translations[lang] = _localized_content_dict(post)
 
         if primary_post is None:
             # Every render failed — surface a clear error rather than
@@ -385,21 +382,6 @@ def _compute_card_reading_time(content: dict[str, Any]) -> int:
     # Round to nearest 5s. Floor at 5s — anything below is just visually
     # dishonest (a card always takes at least a few seconds to register).
     return max(5, int(round(seconds / 5) * 5))
-
-
-def _attach_detail_context(
-    base: dict[str, Any], category: str, locale: str,
-) -> dict[str, Any]:
-    """Merge the per-category detail-page context paragraphs into `base`.
-
-    Returns the same dict; mutates in place. Sections absent for the
-    (category, locale) pair are simply omitted, so the frontend's
-    presence-checks naturally collapse the unused panels.
-    """
-    ctx = detail_context_for(category, locale)
-    if ctx:
-        base.update(ctx)
-    return base
 
 
 # ---------- app factory -------------------------------------------------
