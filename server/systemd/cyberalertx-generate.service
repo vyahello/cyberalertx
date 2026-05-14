@@ -1,0 +1,43 @@
+# /etc/systemd/system/cyberalertx-generate.service
+#
+# AI render — one-shot helper invoked by cyberalertx-generate.timer.
+#
+# Runs `generate --limit 2 --use-llm`. Idempotent: if the top-2 newest
+# items are already in the AI cache, this is a no-op (cache-hits skip,
+# zero API calls). Real cost is bounded by *new* items arriving since
+# the last fire — i.e., by the actual news-cycle volume, not by how
+# often the timer fires.
+#
+# Why a separate service from cyberalertx-run:
+#   * `run` is deterministic-only (no Anthropic ever). Keeping the AI
+#     fire path in its own unit preserves that "AI is opt-in" invariant
+#     at the systemd layer — easy to stop AI without stopping ingest.
+#   * Failures here (rate limit, key expired, network) don't ripple
+#     into the ingest service.
+#
+# Cost note: at 2 items × ~1.5 locales × ~$0.009/Haiku call, a fire
+# costs <$0.03 in the busy case. Test cadence (every 6h = 4 fires/day):
+# bounded by new-items-per-day × ~$0.013/item. Steady-state expectation
+# ~$1–3/month. Easy to scale up to limit=3 every 4h once we see real
+# numbers.
+
+[Unit]
+Description=CyberAlertX AI generate (one-shot, fired by timer)
+After=network.target cyberalertx-api.service
+Wants=cyberalertx-api.service
+
+[Service]
+Type=oneshot
+User=cax
+Group=cax
+WorkingDirectory=/home/cax/cax
+EnvironmentFile=/home/cax/cax/.env
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 2 --use-llm
+# A 10-min cap is generous — 2 items typically render in ~20-40s. Beyond
+# 10 min something's wrong (rate-limited, hung connection); the timer
+# will retry on the next fire anyway.
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+# No [Install] — this is started by the .timer unit, not on boot.

@@ -1,0 +1,27 @@
+# /etc/systemd/system/cyberalertx-generate.timer
+#
+# Fires cyberalertx-generate.service every 6 hours. Four runs per day at
+# 00:00, 06:00, 12:00, 18:00 UTC.
+#
+# Test cadence — lighter than the originally-planned every-4h. Easy to
+# tighten later by editing OnCalendar (e.g. 00,04,08,12,16,20:00:00 for
+# every 4h, or 00,02,...,22:00:00 for every 2h).
+#
+# Persistent=true: if the VPS was off when a scheduled fire was due,
+# systemd runs it as soon as the box is back up.
+#
+# RandomizedDelaySec=180: spread fires by up to 3 min so timers across
+# the fleet don't all hit Anthropic at the same wall-clock second.
+
+[Unit]
+Description=CyberAlertX AI generate timer (every 6h)
+Requires=cyberalertx-generate.service
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+RandomizedDelaySec=180
+Unit=cyberalertx-generate.service
+
+[Install]
+WantedBy=timers.target

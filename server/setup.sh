@@ -110,8 +110,11 @@ echo "     # rsync data/ from dev machine first if you want history"
 echo
 echo "  3. Install systemd units:"
 echo "     sudo cp ${APP_DIR}/server/systemd/*.service /etc/systemd/system/"
+echo "     sudo cp ${APP_DIR}/server/systemd/*.timer /etc/systemd/system/"
 echo "     sudo systemctl daemon-reload"
 echo "     sudo systemctl enable --now cyberalertx-api cyberalertx-run cyberalertx-frontend"
+echo "     # AI auto-render every 6h (2 newest uncached items per fire):"
+echo "     sudo systemctl enable --now cyberalertx-generate.timer"
 echo
 echo "  4. Install nginx config:"
 echo "     sudo cp ${APP_DIR}/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx"
