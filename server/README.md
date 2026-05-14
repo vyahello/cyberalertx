@@ -27,17 +27,27 @@ server/
 
 ---
 
-## Conventions used in these files
+## Placeholders used in this document
 
-| Setting | Default |
+Replace these with your own values when running the commands below.
+
+| Placeholder | Meaning | Example |
+|---|---|---|
+| `<user>` | Unix user that owns the app | `deploy`, `cyberalertx`, etc. |
+| `<app-dir>` | Working directory of the app | `/home/<user>/cyberalertx` |
+| `<your-domain>` | Production domain (DNS A record) | `example.com` |
+| `<vps-ip>` | Public IP of the VPS | `203.0.113.42` |
+| `<your-fork>` | GitHub org/user hosting your fork | `acme/cyberalertx` |
+| `<fingerprint>` | 16-hex `news_items.fingerprint` of a post | `a1b2c3d4e5f60718` |
+
+## Project defaults (don't change unless you're customising)
+
+| Setting | Value |
 |---|---|
-| App user | `cax` |
-| App dir | `/home/cax/cax` |
-| Python venv | `/home/cax/cax/venv` |
-| Frontend build | `/home/cax/cax/frontend/.next` |
+| Python venv | `<app-dir>/venv` |
+| Frontend build | `<app-dir>/frontend/.next` |
 | API port (internal) | `127.0.0.1:8000` |
 | Frontend port (internal) | `127.0.0.1:3000` |
-| Domain | `cyberalertx.com` |
 | SSL cert | `/etc/ssl/cyberalertx/origin.{crt,key}` (Cloudflare Origin) |
 | Store cap | 20 items (newest by `published_at`, auto-pruned) |
 | Feed display | 15 newest + 5 trending (by danger) |
@@ -52,7 +62,7 @@ copying to `/etc/`. Or set `APP_USER` / `APP_DIR` env vars when running
 ## What runs on the server
 
 Four long-lived services + one timer-driven oneshot. All under systemd,
-all logs to journald, all gated by the same `.env` at `/home/cax/cax/.env`.
+all logs to journald, all gated by the same `.env` at `<app-dir>/.env`.
 
 | Unit | Type | Cadence | What it does | Calls Anthropic? |
 |---|---|---|---|---|
@@ -62,7 +72,7 @@ all logs to journald, all gated by the same `.env` at `/home/cax/cax/.env`.
 | `cyberalertx-generate.service` | oneshot | fires from timer | Runs `generate --limit 2 --use-llm` — top-2 newest uncached items get an AI render. | **Yes** |
 | `cyberalertx-generate.timer` | timer | every 6h (00, 06, 12, 18 UTC) | Activates the generate one-shot. Persistent (catches up after reboots). | n/a |
 
-Memory budget (Hetzner CPX11, 2 GB):
+Memory budget on a small VPS (~2 GB RAM):
 
 | Service | Typical RSS |
 |---|---|
@@ -80,8 +90,8 @@ Watch with `systemd-cgtop` if you suspect drift.
 Run `setup.sh` AS ROOT on a fresh VPS:
 
 ```bash
-ssh root@<VPS_IP>
-curl -fsSL https://raw.githubusercontent.com/vyahello/cyberalertx/main/server/setup.sh -o /tmp/setup.sh
+ssh root@<vps-ip>
+curl -fsSL https://raw.githubusercontent.com/<your-fork>/cyberalertx/main/server/setup.sh -o /tmp/setup.sh
 bash /tmp/setup.sh
 ```
 
@@ -93,8 +103,8 @@ you finish manually:
 
 ```bash
 # Switch to app user
-su - cax
-cd cax
+su - <user>
+cd <app-dir>
 
 # 1. Create .env (manual paste from your dev .env)
 nano .env
@@ -104,21 +114,21 @@ chmod 600 .env
 python -m cyberalertx.tools.pg_migrate
 # Optional — sync historical data from dev machine
 # Run THIS from your dev machine, not the VPS:
-#   rsync -avz data/ cax@<VPS_IP>:/home/cax/cax/data/
+#   rsync -avz data/ <user>@<vps-ip>:<app-dir>/data/
 python -m cyberalertx.tools.import_to_postgres
 python -m cyberalertx.tools.import_ai_cache_to_postgres
 python -m cyberalertx.tools.compare_storage   # exit 0 = OK
 
 # 3. systemd units (services + timer)
-sudo cp /home/cax/cax/server/systemd/*.service /etc/systemd/system/
-sudo cp /home/cax/cax/server/systemd/*.timer /etc/systemd/system/
+sudo cp <app-dir>/server/systemd/*.service /etc/systemd/system/
+sudo cp <app-dir>/server/systemd/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now cyberalertx-api cyberalertx-run cyberalertx-frontend
 # AI auto-render every 6h:
 sudo systemctl enable --now cyberalertx-generate.timer
 
 # 4. nginx
-sudo cp /home/cax/cax/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx
+sudo cp <app-dir>/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx
 sudo ln -sf /etc/nginx/sites-available/cyberalertx /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
@@ -131,12 +141,12 @@ sudo chmod 600 /etc/ssl/cyberalertx/origin.key
 sudo systemctl reload nginx
 
 # 6. Daily backup cron
-sudo cp /home/cax/cax/server/backup.sh /usr/local/bin/cax-backup
-sudo chmod +x /usr/local/bin/cax-backup
-echo "0 3 * * * cax /usr/local/bin/cax-backup" | sudo tee /etc/cron.d/cax-backup
+sudo cp <app-dir>/server/backup.sh /usr/local/bin/<user>-backup
+sudo chmod +x /usr/local/bin/<user>-backup
+echo "0 3 * * * <user> /usr/local/bin/<user>-backup" | sudo tee /etc/cron.d/<user>-backup
 
 # Verify
-curl https://cyberalertx.com/healthz
+curl https://<your-domain>/healthz
 ```
 
 ---
@@ -146,8 +156,8 @@ curl https://cyberalertx.com/healthz
 After pushing code to git:
 
 ```bash
-ssh cax@cyberalertx.com
-cd ~/cax
+ssh <user>@<your-domain>
+cd <app-dir>
 ./server/deploy.sh
 ```
 
@@ -204,8 +214,8 @@ Tightening the cadence: edit `cyberalertx-generate.timer` →
 ### 2. Manual — ad-hoc render or batch refresh
 
 ```bash
-ssh cax@cyberalertx.com
-cd ~/cax && source venv/bin/activate
+ssh <user>@<your-domain>
+cd <app-dir> && source venv/bin/activate
 
 # Preview first — shows cost surface, no API calls
 python -m cyberalertx.main generate --limit 5 --use-llm --dry-run
@@ -223,20 +233,20 @@ Sometimes a non-security item slips through the relevance filter and
 shows up in the feed. Remove it from every store with one command:
 
 ```bash
-ssh cax@cyberalertx.com
-cd ~/cax && source venv/bin/activate
+ssh <user>@<your-domain>
+cd <app-dir> && source venv/bin/activate
 
 # By URL (paste from browser)
-python -m cyberalertx.tools.delete_post https://cyberalertx.com/ua/threat/97ef5824aababb5e
+python -m cyberalertx.tools.delete_post https://<your-domain>/ua/threat/<fingerprint>
 
 # By fingerprint (16 hex chars)
-python -m cyberalertx.tools.delete_post 97ef5824aababb5e
+python -m cyberalertx.tools.delete_post <fingerprint>
 
 # Multiple at once
-python -m cyberalertx.tools.delete_post 97ef5824aababb5e 1e80b9662a6d9493
+python -m cyberalertx.tools.delete_post <fingerprint> <fingerprint2>
 
 # Preview first (no writes)
-python -m cyberalertx.tools.delete_post --dry-run https://cyberalertx.com/ua/threat/97ef5824aababb5e
+python -m cyberalertx.tools.delete_post --dry-run https://<your-domain>/ua/threat/<fingerprint>
 ```
 
 The tool removes the fingerprint from `items.json`, `threat_posts.json`,
@@ -253,8 +263,8 @@ Use after a prompt change to force every visible item into the new
 style. Destructive — prunes store and wipes AI cache.
 
 ```bash
-ssh cax@cyberalertx.com
-cd ~/cax && source venv/bin/activate
+ssh <user>@<your-domain>
+cd <app-dir> && source venv/bin/activate
 
 # Dry-run — show what would change
 python -m server.scripts.refresh_feed --dry-run
@@ -314,7 +324,7 @@ sudo journalctl -u cyberalertx-api -n 100 --no-pager
 
 # Since a time
 sudo journalctl -u cyberalertx-run --since "1 hour ago"
-sudo journalctl -u cyberalertx-run --since "2026-05-13 09:00"
+sudo journalctl -u cyberalertx-run --since "YYYY-MM-DD HH:MM"
 
 # Errors only
 sudo journalctl -u cyberalertx-api -p err --no-pager
@@ -338,19 +348,19 @@ sudo tail -f /var/log/nginx/error.log
 # Internal (on VPS)
 curl http://127.0.0.1:8000/healthz                 # backend
 curl -I http://127.0.0.1:3000                      # frontend
-curl -k -H "Host: cyberalertx.com" https://127.0.0.1/healthz   # nginx routing
+curl -k -H "Host: <your-domain>" https://127.0.0.1/healthz   # nginx routing
 
 # External (from anywhere)
-curl https://cyberalertx.com/healthz
-curl -I https://cyberalertx.com/en
-curl https://cyberalertx.com/posts?language=en&limit=3
+curl https://<your-domain>/healthz
+curl -I https://<your-domain>/en
+curl https://<your-domain>/posts?language=en&limit=3
 
 # DNS sanity
-dig cyberalertx.com +short                          # should be Cloudflare IPs
-dig cyberalertx.com NS +short                       # should be *.ns.cloudflare.com
+dig <your-domain> +short                           # should be your CDN IPs
+dig <your-domain> NS +short                        # should match your DNS provider
 
 # JSON ↔ PG parity
-sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate && python -m cyberalertx.tools.compare_storage'
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.tools.compare_storage'
 ```
 
 ---
@@ -372,7 +382,7 @@ red line.
 ### 2. Store at the right size (20)
 
 ```bash
-curl -s https://cyberalertx.com/healthz | jq '{
+curl -s https://<your-domain>/healthz | jq '{
   stored_items,
   latest_published_at,
   latest_urgent_at,
@@ -420,13 +430,13 @@ limits via Anthropic console.
 ### 5. AI render success rate
 
 ```bash
-sudo -u cax jq '.counters | {
+sudo -u <user> jq '.counters | {
   attempted: .ai_renders_attempted,
   success: .ai_renders_success,
   fallback: .ai_fallback_count,
   validation_rejects: .ai_validation_rejects,
   provider_errors: .ai_provider_errors
-}' /home/cax/cax/data/quality_metrics.json
+}' <app-dir>/data/quality_metrics.json
 ```
 
 Healthy: `success / attempted` >= 0.7. Lower → look at
@@ -436,7 +446,7 @@ biting (russism, cliché, foreign script, title language).
 ### 6. Disk + memory headroom
 
 ```bash
-df -h /home/cax           # > 1 GB free
+df -h /home/<user>        # > 1 GB free
 free -h                   # > 100 MB available
 sudo systemd-cgtop -n 1 -m | head -8
 ```
@@ -447,7 +457,7 @@ cyberalertx-frontend` (cheap, no user impact past one ISR window).
 ### 7. JSON ↔ PG drift
 
 ```bash
-sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
   && python -m cyberalertx.tools.compare_storage'
 ```
 
@@ -459,8 +469,8 @@ Re-run; if persistent, see "PG threat-post set FAILED" recipe below.
 Open https://console.anthropic.com → Usage. Cross-check against:
 
 ```bash
-sudo -u cax jq '.counters.ai_renders_success' \
-  /home/cax/cax/data/quality_metrics.json
+sudo -u <user> jq '.counters.ai_renders_success' \
+  <app-dir>/data/quality_metrics.json
 ```
 
 × $0.009 ≈ ~ to-date spend on Haiku. Wildly different → check the
@@ -471,11 +481,12 @@ Sonnet/Opus by accident).
 
 ## Debug recipes
 
-### `/healthz` returns 404 with `dps_site_id` cookie
+### `/healthz` returns 404 with unexpected cookies
 
-Cloudflare DNS for `@` still points at GoDaddy parking IP (`13.x` /
-`76.x`). Fix in Cloudflare → DNS → Records → set A `@` → Hetzner VPS
-IP → Proxied. Delete the parking record.
+Your CDN's DNS for `@` still points at the registrar's parking IP
+(common ranges include `13.x` / `76.x` for some registrars). Fix in
+your DNS provider → Records → set A `@` → `<vps-ip>` → Proxied. Delete
+the parking record.
 
 ### `/posts` returns 200 but feed is empty
 
@@ -483,8 +494,8 @@ IP → Proxied. Delete the parking record.
 `cyberalertx-run` cycle, or rsync from dev machine:
 ```bash
 # From dev:
-rsync -avz data/ cax@cyberalertx.com:/home/cax/cax/data/
-ssh cax@cyberalertx.com 'sudo systemctl restart cyberalertx-api cyberalertx-frontend'
+rsync -avz data/ <user>@<your-domain>:<app-dir>/data/
+ssh <user>@<your-domain> 'sudo systemctl restart cyberalertx-api cyberalertx-frontend'
 ```
 
 ### Frontend says `failed: This operation was aborted`
@@ -510,10 +521,10 @@ Postgres unreachable. Network blip → JSON path stays authoritative,
 PG catches up next render. If persistent: check Supabase status,
 verify `CYBERALERTX_PG_URL` in `.env`, test:
 ```bash
-sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate && python -c "from cyberalertx.storage.pg.engine import get_engine; from sqlalchemy import text; print(get_engine().connect().execute(text(\"SELECT 1\")).scalar())"'
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate && python -c "from cyberalertx.storage.pg.engine import get_engine; from sqlalchemy import text; print(get_engine().connect().execute(text(\"SELECT 1\")).scalar())"'
 ```
 
-### RAM pressure on 2GB VPS
+### RAM pressure on a small VPS (~2GB)
 
 Check who's eating:
 ```bash
@@ -534,18 +545,18 @@ sudo swapon /swap
 echo '/swap none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-### Feed shows English title on `/ua/threat/{id}`
+### Feed shows English title on `/ua/threat/<fingerprint>`
 
 Stale cache entry from before the title-language validator was added.
 Delete it from PG, regenerate:
 ```bash
-sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate && python -c "
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate && python -c "
 from sqlalchemy import text
 from cyberalertx.storage.pg.engine import get_engine
 with get_engine().begin() as c:
-    c.execute(text(\"DELETE FROM threat_posts WHERE fingerprint=:fp AND locale=:loc\"), {\"fp\":\"<FINGERPRINT>\",\"loc\":\"ua\"})
+    c.execute(text(\"DELETE FROM threat_posts WHERE fingerprint=:fp AND locale=:loc\"), {\"fp\":\"<fingerprint>\",\"loc\":\"ua\"})
 "'
-rm /home/cax/cax/data/threat_posts.json   # forces full reload
+rm <app-dir>/data/threat_posts.json   # forces full reload
 python -m cyberalertx.main generate --limit 5 --use-llm
 ```
 
@@ -566,14 +577,14 @@ Likely causes:
 2. The `.service` unit has a syntax error — try a manual fire to see
    it: `sudo systemctl start cyberalertx-generate.service`; then
    `sudo systemctl status cyberalertx-generate.service`.
-3. Missing `ANTHROPIC_API_KEY` in `/home/cax/cax/.env`. Fix the env,
+3. Missing `ANTHROPIC_API_KEY` in `<app-dir>/.env`. Fix the env,
    then `sudo systemctl start cyberalertx-generate.service` to retry.
 
 ### Feed shows fewer than 15 items on /en or /ua
 
 Two common causes:
 1. The store has < 15 items renderable in that locale. Verify:
-   `curl -s https://cyberalertx.com/healthz | jq .stored_items` —
+   `curl -s https://<your-domain>/healthz | jq .stored_items` —
    should be 20. If it's lower, ingest hasn't caught up after a wipe;
    `sudo systemctl start cyberalertx-run` and wait 15 min.
 2. UA-side: AI translation hasn't been generated for new items yet,
@@ -589,15 +600,15 @@ the prune sort and the cap come from `cyberalertx/config.py` +
 
 ```bash
 # Verify the running config picked up max_items=20
-sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
   && python -c "from cyberalertx.config import SETTINGS; print(SETTINGS.max_items_retained)"'
 
 # If it prints 5000 — old code is loaded. git pull + restart:
-cd /home/cax/cax && git pull
+cd <app-dir> && git pull
 sudo systemctl restart cyberalertx-run cyberalertx-api
 
 # Force a prune right now:
-sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
   && python -m server.scripts.refresh_feed'
 ```
 
@@ -608,23 +619,23 @@ sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
 ### Automated (daily)
 
 `backup.sh` runs from cron (set up by `setup.sh`). Archives at
-`/home/cax/backups/data-YYYYMMDD-HHMMSS.tar.gz`. Keeps 14 days.
+`/home/<user>/backups/data-YYYYMMDD-HHMMSS.tar.gz`. Keeps 14 days.
 
 ### Manual snapshot
 
 ```bash
-sudo -u cax /usr/local/bin/cax-backup
-ls -la /home/cax/backups/
+sudo -u <user> /usr/local/bin/<user>-backup
+ls -la /home/<user>/backups/
 ```
 
 ### Restore from snapshot
 
 ```bash
-ssh cax@cyberalertx.com
+ssh <user>@<your-domain>
 sudo systemctl stop cyberalertx-api cyberalertx-frontend cyberalertx-run
-cd ~/cax
+cd <app-dir>
 mv data/ data.before-restore/
-tar xzf ~/backups/data-20260513-030000.tar.gz
+tar xzf ~/backups/data-YYYYMMDD-HHMMSS.tar.gz
 sudo systemctl start cyberalertx-api cyberalertx-frontend cyberalertx-run
 ```
 
@@ -637,15 +648,15 @@ Postgres data lives on Supabase — restore via their dashboard
 
 | Want to | Run on dev machine |
 |---|---|
-| Update prod after code change | `git push && ssh cax@cyberalertx.com 'cd ~/cax && ./server/deploy.sh'` |
-| Trigger AI render | `ssh cax@cyberalertx.com 'sudo systemctl start cyberalertx-generate.service'` |
-| Manual generate with custom limit | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m cyberalertx.main generate --limit 5 --use-llm'` |
-| Delete a post that slipped through | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
-| Editorial reset (after prompt change) | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m server.scripts.refresh_feed --regen'` |
-| Pull prod logs | `ssh cax@cyberalertx.com 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
-| Check AI timer next-fire | `ssh cax@cyberalertx.com 'systemctl list-timers --no-pager \| grep generate'` |
-| Pull prod data backup | `scp cax@cyberalertx.com:~/backups/data-*.tar.gz ~/Downloads/` |
-| Sync local → prod data | `rsync -avz data/ cax@cyberalertx.com:/home/cax/cax/data/` |
+| Update prod after code change | `git push && ssh <user>@<your-domain> 'cd <app-dir> && ./server/deploy.sh'` |
+| Trigger AI render | `ssh <user>@<your-domain> 'sudo systemctl start cyberalertx-generate.service'` |
+| Manual generate with custom limit | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.main generate --limit 5 --use-llm'` |
+| Delete a post that slipped through | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
+| Editorial reset (after prompt change) | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.scripts.refresh_feed --regen'` |
+| Pull prod logs | `ssh <user>@<your-domain> 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
+| Check AI timer next-fire | `ssh <user>@<your-domain> 'systemctl list-timers --no-pager \| grep generate'` |
+| Pull prod data backup | `scp <user>@<your-domain>:~/backups/data-*.tar.gz ~/Downloads/` |
+| Sync local → prod data | `rsync -avz data/ <user>@<your-domain>:<app-dir>/data/` |
 
 ---
 
@@ -658,7 +669,7 @@ Postgres data lives on Supabase — restore via their dashboard
 | Cloudflare Analytics | Traffic, cache hit rate | Built-in (free plan) |
 | `htop` / `journalctl` | Live VPS state | SSH session |
 
-Probe URL: `https://cyberalertx.com/healthz`. Expected: 200 + JSON
+Probe URL: `https://<your-domain>/healthz`. Expected: 200 + JSON
 body with `"ok": true`. Alert if 3 consecutive failures.
 
 ---
@@ -667,13 +678,13 @@ body with `"ok": true`. Alert if 3 consecutive failures.
 
 | Item | Cost / month |
 |---|---|
-| Hetzner CPX11 or CX22 | €4.50 (~$5) |
+| Small VPS (~2 GB RAM) | ~$5 |
 | Supabase free tier | $0 (500MB DB, 2GB transfer) |
 | Cloudflare free tier | $0 (unlimited bandwidth, basic DDoS) |
 | Cloudflare Worker (RSS proxy) | $0 (free tier covers ~50k req/day) |
 | Anthropic Haiku — auto-render every 6h (test cadence) | ~$1-3 (~5-15 new items/day × ~$0.013) |
 | Anthropic Haiku — every 4h `--limit 3` (production cadence) | ~$3-6 |
-| GoDaddy domain renewal | ~$15/year amortized to $1.25/mo |
+| Domain (varies by TLD/registrar) | ~$1-2 amortized |
 | **Total at test cadence** | **~$8-12/mo** |
 | **Total at production cadence** | **~$10-15/mo** |
 
@@ -681,6 +692,6 @@ Cost driver = **new items per day**, not timer frequency (cache hits
 skip). Lift the cap by going Sonnet 4.6 (~3× cost) or bumping
 `--limit`; both are env / unit-file edits.
 
-Scale up: bump VPS to CX32 (8GB RAM, €8/mo) only if Next.js OOMs or
-ingest interval drops below 5 min. Supabase Pro ($25/mo) only after
-~50k items in `news_items` (won't happen with the 20-cap).
+Scale up: bump to a larger VPS tier (8 GB RAM, ~$8/mo) only if Next.js
+OOMs or ingest interval drops below 5 min. Supabase Pro ($25/mo) only
+after ~50k items in `news_items` (won't happen with the 20-cap).
