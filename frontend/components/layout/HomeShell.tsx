@@ -112,17 +112,22 @@ export function HomeShell({ lang, initialPosts }: Props) {
                 {s.section_feed_caption}
               </p>
             </div>
-            <div className="text-xs text-text-tertiary tabular-nums">
-              <span className="text-text-primary font-medium">{filtered.length}</span>
-              {" / "}
-              {localePosts.length}
-              {activeCount > 0 && (
+            {/* Filter feedback: only when filters are actually applied.
+                Without filters, "15 / 15" is noise — the heading already
+                says "Latest" and the cards speak for themselves. With
+                filters, the X-of-Y ratio is the one signal the user
+                needs to know they've narrowed the set. */}
+            {activeCount > 0 && (
+              <div className="text-xs text-text-tertiary tabular-nums">
+                <span className="text-text-primary font-medium">{filtered.length}</span>
+                {" / "}
+                {localePosts.length}
                 <span className="ml-3 inline-flex items-center gap-1 text-accent">
                   <ListFilter className="w-3 h-3" />
                   {s.filters_active(activeCount)}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </header>
 
           {/* Quick-view presets — sit above the filter+feed grid so a

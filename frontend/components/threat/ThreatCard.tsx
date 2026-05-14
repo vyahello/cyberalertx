@@ -9,6 +9,7 @@ import { CategoryIconChip } from "./CategoryIconChip";
 import { CorroborationLine } from "./CorroborationLine";
 import { CredibilityBadge } from "./CredibilityBadge";
 import { QuickFacts } from "./QuickFacts";
+import { RelativeTime } from "./RelativeTime";
 import { SignalIndicators } from "./SignalIndicators";
 import { ThreatBadge } from "./ThreatBadge";
 
@@ -105,7 +106,7 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
           <div className="ml-auto flex items-center gap-3 text-xs text-text-tertiary">
             <span className="inline-flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              {s.card_published_relative(post.published_at)}
+              <RelativeTime iso={post.published_at} lang={lang} />
             </span>
             <span aria-label={s.card_reading_time(readingTime)}>
               {s.card_reading_time(readingTime)}

@@ -8,6 +8,7 @@ import { DetailBody } from "./DetailBody";
 import { FeedbackWidget } from "./FeedbackWidget";
 import { QuickFacts } from "./QuickFacts";
 import { References } from "./References";
+import { RelativeTime } from "./RelativeTime";
 import { ThreatBadge } from "./ThreatBadge";
 import { ThreatSnapshot } from "./ThreatSnapshot";
 import { strings } from "@/lib/i18n";
@@ -74,7 +75,7 @@ export function ThreatDetail({ post, lang }: Props) {
           <ActionabilityBadge level={post.actionability_level} lang={lang} />
           <span className="text-xs text-text-tertiary inline-flex items-center gap-1.5 ml-1">
             <Clock className="w-3 h-3" />
-            {s.card_published_relative(post.published_at)}
+            <RelativeTime iso={post.published_at} lang={lang} />
           </span>
           <span className="text-xs text-text-tertiary">
             {s.card_reading_time(c.reading_time_seconds)}

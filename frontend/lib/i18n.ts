@@ -152,10 +152,12 @@ function formatPublished(iso: string, lang: Locale): string {
   const then = new Date(iso);
   const now = new Date();
   const diffMs = Math.max(0, now.getTime() - then.getTime());
+  const diffMin = Math.floor(diffMs / 60_000);
   const diffHours = diffMs / 3600_000;
 
   if (lang === "ua") {
-    if (diffHours < 1) return "щойно";
+    if (diffMin < 1) return "щойно";
+    if (diffMin < 60) return `${diffMin} хв тому`;
     if (diffHours < 24) return `${Math.round(diffHours)} год тому`;
     if (diffHours < 48) return "вчора";
     return new Intl.DateTimeFormat("uk-UA", {
@@ -164,7 +166,8 @@ function formatPublished(iso: string, lang: Locale): string {
       year: "numeric",
     }).format(then);
   }
-  if (diffHours < 1) return "just now";
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
   if (diffHours < 24) return `${Math.round(diffHours)}h ago`;
   if (diffHours < 48) return "yesterday";
   return new Intl.DateTimeFormat("en-US", {
