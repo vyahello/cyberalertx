@@ -9,16 +9,20 @@ folder is the **quick-reference**: cmd → result, debug recipe → fix.
 
 ```
 server/
-├── README.md                       this file
+├── README.md                              this file
 ├── systemd/
-│   ├── cyberalertx-api.service     FastAPI on 127.0.0.1:8000
-│   ├── cyberalertx-run.service     APScheduler ingest every 15 min
-│   └── cyberalertx-frontend.service  Next.js on 127.0.0.1:3000
+│   ├── cyberalertx-api.service            FastAPI on 127.0.0.1:8000
+│   ├── cyberalertx-run.service            APScheduler ingest every 15 min
+│   ├── cyberalertx-frontend.service       Next.js on 127.0.0.1:3000
+│   ├── cyberalertx-generate.service       AI render one-shot (fires from timer)
+│   └── cyberalertx-generate.timer         Every 6h, runs the generate one-shot
 ├── nginx/
-│   └── cyberalertx.conf            reverse proxy + SSL
-├── setup.sh                        one-time VPS bootstrap (run as root)
-├── deploy.sh                       update workflow (run as app user)
-└── backup.sh                       daily data/ archive (run from cron)
+│   └── cyberalertx.conf                   reverse proxy + SSL
+├── scripts/
+│   └── refresh_feed.py                    editorial reset: prune store + regen AI
+├── setup.sh                               one-time VPS bootstrap (run as root)
+├── deploy.sh                              update workflow (run as app user)
+└── backup.sh                              daily data/ archive (run from cron)
 ```
 
 ---
@@ -35,10 +39,39 @@ server/
 | Frontend port (internal) | `127.0.0.1:3000` |
 | Domain | `cyberalertx.com` |
 | SSL cert | `/etc/ssl/cyberalertx/origin.{crt,key}` (Cloudflare Origin) |
+| Store cap | 20 items (newest by `published_at`, auto-pruned) |
+| Feed display | 15 newest + 5 trending (by danger) |
+| AI render cadence | every 6h via systemd timer (2 items per fire) |
 
 If you deploy under different paths, `sed` the relevant files before
 copying to `/etc/`. Or set `APP_USER` / `APP_DIR` env vars when running
 `setup.sh`.
+
+---
+
+## What runs on the server
+
+Four long-lived services + one timer-driven oneshot. All under systemd,
+all logs to journald, all gated by the same `.env` at `/home/cax/cax/.env`.
+
+| Unit | Type | Cadence | What it does | Calls Anthropic? |
+|---|---|---|---|---|
+| `cyberalertx-api` | simple | always-on | FastAPI on `127.0.0.1:8000`; reads JSON + PG, serves `/posts`, `/healthz`, etc. | No |
+| `cyberalertx-run` | simple | always-on | APScheduler in-process; runs ingest cycle every 15 min (RSS fetch → filter → rank → upsert). Auto-prunes store to 20 items on each upsert. | No |
+| `cyberalertx-frontend` | simple | always-on | Next.js production server on `127.0.0.1:3000`. SSR + ISR (60s window). | No |
+| `cyberalertx-generate.service` | oneshot | fires from timer | Runs `generate --limit 2 --use-llm` — top-2 newest uncached items get an AI render. | **Yes** |
+| `cyberalertx-generate.timer` | timer | every 6h (00, 06, 12, 18 UTC) | Activates the generate one-shot. Persistent (catches up after reboots). | n/a |
+
+Memory budget (Hetzner CPX11, 2 GB):
+
+| Service | Typical RSS |
+|---|---|
+| `cyberalertx-frontend` (Next.js) | ~250-450 MB |
+| `cyberalertx-api` (uvicorn) | ~60-120 MB |
+| `cyberalertx-run` | ~55-80 MB |
+| `cyberalertx-generate.service` (transient, only while rendering) | ~80 MB peak |
+
+Watch with `systemd-cgtop` if you suspect drift.
 
 ---
 
@@ -76,10 +109,13 @@ python -m cyberalertx.tools.import_to_postgres
 python -m cyberalertx.tools.import_ai_cache_to_postgres
 python -m cyberalertx.tools.compare_storage   # exit 0 = OK
 
-# 3. systemd units
+# 3. systemd units (services + timer)
 sudo cp /home/cax/cax/server/systemd/*.service /etc/systemd/system/
+sudo cp /home/cax/cax/server/systemd/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now cyberalertx-api cyberalertx-run cyberalertx-frontend
+# AI auto-render every 6h:
+sudo systemctl enable --now cyberalertx-generate.timer
 
 # 4. nginx
 sudo cp /home/cax/cax/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx
@@ -127,7 +163,45 @@ add `cyberalertx-run` to the restart list inside deploy.sh.)
 
 ---
 
-## AI render (paid — manual trigger only)
+## AI render — two paths
+
+The AI layer is gated by `--use-llm`. The API server and the ingest
+scheduler **never** call Anthropic. Only two paths trigger Anthropic:
+
+### 1. Automatic — `cyberalertx-generate.timer` (every 6h)
+
+Fires `generate --limit 2 --use-llm`. Idempotent: if the top-2 newest
+items are already cached, the fire is a no-op (cache hits skip, zero
+API calls). Real cost is bounded by NEW items arriving since the last
+fire — i.e., by news-cycle volume, not by timer frequency.
+
+Inspect the timer:
+
+```bash
+# Next + last fire
+sudo systemctl list-timers --no-pager | grep generate
+
+# Detailed status
+sudo systemctl status cyberalertx-generate.timer
+sudo systemctl status cyberalertx-generate.service
+
+# Trigger a fire manually (e.g., to test or pull a backlog)
+sudo systemctl start cyberalertx-generate.service
+
+# See what each fire did
+sudo journalctl -u cyberalertx-generate.service --since "24h ago"
+
+# Pause / resume the auto-render entirely
+sudo systemctl disable --now cyberalertx-generate.timer
+sudo systemctl enable --now  cyberalertx-generate.timer
+```
+
+Tightening the cadence: edit `cyberalertx-generate.timer` →
+`OnCalendar=*-*-* 00,04,08,12,16,20:00:00` for every 4h, or change
+`--limit 2` → `--limit 3` in `cyberalertx-generate.service`. Then
+`sudo systemctl daemon-reload && sudo systemctl restart cyberalertx-generate.timer`.
+
+### 2. Manual — ad-hoc render or batch refresh
 
 ```bash
 ssh cax@cyberalertx.com
@@ -140,14 +214,36 @@ python -m cyberalertx.main generate --limit 5 --use-llm --dry-run
 python -m cyberalertx.main generate --limit 5 --use-llm
 ```
 
-Typical cost at Haiku 4.5: ~$0.01-0.04 per post. `--limit 5` ≈ $0.05-0.20.
+Typical cost at Haiku 4.5: ~$0.008-0.015 per `(fingerprint, locale)`
+pair. `--limit 5` → ~7 API calls (5 items × ~1.5 locales) ≈ $0.05-0.10.
 
-`generate --use-llm` is the **only** path that calls Anthropic. The
-API server and the ingest scheduler never do.
+### Editorial reset — `refresh_feed.py`
+
+Use after a prompt change to force every visible item into the new
+style. Destructive — prunes store and wipes AI cache.
+
+```bash
+ssh cax@cyberalertx.com
+cd ~/cax && source venv/bin/activate
+
+# Dry-run — show what would change
+python -m server.scripts.refresh_feed --dry-run
+
+# Prune to 20 newest, wipe AI cache, regenerate via Anthropic
+python -m server.scripts.refresh_feed --regen
+
+# Just prune (no regen — let the timer rebuild gradually)
+python -m server.scripts.refresh_feed
+```
+
+Cost of `--regen` at default 20-cap: ~20 items × 1.5 locales × $0.009 ≈
+**~$0.30** on Haiku. Do this rarely — once per prompt iteration.
 
 ---
 
 ## Service control
+
+Long-lived services:
 
 | Action | Command |
 |---|---|
@@ -155,10 +251,21 @@ API server and the ingest scheduler never do.
 | Start | `sudo systemctl start cyberalertx-api` |
 | Stop | `sudo systemctl stop cyberalertx-api` |
 | Restart | `sudo systemctl restart cyberalertx-api` |
-| Reload (no downtime if supported) | `sudo systemctl reload cyberalertx-api` |
 | Enable at boot | `sudo systemctl enable cyberalertx-api` |
 | Disable at boot | `sudo systemctl disable cyberalertx-api` |
 | nginx reload | `sudo nginx -t && sudo systemctl reload nginx` |
+
+AI generate timer:
+
+| Action | Command |
+|---|---|
+| Show next fire | `systemctl list-timers --no-pager \| grep generate` |
+| Timer status | `systemctl status cyberalertx-generate.timer` |
+| Last fire result | `systemctl status cyberalertx-generate.service` |
+| Trigger fire now | `sudo systemctl start cyberalertx-generate.service` |
+| Pause auto-render | `sudo systemctl disable --now cyberalertx-generate.timer` |
+| Resume auto-render | `sudo systemctl enable --now cyberalertx-generate.timer` |
+| Adjust cadence | edit `/etc/systemd/system/cyberalertx-generate.timer` then `daemon-reload + restart cyberalertx-generate.timer` |
 
 ---
 
@@ -169,6 +276,7 @@ API server and the ingest scheduler never do.
 sudo journalctl -u cyberalertx-api -f
 sudo journalctl -u cyberalertx-run -f
 sudo journalctl -u cyberalertx-frontend -f
+sudo journalctl -u cyberalertx-generate.service -f    # AI render fires
 sudo journalctl -u nginx -f
 
 # Last N lines
@@ -180,6 +288,12 @@ sudo journalctl -u cyberalertx-run --since "2026-05-13 09:00"
 
 # Errors only
 sudo journalctl -u cyberalertx-api -p err --no-pager
+
+# Ingest cycles count (should be ~4/hour from cyberalertx-run)
+sudo journalctl -u cyberalertx-run --since "1 hour ago" | grep -c "cycle complete"
+
+# AI generate fires (should be 4/day from the timer)
+sudo journalctl -u cyberalertx-generate.service --since "24 hours ago" | grep "Started"
 
 # nginx access / error logs
 sudo tail -f /var/log/nginx/access.log
@@ -208,6 +322,120 @@ dig cyberalertx.com NS +short                       # should be *.ns.cloudflare.
 # JSON ↔ PG parity
 sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate && python -m cyberalertx.tools.compare_storage'
 ```
+
+---
+
+## What to watch (daily-ish checks)
+
+A 60-second sweep that catches most production issues:
+
+### 1. All four services active
+
+```bash
+systemctl is-active cyberalertx-api cyberalertx-run cyberalertx-frontend
+systemctl is-active cyberalertx-generate.timer
+```
+
+Expected: `active` × 4. Anything else → `systemctl status <unit>` for the
+red line.
+
+### 2. Store at the right size (20)
+
+```bash
+curl -s https://cyberalertx.com/healthz | jq '{
+  stored_items,
+  latest_published_at,
+  latest_urgent_at,
+  minutes_since_last_urgent
+}'
+```
+
+Expected: `stored_items == 20` (the configured cap). If `>20`, the new
+config (`max_items_retained=20`) hasn't taken effect — `git pull` +
+`sudo systemctl restart cyberalertx-run`, or the cap env var on `.env`
+overrides it.
+
+`latest_published_at` < 4h old in a normal news cycle. > 12h means RSS
+sources are quiet OR the ingest service is stuck — drill into
+`cyberalertx-run` logs.
+
+### 3. Ingest is actually cycling
+
+```bash
+sudo journalctl -u cyberalertx-run --since "1 hour ago" \
+  | grep -c "cycle complete"
+```
+
+Expected: 3-4 (one every ~15 min). If `0` → APScheduler is dead
+(the `next_run_time=None` bug class). Restart it:
+`sudo systemctl restart cyberalertx-run`.
+
+### 4. AI auto-render is firing on schedule
+
+```bash
+sudo systemctl list-timers --no-pager | grep generate
+# Shows NEXT and LAST. LAST should be within the last 6h.
+
+sudo journalctl -u cyberalertx-generate.service --since "24h ago" \
+  | grep -E "Started|generated_by"
+```
+
+Expected: 3-4 entries per day (every 6h cadence). Each entry should
+end with `generated_by: anthropic:claude-haiku-...=N` for N>=0.
+
+If `N=0` consistently — cache is already warm (fine). If timer log
+has `failed` / `timeout` → check `.env` ANTHROPIC_API_KEY and rate
+limits via Anthropic console.
+
+### 5. AI render success rate
+
+```bash
+sudo -u cax jq '.counters | {
+  attempted: .ai_renders_attempted,
+  success: .ai_renders_success,
+  fallback: .ai_fallback_count,
+  validation_rejects: .ai_validation_rejects,
+  provider_errors: .ai_provider_errors
+}' /home/cax/cax/data/quality_metrics.json
+```
+
+Healthy: `success / attempted` >= 0.7. Lower → look at
+`.top_failure_messages` in the same file to see which validator is
+biting (russism, cliché, foreign script, title language).
+
+### 6. Disk + memory headroom
+
+```bash
+df -h /home/cax           # > 1 GB free
+free -h                   # > 100 MB available
+sudo systemd-cgtop -n 1 -m | head -8
+```
+
+Frontend Next.js drifting > 600 MB → `sudo systemctl restart
+cyberalertx-frontend` (cheap, no user impact past one ISR window).
+
+### 7. JSON ↔ PG drift
+
+```bash
+sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
+  && python -m cyberalertx.tools.compare_storage'
+```
+
+Exit code 0 = synced. Non-zero = a dual-write missed (network blip).
+Re-run; if persistent, see "PG threat-post set FAILED" recipe below.
+
+### 8. Cost so far (Anthropic)
+
+Open https://console.anthropic.com → Usage. Cross-check against:
+
+```bash
+sudo -u cax jq '.counters.ai_renders_success' \
+  /home/cax/cax/data/quality_metrics.json
+```
+
+× $0.009 ≈ ~ to-date spend on Haiku. Wildly different → check the
+console for model fallthrough (someone set `CYBERALERTX_AI_MODEL` to
+Sonnet/Opus by accident).
 
 ---
 
@@ -296,6 +524,53 @@ python -m cyberalertx.main generate --limit 5 --use-llm
 Purge in Dashboard → Caching → Configuration → Purge Everything.
 Or single URL: Purge Files → enter URL.
 
+### AI generate timer doesn't fire
+
+Symptom: `list-timers` shows the timer but `LAST` is hours-old or
+`n/a`; `journalctl -u cyberalertx-generate.service` is empty.
+
+Likely causes:
+1. Timer is disabled — `sudo systemctl status cyberalertx-generate.timer`
+   should say `Active: active (waiting)`. If `inactive` →
+   `sudo systemctl enable --now cyberalertx-generate.timer`.
+2. The `.service` unit has a syntax error — try a manual fire to see
+   it: `sudo systemctl start cyberalertx-generate.service`; then
+   `sudo systemctl status cyberalertx-generate.service`.
+3. Missing `ANTHROPIC_API_KEY` in `/home/cax/cax/.env`. Fix the env,
+   then `sudo systemctl start cyberalertx-generate.service` to retry.
+
+### Feed shows fewer than 15 items on /en or /ua
+
+Two common causes:
+1. The store has < 15 items renderable in that locale. Verify:
+   `curl -s https://cyberalertx.com/healthz | jq .stored_items` —
+   should be 20. If it's lower, ingest hasn't caught up after a wipe;
+   `sudo systemctl start cyberalertx-run` and wait 15 min.
+2. UA-side: AI translation hasn't been generated for new items yet,
+   and the half-translation gate hides them. Either wait for the next
+   `cyberalertx-generate.timer` fire (≤ 6h), or trigger manually:
+   `sudo systemctl start cyberalertx-generate.service`.
+
+### Store grew above 20 items
+
+The auto-prune in `JsonNewsStore._flush()` runs on each upsert, but
+the prune sort and the cap come from `cyberalertx/config.py` +
+`CYBERALERTX_MAX_ITEMS` env. If `stored_items > 20`:
+
+```bash
+# Verify the running config picked up max_items=20
+sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
+  && python -c "from cyberalertx.config import SETTINGS; print(SETTINGS.max_items_retained)"'
+
+# If it prints 5000 — old code is loaded. git pull + restart:
+cd /home/cax/cax && git pull
+sudo systemctl restart cyberalertx-run cyberalertx-api
+
+# Force a prune right now:
+sudo -u cax bash -c 'cd /home/cax/cax && source venv/bin/activate \
+  && python -m server.scripts.refresh_feed'
+```
+
 ---
 
 ## Backup / restore
@@ -333,8 +608,11 @@ Postgres data lives on Supabase — restore via their dashboard
 | Want to | Run on dev machine |
 |---|---|
 | Update prod after code change | `git push && ssh cax@cyberalertx.com 'cd ~/cax && ./server/deploy.sh'` |
-| Trigger AI render | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m cyberalertx.main generate --limit 5 --use-llm'` |
+| Trigger AI render | `ssh cax@cyberalertx.com 'sudo systemctl start cyberalertx-generate.service'` |
+| Manual generate with custom limit | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m cyberalertx.main generate --limit 5 --use-llm'` |
+| Editorial reset (after prompt change) | `ssh cax@cyberalertx.com 'cd ~/cax && source venv/bin/activate && python -m server.scripts.refresh_feed --regen'` |
 | Pull prod logs | `ssh cax@cyberalertx.com 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
+| Check AI timer next-fire | `ssh cax@cyberalertx.com 'systemctl list-timers --no-pager \| grep generate'` |
 | Pull prod data backup | `scp cax@cyberalertx.com:~/backups/data-*.tar.gz ~/Downloads/` |
 | Sync local → prod data | `rsync -avz data/ cax@cyberalertx.com:/home/cax/cax/data/` |
 
@@ -361,10 +639,17 @@ body with `"ok": true`. Alert if 3 consecutive failures.
 | Hetzner CPX11 or CX22 | €4.50 (~$5) |
 | Supabase free tier | $0 (500MB DB, 2GB transfer) |
 | Cloudflare free tier | $0 (unlimited bandwidth, basic DDoS) |
-| Anthropic Haiku — manual generate | ~$3-15 (10-50 posts/day) |
+| Cloudflare Worker (RSS proxy) | $0 (free tier covers ~50k req/day) |
+| Anthropic Haiku — auto-render every 6h (test cadence) | ~$1-3 (~5-15 new items/day × ~$0.013) |
+| Anthropic Haiku — every 4h `--limit 3` (production cadence) | ~$3-6 |
 | GoDaddy domain renewal | ~$15/year amortized to $1.25/mo |
-| **Total** | **~$10-25/mo** |
+| **Total at test cadence** | **~$8-12/mo** |
+| **Total at production cadence** | **~$10-15/mo** |
+
+Cost driver = **new items per day**, not timer frequency (cache hits
+skip). Lift the cap by going Sonnet 4.6 (~3× cost) or bumping
+`--limit`; both are env / unit-file edits.
 
 Scale up: bump VPS to CX32 (8GB RAM, €8/mo) only if Next.js OOMs or
 ingest interval drops below 5 min. Supabase Pro ($25/mo) only after
-~50k items in `news_items`.
+~50k items in `news_items` (won't happen with the 20-cap).
