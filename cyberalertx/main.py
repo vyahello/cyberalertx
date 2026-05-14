@@ -74,17 +74,22 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     scheduler = BlockingScheduler(timezone="UTC")
+    # Kick one cycle immediately so the first run doesn't wait `interval` min.
+    # Done BEFORE add_job so its log line appears before "scheduler started".
+    pipeline.run_once()
+    # NB: do NOT pass `next_run_time=None` — that tells APScheduler "never
+    # fire this job," which is exactly the bug we hit (job sat dormant for
+    # 10h while only the explicit kick above had ever run). Letting the
+    # parameter default to undefined makes APScheduler compute the next
+    # fire time as `now + interval`, which is what we actually want.
     scheduler.add_job(
         pipeline.run_once,
         "interval",
         minutes=interval,
-        next_run_time=None,
         id="cyberalertx-cycle",
         max_instances=1,
         coalesce=True,
     )
-    # Kick one cycle immediately so the first run doesn't wait `interval` min.
-    pipeline.run_once()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: scheduler.shutdown(wait=False))
