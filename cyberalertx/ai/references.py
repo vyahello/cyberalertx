@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from typing import Iterable
+from urllib.parse import urlparse
 
 from .models import Reference
 
@@ -118,4 +119,30 @@ def merge_references(*sources: Iterable[Reference]) -> list[Reference]:
     return out
 
 
-__all__ = ["extract_references", "merge_references"]
+def _normalized_host(url: str) -> str:
+    """Lowercase host without a leading `www.`. Empty string on parse error."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except (ValueError, AttributeError):
+        return ""
+    return host.removeprefix("www.")
+
+
+def drop_source_host_refs(refs: Iterable[Reference], source_url: str) -> list[Reference]:
+    """Filter out references whose host matches the source article's host.
+
+    The post already exposes `source_url` via the "Read on source" link, so
+    a reference back to the same site is pure noise — either a model
+    hallucination (e.g. `news`-type ref pointing at the source homepage) or
+    a redundant deterministic match (CISA ID extracted from a CISA-sourced
+    article). Cross-site references (different host) are kept as-is.
+
+    No-op when `source_url` is empty/unparseable.
+    """
+    source_host = _normalized_host(source_url)
+    if not source_host:
+        return list(refs)
+    return [r for r in refs if _normalized_host(r.url) != source_host]
+
+
+__all__ = ["extract_references", "merge_references", "drop_source_host_refs"]

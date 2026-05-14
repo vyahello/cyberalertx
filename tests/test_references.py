@@ -4,7 +4,11 @@ from __future__ import annotations
 import pytest
 
 from cyberalertx.ai.models import Reference
-from cyberalertx.ai.references import extract_references, merge_references
+from cyberalertx.ai.references import (
+    drop_source_host_refs,
+    extract_references,
+    merge_references,
+)
 
 
 def test_extracts_cve_with_nvd_link():
@@ -66,3 +70,37 @@ def test_case_insensitive_cve_match():
     """CVE IDs in article bodies sometimes leak through as `cve-...`."""
     refs = extract_references("Patched flaw: cve-2026-5555 disclosed today.")
     assert any(r.label == "CVE-2026-5555" for r in refs)
+
+
+def test_drop_same_host_ref():
+    """The exact regression: AI emits a `news` ref pointing at the source's
+    own root (`bleepingcomputer.com`); "Read on source" already covers it."""
+    src = "https://www.bleepingcomputer.com/news/security/some-article/"
+    refs = [
+        Reference(type="news", label="BleepingComputer: ...", url="https://www.bleepingcomputer.com"),
+        Reference(type="cve", label="CVE-2026-1234", url="https://nvd.nist.gov/x"),
+    ]
+    kept = drop_source_host_refs(refs, src)
+    assert len(kept) == 1
+    assert kept[0].type == "cve"
+
+
+def test_drop_same_host_normalizes_www_prefix():
+    """`www.example.com` and `example.com` are the same host for dedup."""
+    src = "https://example.com/article"
+    refs = [Reference(type="news", label="x", url="https://www.example.com/other")]
+    assert drop_source_host_refs(refs, src) == []
+
+
+def test_drop_same_host_keeps_cross_site_refs():
+    """A CISA advisory linked from a Krebs article is legit — different host."""
+    src = "https://krebsonsecurity.com/2026/05/post/"
+    refs = [Reference(type="advisory", label="CISA AA26-001A", url="https://www.cisa.gov/x")]
+    kept = drop_source_host_refs(refs, src)
+    assert len(kept) == 1
+
+
+def test_drop_same_host_empty_source_is_noop():
+    refs = [Reference(type="cve", label="CVE-2026-1", url="https://nvd.nist.gov/x")]
+    assert drop_source_host_refs(refs, "") == refs
+    assert drop_source_host_refs(refs, "not a url") == refs

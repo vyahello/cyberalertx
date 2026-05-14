@@ -213,17 +213,27 @@ class ContentGenerator:
         # Clamp / normalize a few fields. Pydantic gave us types; we enforce
         # the public-contract bounds the LLM might violate.
         from .models import Reference
-        from .references import extract_references, merge_references
+        from .references import (
+            drop_source_host_refs,
+            extract_references,
+            merge_references,
+        )
 
         # Combine deterministic + AI-provided references. Deterministic
         # first so its (verifiable) entries take precedence on dup.
+        # Then drop anything pointing back at the source's own host — the
+        # post already exposes that as "Read on source", so a same-host
+        # reference (model hallucination or CISA-on-CISA dup) is noise.
         deterministic_refs = extract_references(item.raw_content or "")
         ai_refs = [
             Reference(type=r.type, label=r.label.strip(), url=r.url.strip())
             for r in (response.references or [])
             if r.label.strip() and r.url.strip()
         ]
-        refs = merge_references(deterministic_refs, ai_refs)
+        refs = drop_source_host_refs(
+            merge_references(deterministic_refs, ai_refs),
+            item.url,
+        )
 
         # Hard caps enforced silently (the prompt asks for these; the caps
         # are a safety net for occasional model over-production). Operational
