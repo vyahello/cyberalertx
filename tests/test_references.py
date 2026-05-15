@@ -6,6 +6,7 @@ import pytest
 from cyberalertx.ai.models import Reference
 from cyberalertx.ai.references import (
     drop_source_host_refs,
+    drop_unverified_id_refs,
     extract_references,
     merge_references,
 )
@@ -104,3 +105,105 @@ def test_drop_same_host_empty_source_is_noop():
     refs = [Reference(type="cve", label="CVE-2026-1", url="https://nvd.nist.gov/x")]
     assert drop_source_host_refs(refs, "") == refs
     assert drop_source_host_refs(refs, "not a url") == refs
+
+
+def test_drop_unverified_cisco_advisory_root():
+    """The exact regression: label promises 'Cisco Security Advisory
+    CVE-2026-20182' but the URL is the advisories index root — clicking it
+    lands on a useless landing page."""
+    refs = [
+        Reference(
+            type="vendor",
+            label="Cisco Security Advisory CVE-2026-20182",
+            url="https://tools.cisco.com/security/center/content/CiscoSecurityAdvisory",
+        ),
+    ]
+    assert drop_unverified_id_refs(refs) == []
+
+
+def test_drop_unverified_cisa_kev_landing():
+    """The KEV catalog landing has no per-CVE deep link, so a label that
+    names a specific CVE pointing at the catalog root is dead weight."""
+    refs = [
+        Reference(
+            type="advisory",
+            label="CISA KEV Catalog - CVE-2026-20182",
+            url="https://www.cisa.gov/known-exploited-vulnerabilities",
+        ),
+    ]
+    assert drop_unverified_id_refs(refs) == []
+
+
+def test_keep_cve_ref_with_id_in_url():
+    refs = [
+        Reference(
+            type="cve",
+            label="CVE-2026-20182",
+            url="https://nvd.nist.gov/vuln/detail/CVE-2026-20182",
+        ),
+    ]
+    assert drop_unverified_id_refs(refs) == refs
+
+
+def test_keep_cert_ua_ref_with_numeric_tail_in_url():
+    """CERT-UA's URL convention is /article/NNNN — the '#' prefix from the
+    label is intentionally absent from the URL. Must not be dropped."""
+    refs = [
+        Reference(
+            type="cert",
+            label="CERT-UA#18329",
+            url="https://cert.gov.ua/article/18329",
+        ),
+    ]
+    assert drop_unverified_id_refs(refs) == refs
+
+
+def test_keep_cisa_advisory_with_aa_tag_in_url():
+    """`AA26-001A` ↔ URL `/aa26-001a` — case-insensitive substring match."""
+    refs = [
+        Reference(
+            type="advisory",
+            label="CISA AA26-001A",
+            url="https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-001a",
+        ),
+    ]
+    assert drop_unverified_id_refs(refs) == refs
+
+
+def test_keep_freeform_label_with_no_known_id():
+    """A news-type ref with no recognized ID in its label is passed through
+    (we can't verify deep-linking against a non-spec'd URL shape)."""
+    refs = [
+        Reference(
+            type="news",
+            label="Talos Intelligence post-mortem",
+            url="https://blog.talosintelligence.com/2026/05/sd-wan-exploit",
+        ),
+    ]
+    assert drop_unverified_id_refs(refs) == refs
+
+
+def test_drop_unverified_keeps_other_refs_in_list():
+    """Mixed list: verified CVE survives, bogus Cisco-root is dropped."""
+    good = Reference(
+        type="cve",
+        label="CVE-2026-20182",
+        url="https://nvd.nist.gov/vuln/detail/CVE-2026-20182",
+    )
+    bad = Reference(
+        type="vendor",
+        label="Cisco Security Advisory CVE-2026-20182",
+        url="https://tools.cisco.com/security/center/content/CiscoSecurityAdvisory",
+    )
+    assert drop_unverified_id_refs([good, bad]) == [good]
+
+
+def test_drop_unverified_requires_all_named_ids_in_url():
+    """If the label names two CVEs but the URL only links to one, the ref
+    is honest-but-incomplete — drop to avoid misleading the reader."""
+    ref = Reference(
+        type="cve",
+        label="CVE-2026-1234 and CVE-2026-5678",
+        url="https://nvd.nist.gov/vuln/detail/CVE-2026-1234",
+    )
+    assert drop_unverified_id_refs([ref]) == []

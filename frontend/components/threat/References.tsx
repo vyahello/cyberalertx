@@ -50,11 +50,11 @@ export function References({ refs, lang, className }: Props) {
       >
         {s.references_heading}
       </h3>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul className="flex flex-wrap gap-2">
         {refs.map((ref, i) => {
           const Icon = TYPE_ICONS[ref.type] ?? Newspaper;
           return (
-            <li key={`${ref.type}:${ref.label}:${i}`}>
+            <li key={`${ref.type}:${ref.label}:${i}`} className="min-w-0">
               <a
                 href={ref.url}
                 target="_blank"

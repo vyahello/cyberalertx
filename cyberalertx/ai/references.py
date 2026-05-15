@@ -145,4 +145,62 @@ def drop_source_host_refs(refs: Iterable[Reference], source_url: str) -> list[Re
     return [r for r in refs if _normalized_host(r.url) != source_host]
 
 
-__all__ = ["extract_references", "merge_references", "drop_source_host_refs"]
+# IDs we expect a URL to deep-link to when the label names one of them.
+# Same shapes as the deterministic extractor above — kept in sync on purpose.
+_KNOWN_ID_RE = re.compile(
+    r"\b(?:CVE-\d{4}-\d{4,7}|ADV\d{6}|AA\d{2}-\d{2,3}[A-Za-z]?|CERT-UA#\d+|KB\d{6,})\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _id_url_signature(identifier: str) -> str:
+    """The substring of `identifier` we expect to appear in a URL that
+    actually points at this specific advisory.
+
+    Different ID families follow different URL conventions:
+      * CVE / ADV / AA / KB → URL preserves the full ID literally
+        (e.g. `/CVE-2026-1234`, `/aa26-001a`, `/ADV230001`).
+      * CERT-UA#NNNN → URL keeps only the numeric tail
+        (e.g. `cert.gov.ua/article/18329`).
+    """
+    if identifier.upper().startswith("CERT-UA#"):
+        return identifier.split("#", 1)[1]
+    return identifier
+
+
+def drop_unverified_id_refs(refs: Iterable[Reference]) -> list[Reference]:
+    """Drop references whose label names a specific advisory ID but whose
+    URL doesn't actually link to that ID.
+
+    The model occasionally emits a reference like
+    `"Cisco Security Advisory CVE-2026-20182"` pointing at the vendor's
+    advisories index (`tools.cisco.com/.../CiscoSecurityAdvisory`) or
+    `"CISA KEV Catalog - CVE-2026-20182"` pointing at the KEV landing page
+    — labels promise a specific advisory but the URL is a generic root.
+    These links are dead-ends for the reader. Drop them.
+
+    Heuristic: if every known-ID token in the label has its URL signature
+    present in `url` (case-insensitive), keep. Otherwise the link doesn't
+    deliver on what the label promises — drop.
+
+    Refs whose label contains no recognized ID (free-form news/vendor blog
+    titles) are passed through unchanged.
+    """
+    out: list[Reference] = []
+    for r in refs:
+        ids = _KNOWN_ID_RE.findall(r.label or "")
+        if not ids:
+            out.append(r)
+            continue
+        url_upper = (r.url or "").upper()
+        if all(_id_url_signature(i).upper() in url_upper for i in ids):
+            out.append(r)
+    return out
+
+
+__all__ = [
+    "extract_references",
+    "merge_references",
+    "drop_source_host_refs",
+    "drop_unverified_id_refs",
+]

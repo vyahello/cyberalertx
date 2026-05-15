@@ -215,6 +215,7 @@ class ContentGenerator:
         from .models import Reference
         from .references import (
             drop_source_host_refs,
+            drop_unverified_id_refs,
             extract_references,
             merge_references,
         )
@@ -224,15 +225,20 @@ class ContentGenerator:
         # Then drop anything pointing back at the source's own host — the
         # post already exposes that as "Read on source", so a same-host
         # reference (model hallucination or CISA-on-CISA dup) is noise.
+        # Finally drop refs whose label promises a specific advisory ID
+        # the URL doesn't actually link to (e.g. "Cisco Security Advisory
+        # CVE-2026-20182" → /CiscoSecurityAdvisory root).
         deterministic_refs = extract_references(item.raw_content or "")
         ai_refs = [
             Reference(type=r.type, label=r.label.strip(), url=r.url.strip())
             for r in (response.references or [])
             if r.label.strip() and r.url.strip()
         ]
-        refs = drop_source_host_refs(
-            merge_references(deterministic_refs, ai_refs),
-            item.url,
+        refs = drop_unverified_id_refs(
+            drop_source_host_refs(
+                merge_references(deterministic_refs, ai_refs),
+                item.url,
+            )
         )
 
         # Hard caps enforced silently (the prompt asks for these; the caps
