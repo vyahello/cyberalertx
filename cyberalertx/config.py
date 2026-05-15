@@ -61,11 +61,19 @@ class Settings:
         "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
     )
     storage_path: Path = DATA_DIR / "items.json"
-    # Storage cap. Auto-prunes oldest items beyond this count on each ingest.
-    # 20 is the current product cap: feed shows 15 newest, trending highlights
-    # 5 by danger from the same pool. Bump via CYBERALERTX_MAX_ITEMS if you
-    # need a larger archive.
-    max_items_retained: int = int(os.getenv("CYBERALERTX_MAX_ITEMS", "20"))
+    # Raw NewsItem retention cap. Auto-prunes oldest items beyond this count
+    # on each ingest. The HOMEPAGE feed cap (20 visible posts) is a separate
+    # concern, enforced at the API layer (`limit=` on /posts) — this number
+    # is the underlying ARCHIVE that the feed draws from.
+    #
+    # Why 200 and not 20: the generate timer mints only 2 AI renders / 6h
+    # (--limit 2, cost control). Raw items arrive much faster (~50+/day
+    # across all sources). If the raw store capped at 20, fresh ingests
+    # would push older items out — including the ones with cached AI
+    # renders, leaving the public feed half-empty until the timer caught
+    # up. 200 keeps roughly 2 weeks of headroom so already-rendered posts
+    # stay queryable until newer rendered posts replace them at the feed.
+    max_items_retained: int = int(os.getenv("CYBERALERTX_MAX_ITEMS", "200"))
     recency_half_life_hours: float = float(os.getenv("CYBERALERTX_HALF_LIFE_H", "12"))
     sources: List[SourceConfig] = field(default_factory=lambda: [
         # --- English (primary intelligence) ---

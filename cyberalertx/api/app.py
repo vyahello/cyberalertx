@@ -471,6 +471,7 @@ def build_app(
         items: list[NewsItem], *,
         cached_only: bool = False,
         language: str | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """Render a batch.
 
@@ -483,9 +484,17 @@ def build_app(
             items missing in ANY required locale.
         `/posts/{id}` skips cached_only because that's an explicit
         navigation — the user wants content even if rule_based fallback.
+
+        `limit` early-stops the loop once enough renders are collected.
+        Critical for the feed path: callers pass the full filtered store
+        (not a pre-sliced top-N) so a freshly-ingested but not-yet-rendered
+        item doesn't burn the slot that an older-but-AI-rendered item
+        could have filled.
         """
         rendered: list[dict[str, Any]] = []
         for item in items:
+            if limit is not None and len(rendered) >= limit:
+                break
             try:
                 if cached_only:
                     payload = svc.render_if_cached(item, required_locale=language)
@@ -561,8 +570,16 @@ def build_app(
         # users expect "newest at the top" and any reorder for variety
         # breaks that mental model.
         items.sort(key=lambda i: i.published_at, reverse=True)
+        # Walk the full filtered store, collecting up to `limit` items that
+        # actually satisfy `cached_only` for the requested locale. NOT a
+        # `items[:limit]` slice — that would let a freshly-ingested item
+        # that hasn't been generated yet eat a slot reserved for an older
+        # post the reader can actually read. The generate timer renders
+        # only 2 items per 6h fire (cost control), so raw-store churn
+        # outpaces rendering; this iteration is what keeps the public feed
+        # from going half-empty between fires.
         rendered = _render_many(
-            items[:limit], cached_only=cached_only, language=language,
+            items, cached_only=cached_only, language=language, limit=limit,
         )
         # Post-render filter: when `?language=X` is set, drop items that
         # ended up without a rendered translation in X. This catches the

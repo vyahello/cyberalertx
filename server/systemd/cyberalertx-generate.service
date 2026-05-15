@@ -2,12 +2,16 @@
 #
 # AI render — one-shot helper invoked by cyberalertx-generate.timer.
 #
-# Runs `generate --limit 20 --use-llm`. Idempotent: cache-hits skip with
-# zero API calls, so the limit is an *upper bound on new renders per
-# fire*, not a fixed batch size. With store_cap=20 (cyberalertx/config.py:
-# Settings.max_items_retained), matching the limit to the cap guarantees
-# the entire store is AI-rendered — the homepage feed never has gaps
-# because some stored items lack a render.
+# Runs `generate --limit 2 --use-llm`. Idempotent: if the top-2 newest
+# items are already in the AI cache, this is a no-op (cache-hits skip,
+# zero API calls). Real cost is bounded by *new* items arriving since
+# the last fire — i.e., by the actual news-cycle volume, not by how
+# often the timer fires.
+#
+# The homepage feed cap (20 visible posts) is enforced at the API/feed
+# layer, NOT here — old already-rendered posts accumulate in the cache
+# and remain on the feed as new ones arrive. This service only mints
+# 2 new renders per fire to keep API cost low.
 #
 # Why a separate service from cyberalertx-run:
 #   * `run` is deterministic-only (no Anthropic ever). Keeping the AI
@@ -16,11 +20,11 @@
 #   * Failures here (rate limit, key expired, network) don't ripple
 #     into the ingest service.
 #
-# Cost note: per item ≈ 1.5 locales × ~$0.009/Haiku call ≈ $0.013. A
-# fire's real cost = (new items since last fire) × $0.013, NOT 20×$0.013
-# (cache-hits are free). Typical fire on a quiet news day: 0-3 new items
-# → <$0.05. Worst case (store rotates fully in 6h, unlikely): ~$0.27.
-# Steady-state expectation ~$2–5/month at 4 fires/day.
+# Cost note: at 2 items × ~1.5 locales × ~$0.009/Haiku call, a fire
+# costs <$0.03 in the busy case. Test cadence (every 6h = 4 fires/day):
+# bounded by new-items-per-day × ~$0.013/item. Steady-state expectation
+# ~$1–3/month. Easy to scale up to limit=3 every 4h once we see real
+# numbers.
 
 [Unit]
 Description=CyberAlertX AI generate (one-shot, fired by timer)
@@ -33,13 +37,11 @@ User=cax
 Group=cax
 WorkingDirectory=/home/cax/cax
 EnvironmentFile=/home/cax/cax/.env
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 20 --use-llm
-# Each item renders in ~30-60s (1-2 locales × Haiku). A full 20-item
-# backfill (only happens on first fire after a wipe / limit bump) is
-# bounded by ~20 min; steady-state fires render 0-3 new items in <2 min.
-# Beyond 20 min something's wrong (rate-limited, hung connection); the
-# timer will retry on the next fire anyway.
-TimeoutStartSec=1500
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 2 --use-llm
+# A 10-min cap is generous — 2 items typically render in ~20-40s. Beyond
+# 10 min something's wrong (rate-limited, hung connection); the timer
+# will retry on the next fire anyway.
+TimeoutStartSec=600
 StandardOutput=journal
 StandardError=journal
 
