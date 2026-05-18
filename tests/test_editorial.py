@@ -283,3 +283,86 @@ def test_no_empty_patterns():
     """Sanity: every pattern was compiled with at least one alternative."""
     for p in AI_FLUFF_PATTERNS_EN + AI_FLUFF_PATTERNS_UA:
         assert p.pattern, "empty pattern would match everything"
+
+
+# ---------- harvested humanizer patterns (EN) ------------------------------
+
+@pytest.mark.parametrize("fluffy", [
+    # Significance inflation
+    "CISA published an advisory. The disclosure is a testament to coordinated response.",
+    "Vendor patched the CVE. This marks a pivotal moment in OT security.",
+    "The breach was disclosed. It was a watershed moment for the sector.",
+    # Authority tropes
+    "Attackers used a stolen token. At its core, the issue is identity hygiene.",
+    "Patch is available. The real question is whether IT can roll it out fast enough.",
+    # Generic positive endings
+    "The vendor pushed a fix. The future looks bright for customers.",
+    "Patches landed. Exciting times lie ahead for defenders.",
+    "The vendor shipped a fix. Only time will tell whether it holds.",
+    # Cutoff disclaimers
+    "Details are emerging. As of my last training, no PoC was public.",
+    "The campaign is active. Based on the available information, three regions are hit.",
+    # Chatbot artifacts
+    "Run the patch. I hope this helps.",
+    "Of course! The fix is in version 2.4.1.",
+    "Great question — here is the workaround.",
+])
+def test_strip_drops_harvested_humanizer_fluff_en(fluffy):
+    """Patterns adopted from the blader/humanizer skill (Nov 2026 harvest).
+    Each captures a category of AI-tell that survived the original rule set.
+
+    We only assert the fluff phrases vanish — not that any particular
+    factual sentence survives. The strip is whole-sentence; if the
+    factual content was in the SAME sentence as the fluff phrase, the
+    sentence is gone too (and that's the contract)."""
+    out = strip_fluff_sentences(fluffy, "en").lower()
+    for forbidden in (
+        "testament", "pivotal moment", "watershed",
+        "at its core", "real question is",
+        "future looks bright", "exciting times", "only time will tell",
+        "last training", "available information",
+        "i hope this helps", "of course!", "great question",
+    ):
+        assert forbidden not in out, f"{forbidden!r} survived strip"
+
+
+@pytest.mark.parametrize("fluffy", [
+    "Розкрито нову атаку. Це поворотний момент для сектору.",
+    "CERT-UA повідомив про інцидент. По суті, проблема в гігієні ідентичності.",
+    "Виробник випустив патч. Майбутнє виглядає яскраво для клієнтів.",
+    "Атаку зафіксовано. Станом на моє останнє оновлення, PoC не публічний.",
+    "Запустіть оновлення. Сподіваюсь, це допоможе.",
+])
+def test_strip_drops_harvested_humanizer_fluff_ua(fluffy):
+    out = strip_fluff_sentences(fluffy, "ua")
+    lowered = out.lower()
+    for forbidden in (
+        "поворотний момент", "по суті,", "майбутнє виглядає",
+        "станом на", "сподіваюсь",
+    ):
+        assert forbidden not in lowered, f"{forbidden!r} survived strip"
+
+
+def test_harvested_patterns_dont_eat_innocent_security_prose():
+    """The new patterns must not match legitimate technical phrasing —
+    cybersec briefs routinely use words like 'core' (CPU), 'right'
+    (direction), 'last' (version), 'helps' (utility). Regressions here
+    cause real content to vanish."""
+    samples_en = [
+        "The vulnerability lives in the kernel core scheduler.",
+        "Apply the patch right after the maintenance window.",
+        "This is the last supported version of OpenSSL 1.1.",
+        "Wireshark helps confirm the C2 beacon pattern.",
+        "Set the right ACL on the storage bucket.",
+        "Only the latest firmware fixes the issue.",
+    ]
+    for sample in samples_en:
+        assert strip_fluff_sentences(sample, "en") == sample, sample
+    samples_ua = [
+        "Вразливість живе в ядрі планувальника.",
+        "Запустіть патч одразу після вікна обслуговування.",
+        "Це остання підтримувана версія OpenSSL 1.1.",
+        "Wireshark допомагає підтвердити патерн C2.",
+    ]
+    for sample in samples_ua:
+        assert strip_fluff_sentences(sample, "ua") == sample, sample

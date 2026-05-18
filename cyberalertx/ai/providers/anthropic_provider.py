@@ -98,15 +98,47 @@ class AnthropicProvider:
 
         usage = getattr(response, "usage", None)
         if usage is not None:
-            logger.debug(
-                "anthropic usage: input=%s cache_read=%s cache_write=%s output=%s",
-                getattr(usage, "input_tokens", "?"),
-                getattr(usage, "cache_read_input_tokens", "?"),
-                getattr(usage, "cache_creation_input_tokens", "?"),
-                getattr(usage, "output_tokens", "?"),
-            )
+            self._record_usage(usage)
 
         return parsed
+
+    @staticmethod
+    def _record_usage(usage: Any) -> None:
+        """Log usage at INFO and bump observability counters.
+
+        Promoted to INFO from DEBUG so the prompt-cache hit ratio is
+        visible in journalctl by default — without it the cost story
+        is purely opinion. The counters in `observability.metrics` give
+        the same data over arbitrary time windows so we can audit weekly
+        spend trends without re-grepping logs.
+
+        Counter bumps are best-effort: if the observability module is
+        unavailable (test isolation, partial import), we swallow the
+        error rather than fail the render path."""
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        cache_write = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+
+        logger.info(
+            "anthropic usage: input=%d cache_read=%d cache_write=%d output=%d",
+            input_tokens, cache_read, cache_write, output_tokens,
+        )
+
+        try:
+            from ...observability.metrics import get_quality_metrics
+            m = get_quality_metrics()
+            m.bump("anthropic_calls")
+            if input_tokens:
+                m.bump("anthropic_input_tokens", input_tokens)
+            if cache_read:
+                m.bump("anthropic_cache_read_tokens", cache_read)
+            if cache_write:
+                m.bump("anthropic_cache_write_tokens", cache_write)
+            if output_tokens:
+                m.bump("anthropic_output_tokens", output_tokens)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("usage counter bump skipped: %s", exc)
 
 
 __all__ = ["AnthropicProvider"]

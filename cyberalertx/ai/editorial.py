@@ -70,6 +70,39 @@ AI_FLUFF_PATTERNS_EN: tuple[re.Pattern, ...] = tuple(
         r"\bin\s+the\s+current\s+threat\s+environment\b",
         r"\bbe\s+(?:more\s+)?cautious\s+(?:of|about|when)\b",
         r"\bthis\s+(?:incident\s+)?(?:emphasizes|reinforces|reminds)\b",
+        # Significance inflation — "this is a testament/pivotal/watershed
+        # moment in [X]". Brief format never needs these; they signal the
+        # model is editorializing instead of reporting.
+        r"\btestament\s+to\s+",
+        r"\bpivotal\s+moment\b",
+        r"\bwatershed\s+moment\b",
+        r"\bindelible\s+mark\b",
+        r"\bsea\s+change\b",
+        r"\bmark(?:s|ed)?\s+a\s+(?:significant|pivotal|major)\s+(?:shift|moment|turning)\b",
+        # Persuasive authority tropes — sentence openers that promise depth
+        # but never deliver any. A brief reports; it doesn't pontificate.
+        r"\bat\s+its\s+core,?\s",
+        r"\bthe\s+real\s+question\s+is\b",
+        r"\bthe\s+heart\s+of\s+the\s+matter\b",
+        r"\bwhat\s+really\s+matters\s+is\b",
+        # Generic positive conclusions — defaultsy hopium endings that
+        # show up when the model has nothing concrete left to say.
+        r"\bthe\s+future\s+looks\s+bright\b",
+        r"\bexciting\s+times\s+(?:lie\s+)?ahead\b",
+        r"\bstep\s+in\s+the\s+right\s+direction\b",
+        r"\bonly\s+time\s+will\s+tell\b",
+        # Knowledge-cutoff disclaimers — leak when the model is unsure
+        # about facts. We'd rather drop the sentence than ship the hedge.
+        r"\bas\s+of\s+my\s+(?:last\s+)?(?:training|knowledge|update)\b",
+        r"\bbased\s+on\s+(?:the\s+)?available\s+information\b",
+        r"\bwhile\s+specific\s+details\s+are\s+limited\b",
+        # Chatbot artifacts — leak when the model thinks it's chatting,
+        # not writing copy. Almost never legitimate inside a threat brief.
+        r"\bI\s+hope\s+this\s+helps\b",
+        r"\b(?:certainly|of\s+course)!",
+        r"\bgreat\s+question\b",
+        r"\blet\s+me\s+know\s+if\b",
+        r"\bwithout\s+further\s+ado\b",
     )
 )
 
@@ -87,6 +120,26 @@ AI_FLUFF_PATTERNS_UA: tuple[re.Pattern, ...] = tuple(
         r"служить\s+нагадуванням",
         r"посилює\s+необхідність",
         r"(?:гарн|надійн)а\s+позиція\s+(?:з\s+)?безпек",
+        # Significance inflation
+        r"(?:знаковий|поворотний|переломний)\s+момент",
+        r"віхов(?:ий|а|е)\s+(?:момент|подія)",
+        r"справжн(?:ій|я)\s+(?:прорив|злам)",
+        # Persuasive authority tropes
+        r"по\s+суті,",
+        r"справжн(?:є|е)\s+питання",
+        r"у\s+самому\s+центрі\s+питання",
+        # Generic positive conclusions
+        r"майбутнє\s+виглядає\s+(?:яскрав|обнадійлив)",
+        r"крок\s+у\s+правильному\s+напрямку",
+        r"час\s+покаже",
+        # Cutoff disclaimers (mostly translates from EN model output)
+        r"станом\s+на\s+(?:моє\s+)?останнє\s+(?:оновлення|навчання)",
+        r"на\s+основі\s+доступної\s+інформації",
+        # Chatbot artifacts
+        r"сподіваю(?:сь|ся),?\s+це\s+допоможе",
+        r"звичайно!",
+        r"чудове\s+питання",
+        r"без\s+зайвих\s+слів",
     )
 )
 

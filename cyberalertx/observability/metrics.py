@@ -68,6 +68,15 @@ _COUNTERS: tuple[str, ...] = (
     "relevance_ai_errors",
     "relevance_cache_hits",
     "language_rejected",
+    # Anthropic per-call token accounting. Lets us check the prompt-cache
+    # actually kicks in (cache_read should approach input on the 2nd+ call
+    # within a 5-min window). Without this the cost story is opinion;
+    # with it, weekly numbers are auditable.
+    "anthropic_calls",
+    "anthropic_input_tokens",
+    "anthropic_cache_read_tokens",
+    "anthropic_cache_write_tokens",
+    "anthropic_output_tokens",
 )
 
 # Validation-failure phrases we treat as a known reason. The validator's

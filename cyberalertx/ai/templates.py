@@ -56,6 +56,45 @@ class PromptTemplate:
     rule_based: Mapping[str, object] | None = None
 
 
+# -------- Source-body truncation -----------------------------------------
+#
+# Hard cap on `item.raw_content` chars sent to the LLM. RSS bodies routinely
+# pack the news in the lede (first ~200-400 words) and then trail off into
+# "Related articles", boilerplate footers, comment threads. The model
+# wastes input tokens reading that. 1200 chars ≈ 200-250 words ≈ enough
+# context for any cybersec brief.
+#
+# Tokens saved: typical RSS body is 3-5K chars (~600-1000 input tokens at
+# 4 chars/token); we cut to ~300 input tokens. ~50% user-prompt reduction
+# per item with no observable signal loss in spot-checks.
+_RAW_CONTENT_MAX_CHARS = 1200
+
+
+def _truncate_source_body(text: str, limit: int = _RAW_CONTENT_MAX_CHARS) -> str:
+    """Cap source body length while preserving the lede.
+
+    Strategy: if under cap, return as-is. Otherwise cut at the closest
+    paragraph break (`\\n\\n`) before the cap; if none in the last 30%,
+    fall back to the closest sentence end (`.`/`!`/`?` followed by
+    whitespace). Last resort: hard cut. Always append a "[…truncated]"
+    marker so the model knows more text existed.
+    """
+    if not text or len(text) <= limit:
+        return text
+    head = text[:limit]
+    # Prefer a paragraph break in the back third of the head.
+    para_cut = head.rfind("\n\n", int(limit * 0.7))
+    if para_cut != -1:
+        return head[:para_cut].rstrip() + "\n\n[…truncated]"
+    # Otherwise nearest sentence end in the back third.
+    for punct in (". ", "! ", "? ", ".\n", "!\n", "?\n"):
+        idx = head.rfind(punct, int(limit * 0.7))
+        if idx != -1:
+            return head[: idx + 1].rstrip() + " […truncated]"
+    # Worst case: hard cut, mid-sentence.
+    return head.rstrip() + "… […truncated]"
+
+
 # -------- Shared schema / general guidance (appended to every system prompt).
 
 _SHARED_RULES_EN = """
@@ -104,6 +143,26 @@ ABSOLUTE BANS
 - Generic explanations of how phishing/ransomware/RCE/priv-esc work
   in general. The reader knows. Write about THIS incident only.
 - ALL CAPS, exclamation marks, rhetorical questions.
+- Em-dash overuse. Max one em dash per sentence. Use commas or a
+  period when the second clause is independent.
+- Significance inflation: "testament to", "pivotal moment", "watershed
+  moment", "indelible mark", "marks a significant shift", "sea change".
+- Persuasive authority tropes: "at its core", "the real question is",
+  "the heart of the matter", "what really matters", "fundamentally"
+  as a sentence opener. Just make the claim — no setup.
+- Generic positive endings: "the future looks bright", "exciting times
+  ahead", "step in the right direction", "only time will tell".
+- Negative parallelism setups: "It's not just X — it's Y", "Not only
+  X but Y". State the actual point directly.
+- Knowledge-cutoff disclaimers: "as of my last training/knowledge",
+  "based on available information", "while specific details are
+  limited". If you don't know, leave the field empty.
+- Chatbot artifacts: "I hope this helps", "Of course!", "Certainly!",
+  "Great question", "Let me know if", "Without further ado". You are
+  writing copy, not chatting.
+- Verbose filler: "in order to" → "to"; "due to the fact that" →
+  "because"; "at this point in time" → "now"; "has the ability to" →
+  "can"; "in the event that" → "if".
 
 WHAT GOOD LOOKS LIKE
 - Concrete consequence: "Attackers reset passwords on every service
@@ -300,6 +359,24 @@ _SHARED_RULES_UK = """
 - Загальні пояснення фішингу/ransomware/RCE у цілому. Читач знає.
   Пишіть лише про ЦЕЙ конкретний інцидент.
 - КАПСЛОК, оклики, риторичні питання.
+- Зловживання довгим тире (em dash, «—»). Максимум одне на речення.
+  Якщо друга частина — самостійне речення, ставте крапку. Інакше — кому.
+- Інфляція значущості: «знаковий момент», «поворотний момент»,
+  «переломний момент», «віхова подія», «справжній прорив». Просто
+  повідомляйте факт.
+- Псевдо-авторитетні преамбули: «по суті», «справжнє питання», «у
+  самому центрі питання». Стверджуйте напряму, без розкачки.
+- Хоп-кінцівки: «майбутнє виглядає яскраво», «крок у правильному
+  напрямку», «час покаже».
+- Негативний паралелізм: «Це не просто X — це Y», «Не лише X, а й Y».
+  Просто скажіть, що це таке.
+- Знання-cutoff hedges: «станом на моє останнє оновлення», «на основі
+  доступної інформації». Не знаєте — лишіть поле порожнім.
+- Артефакти чат-бота: «сподіваюсь, це допоможе», «звичайно!», «чудове
+  питання», «без зайвих слів». Ви пишете копію, не спілкуєтесь.
+- Багатослівні штампи: «з метою» → «щоб»; «у зв'язку з тим, що» →
+  «бо»; «на даний момент часу» → «зараз»; «має можливість» → «може»;
+  «у випадку якщо» → «якщо».
 
 ЩО ВИ ПИШЕТЕ
 - Конкретний наслідок: «Зловмисники скидають паролі на кожному сервісі,
@@ -737,7 +814,7 @@ def render_prompts(
         f"- target_audience_label: {_audience_label(template.audience)}\n"
         "\nSOURCE ARTICLE\n"
         f"Title: {item.title}\n"
-        f"Body:\n{item.raw_content}\n"
+        f"Body:\n{_truncate_source_body(item.raw_content)}\n"
         f"{translation_reminder}"
         "\nProduce the structured threat post."
     )

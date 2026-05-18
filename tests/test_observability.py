@@ -186,3 +186,68 @@ def test_get_source_health_returns_singleton(tmp_path: Path):
     b = get_source_health()
     assert a is b
     _reset_health(None)
+
+
+# --------------------- Anthropic usage recording --------------------------
+
+class _FakeUsage:
+    """Minimal stand-in for `anthropic.types.Usage`. Real SDK objects expose
+    the same attributes; we only need attribute access via `getattr`."""
+
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+def test_anthropic_usage_bumps_token_counters(tmp_path: Path):
+    """The Anthropic provider records per-call token accounting so cache-
+    hit ratio is auditable. This pins that `_record_usage` writes to the
+    singleton counters and that zero-valued fields are skipped (so the
+    'cache_write' counter only grows on actual cache writes)."""
+    _reset_metrics(tmp_path / "q.json")
+    try:
+        from cyberalertx.ai.providers.anthropic_provider import AnthropicProvider
+        from cyberalertx.observability import get_quality_metrics
+
+        AnthropicProvider._record_usage(_FakeUsage(
+            input_tokens=4500,
+            cache_read_input_tokens=4200,
+            cache_creation_input_tokens=0,
+            output_tokens=800,
+        ))
+        AnthropicProvider._record_usage(_FakeUsage(
+            input_tokens=4500,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=4200,
+            output_tokens=750,
+        ))
+
+        m = get_quality_metrics()
+        assert m.counters["anthropic_calls"] == 2
+        assert m.counters["anthropic_input_tokens"] == 9000
+        assert m.counters["anthropic_cache_read_tokens"] == 4200
+        assert m.counters["anthropic_cache_write_tokens"] == 4200
+        assert m.counters["anthropic_output_tokens"] == 1550
+    finally:
+        _reset_metrics(None)
+
+
+def test_anthropic_usage_tolerates_missing_attributes(tmp_path: Path):
+    """A degraded usage object (older SDK shape, mock response) must not
+    take down the render path. Missing attrs default to 0 and we still
+    bump the call counter."""
+    _reset_metrics(tmp_path / "q.json")
+    try:
+        from cyberalertx.ai.providers.anthropic_provider import AnthropicProvider
+        from cyberalertx.observability import get_quality_metrics
+
+        AnthropicProvider._record_usage(_FakeUsage())  # no attrs at all
+
+        m = get_quality_metrics()
+        assert m.counters["anthropic_calls"] == 1
+        # Zero-valued fields are skipped (we only bump on >0 to keep the
+        # counter meaningful — `anthropic_input_tokens=0` would imply
+        # a degraded SDK response, not a real zero).
+        assert m.counters.get("anthropic_input_tokens", 0) == 0
+    finally:
+        _reset_metrics(None)
