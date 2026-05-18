@@ -211,7 +211,11 @@ const EN: StringTable = {
   tagline_short: "Threat intelligence for everyone",
 
   hero_eyebrow: "Real-time cybersecurity awareness",
-  hero_headline: "Cyber threats. Before they hit you.",
+  // NBSP between the final two words pins them on the same line in older
+  // browsers that don't honor `text-wrap: balance` on the h1 — prevents
+  // "you." rendering as an orphan one-word last line. Cosmetic, not
+  // semantic — search engines and screen readers read the same string.
+  hero_headline: "Cyber threats. Before they hit you.",
   hero_subhead:
     "What matters in cybersecurity right now — explained clearly, ranked by real-world impact.",
   hero_cta: "View Live Threats",
@@ -360,7 +364,7 @@ const UK: StringTable = {
   tagline_short: "Розвідка загроз для кожного",
 
   hero_eyebrow: "Кіберобізнаність у реальному часі",
-  hero_headline: "Кіберзагрози. Перш ніж вони дістануться вас.",
+  hero_headline: "Кіберзагрози. Перш ніж вони дістануться вас.",
   hero_subhead:
     "Найважливіше у кібербезпеці прямо зараз — пояснено просто та відсортовано за реальним впливом.",
   hero_cta: "Переглянути загрози",

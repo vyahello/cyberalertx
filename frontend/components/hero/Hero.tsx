@@ -50,7 +50,7 @@ export function Hero({ lang, activeThreats }: Props) {
         <h1
           id="hero-headline"
           className="text-4xl sm:text-5xl font-semibold text-text-primary
-                     tracking-tight leading-[1.05] mb-5 max-w-3xl"
+                     tracking-tight leading-[1.05] mb-5 max-w-3xl text-balance"
         >
           {s.hero_headline}
         </h1>
