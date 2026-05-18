@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320" role="img" aria-label="CyberAlertX">
-  <!-- README banner. Renders at full width in GitHub markdown.
-       Same brand identity as frontend/public/brand/og-mark.svg, sized
-       for the long landscape aspect typical of repo headers. -->
+  <!-- README banner — Aperture identity. Renders at full width in GitHub
+       markdown. Same brand language as frontend/public/brand/og-mark.svg,
+       sized for the long landscape aspect typical of repo headers. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0E1116"/>
-      <stop offset="100%" stop-color="#161A21"/>
+      <stop offset="0%" stop-color="#061523"/>
+      <stop offset="100%" stop-color="#0B0E12"/>
     </linearGradient>
     <radialGradient id="glow" cx="30%" cy="50%" r="55%">
-      <stop offset="0%" stop-color="#4F8AC9" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#4F8AC9" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#00E5FF" stop-opacity="0"/>
     </radialGradient>
     <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
       <circle cx="1" cy="1" r="1" fill="#FFFFFF" fill-opacity="0.04"/>
@@ -20,19 +20,23 @@
   <rect width="1280" height="320" fill="url(#grid)"/>
   <rect width="1280" height="320" fill="url(#glow)"/>
 
-  <!-- Brand lockup, vertically centered. Glyph 96px, wordmark Inter 64px. -->
+  <!-- Brand lockup, vertically centered. Aperture glyph 96px (rendered from
+       the master 100×100 grid via nested SVG) + 32px gap + wordmark. -->
   <g transform="translate(110 110)">
-    <g fill="none" stroke="#4F8AC9" stroke-width="6"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 17 A33 33 0 0 1 12 83" opacity="0.30"/>
-      <path d="M21 30 A21 21 0 0 1 21 70" opacity="0.55"/>
-      <path d="M29 40 A10 10 0 0 1 29 60" opacity="0.85"/>
-    </g>
-    <circle cx="66" cy="50" r="10" fill="#4F8AC9"/>
-    <text x="128" y="72"
-          font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-          font-size="64" font-weight="600" letter-spacing="-0.015em"
-          fill="#E6E8EC">CyberAlertX</text>
+    <svg x="0" y="0" viewBox="0 0 100 100" width="100" height="100">
+      <g fill="none" stroke="#EAF4FF" stroke-width="3.5">
+        <circle cx="50" cy="50" r="42" opacity="0.22"/>
+        <circle cx="50" cy="50" r="30" opacity="0.45"/>
+        <circle cx="50" cy="50" r="18" opacity="0.7"/>
+      </g>
+      <circle cx="50" cy="50" r="5" fill="#EAF4FF"/>
+      <circle cx="76" cy="24" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.35"/>
+      <circle cx="76" cy="24" r="9" fill="#00E5FF"/>
+    </svg>
+    <text x="132" y="72"
+          font-family="'Space Grotesk', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+          font-size="64" font-weight="600" letter-spacing="-0.025em"
+          fill="#EAF4FF">CyberAlertX</text>
   </g>
 
   <!-- Tagline beneath, left-aligned with the lockup. Two lines:
@@ -41,7 +45,7 @@
   <text x="110" y="225"
         font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
         font-size="24" font-weight="500" letter-spacing="-0.005em"
-        fill="#E6E8EC">Daily cyber intel for real users.</text>
+        fill="#EAF4FF">Daily cyber intel for real users.</text>
   <text x="110" y="258"
         font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
         font-size="20" font-weight="400" letter-spacing="0"
@@ -60,7 +64,7 @@
 
   <!-- Bottom-left small caps label. -->
   <text x="110" y="295"
-        font-family="'Inter', system-ui, sans-serif"
+        font-family="'JetBrains Mono', 'Courier New', monospace"
         font-size="11" font-weight="600" letter-spacing="0.22em"
-        fill="#4F8AC9">CYBERALERTX.COM</text>
+        fill="#00E5FF">CYBERALERTX.COM</text>
 </svg>
