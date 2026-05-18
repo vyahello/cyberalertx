@@ -3,10 +3,10 @@
        the canvas edge so we drop it; two rings + bullseye + ping is what
        reads cleanly. Stroke 1.4 keeps lines crisp without smudging into
        the circle interiors. -->
-  <g fill="none" stroke="#5E9BD8" stroke-width="1.4">
+  <g fill="none" stroke="#EAF4FF" stroke-width="1.4">
     <circle cx="8" cy="8" r="5.2" opacity="0.55"/>
     <circle cx="8" cy="8" r="2.6" opacity="0.85"/>
   </g>
-  <circle cx="8" cy="8" r="1" fill="#5E9BD8"/>
+  <circle cx="8" cy="8" r="1" fill="#EAF4FF"/>
   <circle cx="12" cy="4" r="2" fill="#00E5FF"/>
 </svg>

@@ -35,7 +35,7 @@ const config: Config = {
         border: {
           subtle: "#2A2F38",
           strong: "#3A4250",
-          focus: "#4F8AC9",        // matches accent
+          focus: "#00E5FF",        // matches accent (Aperture cyan)
         },
         text: {
           primary: "#E6E8EC",
@@ -43,13 +43,14 @@ const config: Config = {
           tertiary: "#6B7280",
         },
         // ---------------- Brand accent ----------------
-        // Muted azure. Used on ≤5% of any screen — brand mark, ONE CTA,
-        // ONE focus ring at a time. Severity colors are NOT brand.
+        // Aperture cyan — the alert-ping color, promoted to UI accent.
+        // Used on ≤5% of any screen — brand mark, ONE CTA, ONE focus ring
+        // at a time. Severity colors are NOT brand.
         accent: {
-          DEFAULT: "#4F8AC9",
-          hover: "#5E9BD8",
-          soft: "rgba(79, 138, 201, 0.10)",
-          ring: "rgba(79, 138, 201, 0.40)",
+          DEFAULT: "#00E5FF",
+          hover: "#33EBFF",
+          soft: "rgba(0, 229, 255, 0.10)",
+          ring: "rgba(0, 229, 255, 0.40)",
         },
         level: {
           critical: {
@@ -102,6 +103,17 @@ const config: Config = {
           "system-ui",
           "sans-serif",
         ],
+        // Brand wordmark only. Space Grotesk has the tight tracking and
+        // geometric "X" that pairs with the Aperture glyph in the header
+        // lockup. Loaded via next/font in app/layout.tsx.
+        display: [
+          "Space Grotesk",
+          "Inter",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "system-ui",
+          "sans-serif",
+        ],
         mono: [
           "JetBrains Mono",
           "ui-monospace",
@@ -137,7 +149,7 @@ const config: Config = {
         card: "0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 1px rgba(0, 0, 0, 0.15)",
         elevated:
           "0 8px 24px -8px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)",
-        "focus-ring": "0 0 0 3px rgba(79, 138, 201, 0.40)",
+        "focus-ring": "0 0 0 3px rgba(0, 229, 255, 0.40)",
       },
       animation: {
         // Two motion primitives — both subtle, both purposeful.

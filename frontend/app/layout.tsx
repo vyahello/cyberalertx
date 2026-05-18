@@ -1,14 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 
 /**
  * Type stack:
  *   - Inter as the single workhorse (body, headings, badges).
- *   - JetBrains Mono for monospace contexts — only used today for CVE IDs
- *     inside titles via natural inheritance, but registered so future
- *     code samples / fingerprints render correctly.
+ *   - Space Grotesk for the brand wordmark only — its tight tracking and
+ *     uppercase "X" pair with the Aperture mark in the header lockup.
+ *     Loaded with weight 600 only to keep the second-font cost small.
+ *   - JetBrains Mono for monospace contexts — CVE IDs inside titles via
+ *     natural inheritance and any future code samples / fingerprints.
  *
  * `display: "swap"` keeps the first paint instant (system fallback) and
  * swaps the custom font in once it loads — matters on mobile data.
@@ -18,6 +20,13 @@ const sans = Inter({
   display: "swap",
   variable: "--font-sans",
   weight: ["400", "500", "600", "700"],
+});
+
+const display = Space_Grotesk({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-display",
+  weight: ["600"],
 });
 
 const mono = JetBrains_Mono({
@@ -40,41 +49,52 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   ),
-  // Brand identity: filtered-pulse glyph, currentColor-driven SVGs for the
-  // browser-tab favicon; Apple touch icon uses a brand-colored variant on
-  // a graphite background. The horizontal lockup lives in /brand/logo.svg
-  // for embeds (docs, social, partner pages).
+  // Brand identity: Aperture glyph (radar rings + cyan alert ping).
+  // currentColor-driven SVGs power the browser-tab favicon; Apple touch
+  // icon is a navy-on-cyan variant. PNG fallbacks ship for every spot a
+  // platform might reject SVG: Twitter / LinkedIn / Slack unfurls insist
+  // on PNG, and iOS < 12 doesn't honor SVG apple-touch-icons. The
+  // horizontal lockup lives in /brand/logo.svg for embeds.
   icons: {
     icon: [
       { url: "/brand/icon-16.svg", type: "image/svg+xml", sizes: "16x16" },
       { url: "/brand/icon-32.svg", type: "image/svg+xml", sizes: "32x32" },
+      // 32×32 PNG fallback for any browser that can't render the SVG
+      // favicon (rare on modern desktop, common on older mobile UAs).
+      { url: "/brand/favicon-32.png", type: "image/png", sizes: "32x32" },
       { url: "/brand/favicon.svg", type: "image/svg+xml" },
     ],
     apple: [
+      // PNG first — iOS rendering of SVG apple-touch-icons is uneven
+      // across versions; the 180×180 PNG is always honored.
+      { url: "/brand/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
       { url: "/brand/icon-180.svg", sizes: "180x180", type: "image/svg+xml" },
     ],
     shortcut: "/brand/favicon.svg",
   },
   openGraph: {
     title: "CyberAlertX",
-    description: "Cybersecurity intel — calm, filtered, scannable.",
+    description: "We see — and we surface what matters.",
     type: "website",
     siteName: "CyberAlertX",
+    // PNG — every social-card crawler (Twitter, LinkedIn, Slack, Facebook,
+    // Discord) prefers raster over SVG. Regenerate via the npm script:
+    //   cd frontend && npm run brand:png
     images: [
       {
-        url: "/brand/og-mark.svg",
+        url: "/brand/og-image.png",
         width: 1200,
         height: 630,
-        alt: "CyberAlertX — Cybersecurity intel, calm and filtered",
-        type: "image/svg+xml",
+        alt: "CyberAlertX — We see and we surface what matters",
+        type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
     title: "CyberAlertX",
-    description: "Cybersecurity intel — calm, filtered, scannable.",
-    images: ["/brand/og-mark.svg"],
+    description: "We see — and we surface what matters.",
+    images: ["/brand/og-image.png"],
   },
 };
 
@@ -96,7 +116,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${mono.variable}`}
+      className={`${sans.variable} ${display.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">

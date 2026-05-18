@@ -20,9 +20,12 @@
     --brand-text:         #E6E8EC;
     --brand-text-secondary:#9CA3AF;
     --brand-text-tertiary:#6B7280;
-    --brand-accent:       #4F8AC9;
-    --brand-accent-hover: #5E9BD8;
-    --brand-accent-ring:  rgba(79, 138, 201, 0.40);
+    /* Aperture cyan — matches the alert-ping in the brand glyph. The
+       single bright signal across an otherwise calm dark UI. Used on ≤5%
+       of any screen — brand mark, ONE CTA, ONE focus ring at a time. */
+    --brand-accent:       #00E5FF;
+    --brand-accent-hover: #33EBFF;
+    --brand-accent-ring:  rgba(0, 229, 255, 0.40);
     --brand-level-critical:#FF6B6E;
     --brand-level-high:   #F5A623;
     --brand-signal-live:  #4FCB9C;
@@ -147,7 +150,7 @@
     background:
       radial-gradient(
         ellipse 80% 50% at 20% 0%,
-        rgba(79, 138, 201, 0.12) 0%,
+        rgba(0, 229, 255, 0.10) 0%,
         transparent 50%
       ),
       radial-gradient(
