@@ -1,46 +1,50 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-  <!-- Open Graph card. 1200×630 is the OG/Twitter standard. Composition: a
-       fixed dark background, centered horizontal lockup at 100px glyph
-       height, calm tagline beneath. Convert to PNG via Sharp before
-       deploying to social — most platforms still prefer raster OG images.
-       Sharp command:
+  <!-- Open Graph card — Aperture identity. 1200×630 is the OG/Twitter
+       standard. Composition: deep navy background, centered glyph + wordmark
+       lockup, tagline beneath, url stamp at the bottom. Convert to PNG via
+       Sharp before deploying to social — most platforms still prefer raster
+       OG images. Sharp command:
            npx sharp -i og-mark.svg -o ../og-image.png resize 1200 630
   -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0E1116"/>
-      <stop offset="100%" stop-color="#161A21"/>
+      <stop offset="0%" stop-color="#061523"/>
+      <stop offset="100%" stop-color="#0B0E12"/>
     </linearGradient>
     <radialGradient id="glow" cx="50%" cy="40%" r="55%">
-      <stop offset="0%" stop-color="#4F8AC9" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#4F8AC9" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#00E5FF" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
 
-  <!-- Lockup: glyph (100×100) + 32px gap + wordmark, vertically centered. -->
-  <!-- Glyph centered roughly at canvas center horizontally; wordmark continues. -->
-  <g transform="translate(360 265)">
-    <g fill="none" stroke="#4F8AC9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 17 A33 33 0 0 1 12 83" opacity="0.30"/>
-      <path d="M21 30 A21 21 0 0 1 21 70" opacity="0.55"/>
-      <path d="M29 40 A10 10 0 0 1 29 60" opacity="0.85"/>
-    </g>
-    <circle cx="66" cy="50" r="10" fill="#4F8AC9"/>
-    <text x="132" y="72"
-          font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-          font-size="64" font-weight="600" letter-spacing="-0.015em"
-          fill="#E6E8EC">CyberAlertX</text>
+  <!-- Lockup: Aperture glyph (140×140) + 36px gap + wordmark, vertically
+       centered. Glyph rendered from the master 100×100 grid via nested SVG. -->
+  <g transform="translate(280 245)">
+    <svg x="0" y="0" viewBox="0 0 100 100" width="140" height="140">
+      <g fill="none" stroke="#EAF4FF" stroke-width="3.5">
+        <circle cx="50" cy="50" r="42" opacity="0.22"/>
+        <circle cx="50" cy="50" r="30" opacity="0.45"/>
+        <circle cx="50" cy="50" r="18" opacity="0.7"/>
+      </g>
+      <circle cx="50" cy="50" r="5" fill="#EAF4FF"/>
+      <circle cx="76" cy="24" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.35"/>
+      <circle cx="76" cy="24" r="9" fill="#00E5FF"/>
+    </svg>
+    <text x="176" y="98"
+          font-family="'Space Grotesk', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+          font-size="72" font-weight="600" letter-spacing="-0.025em"
+          fill="#EAF4FF">CyberAlertX</text>
   </g>
 
-  <text x="600" y="400" text-anchor="middle"
+  <text x="600" y="445" text-anchor="middle"
         font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
         font-size="28" font-weight="400" letter-spacing="0"
-        fill="#9CA3AF">Cybersecurity intel — calm, filtered, scannable.</text>
+        fill="#9CA3AF">We see — and we surface what matters.</text>
 
-  <text x="600" y="555" text-anchor="middle"
-        font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-        font-size="18" font-weight="500" letter-spacing="0.18em"
-        fill="#6B7280">CYBERALERTX.IO</text>
+  <text x="600" y="560" text-anchor="middle"
+        font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="18" font-weight="500" letter-spacing="0.22em"
+        fill="#5E9BD8">CYBERALERTX.COM</text>
 </svg>

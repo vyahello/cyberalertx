@@ -1,10 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
-  <!-- 16px-explicit variant: two arcs instead of three; the innermost arc
-       collapses below stroke width at this scale and would muddy the read.
-       Stroke 1.5 keeps lines crisp without becoming a smear. -->
-  <g fill="none" stroke="#4F8AC9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 4 A4 4 0 0 1 3 12" opacity="0.40"/>
-    <path d="M4.5 6 A2 2 0 0 1 4.5 10" opacity="0.80"/>
+  <!-- 16px-explicit Aperture. At this size the outermost ring would fight
+       the canvas edge so we drop it; two rings + bullseye + ping is what
+       reads cleanly. Stroke 1.4 keeps lines crisp without smudging into
+       the circle interiors. -->
+  <g fill="none" stroke="#5E9BD8" stroke-width="1.4">
+    <circle cx="8" cy="8" r="5.2" opacity="0.55"/>
+    <circle cx="8" cy="8" r="2.6" opacity="0.85"/>
   </g>
-  <circle cx="11" cy="8" r="2" fill="#4F8AC9"/>
+  <circle cx="8" cy="8" r="1" fill="#5E9BD8"/>
+  <circle cx="12" cy="4" r="2" fill="#00E5FF"/>
 </svg>

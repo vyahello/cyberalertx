@@ -1,18 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 24" height="24" role="img" aria-label="CyberAlertX logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 32" height="24" role="img" aria-label="CyberAlertX logo">
   <title>CyberAlertX</title>
-  <!-- Glyph: stepped concentric arcs + accent dot. currentColor inherits from
-       the surrounding element so the same file works on dark + light themes. -->
-  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 4 A8 8 0 0 1 3 20" opacity="0.30"/>
-    <path d="M5 7 A5 5 0 0 1 5 17" opacity="0.55"/>
-    <path d="M7 9.5 A2.5 2.5 0 0 1 7 14.5" opacity="0.85"/>
-  </g>
-  <circle cx="16" cy="12" r="2.5" fill="currentColor"/>
-  <!-- Wordmark. Inter is preferred; the fallback chain covers headless renders
-       (Inkscape, GitHub preview). When you outline-to-paths for distribution
-       to non-Inter contexts, replace this element with the resulting <path>s. -->
-  <text x="32" y="17"
-        font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-        font-size="16" font-weight="600" letter-spacing="-0.005em"
+  <!-- Aperture glyph (100×100 art) placed inside a 32×32 viewport at the
+       left, then the wordmark beside it. currentColor inherits from the
+       surrounding element so the same file works on dark + light themes;
+       the ping holds cyan. -->
+  <svg x="0" y="0" viewBox="0 0 100 100" width="32" height="32">
+    <g fill="none" stroke="currentColor" stroke-width="3.5">
+      <circle cx="50" cy="50" r="42" opacity="0.22"/>
+      <circle cx="50" cy="50" r="30" opacity="0.45"/>
+      <circle cx="50" cy="50" r="18" opacity="0.7"/>
+    </g>
+    <circle cx="50" cy="50" r="5" fill="currentColor"/>
+    <circle cx="76" cy="24" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.35"/>
+    <circle cx="76" cy="24" r="9" fill="#00E5FF"/>
+  </svg>
+  <!-- Wordmark. Space Grotesk matches the design exploration; Inter is the
+       fallback path for headless renders (GitHub preview, Inkscape).
+       Outline-to-paths if shipping to a non-Inter / non-Space-Grotesk
+       context. -->
+  <text x="40" y="21"
+        font-family="'Space Grotesk', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="18" font-weight="600" letter-spacing="-0.025em"
         fill="currentColor">CyberAlertX</text>
 </svg>

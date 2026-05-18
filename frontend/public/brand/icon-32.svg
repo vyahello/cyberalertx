@@ -1,10 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- 32px variant: all three arcs visible, stepped right-tips at 15/14/13.
-       Stroke 2.5 reads as confident at this size without going block-thick. -->
-  <g fill="none" stroke="#4F8AC9" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 5 A11 11 0 0 1 4 27" opacity="0.30"/>
-    <path d="M7 9 A7 7 0 0 1 7 23" opacity="0.55"/>
-    <path d="M10 13 A3 3 0 0 1 10 19" opacity="0.85"/>
+  <!-- 32px Aperture variant — all three rings visible, ping at 8 o'clock
+       from the bullseye matches the master 100×100 art at this resolution.
+       Stroke 1.6 reads confidently without going block-thick. -->
+  <g fill="none" stroke="#5E9BD8" stroke-width="1.6">
+    <circle cx="16" cy="16" r="13.5" opacity="0.30"/>
+    <circle cx="16" cy="16" r="9.5" opacity="0.55"/>
+    <circle cx="16" cy="16" r="5.8" opacity="0.85"/>
   </g>
-  <circle cx="22" cy="16" r="3" fill="#4F8AC9"/>
+  <circle cx="16" cy="16" r="1.8" fill="#5E9BD8"/>
+  <circle cx="24" cy="8" r="4.4" fill="none" stroke="#00E5FF" stroke-width="0.8" opacity="0.4"/>
+  <circle cx="24" cy="8" r="3" fill="#00E5FF"/>
 </svg>
