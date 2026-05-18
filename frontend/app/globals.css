@@ -20,12 +20,16 @@
     --brand-text:         #E6E8EC;
     --brand-text-secondary:#9CA3AF;
     --brand-text-tertiary:#6B7280;
-    /* Aperture cyan — matches the alert-ping in the brand glyph. The
-       single bright signal across an otherwise calm dark UI. Used on ≤5%
-       of any screen — brand mark, ONE CTA, ONE focus ring at a time. */
-    --brand-accent:       #00E5FF;
-    --brand-accent-hover: #33EBFF;
-    --brand-accent-ring:  rgba(0, 229, 255, 0.40);
+    /* Calm cyan that *rhymes* with the brand glyph's #00E5FF alert ping
+       without burning eyes when applied to whole UI surfaces (buttons,
+       links, filter chips, focus rings). Pure #00E5FF only survives at the
+       1-2px scale of the ping itself; at button-size it dominates the
+       page. This is Tailwind cyan-500 — same family, ~30% less luminance,
+       passes AA contrast as text on the dark surface. The bright #00E5FF
+       stays reserved for the ping in the glyph (and the OG-card stamp). */
+    --brand-accent:       #06B6D4;
+    --brand-accent-hover: #22D3EE;
+    --brand-accent-ring:  rgba(6, 182, 212, 0.40);
     --brand-level-critical:#FF6B6E;
     --brand-level-high:   #F5A623;
     --brand-signal-live:  #4FCB9C;
@@ -88,11 +92,13 @@
     @apply rounded-md whitespace-nowrap;
   }
 
-  /* Primary button — calm azure, modest hover, ample tap target. */
+  /* Primary button — calm cyan ground, dark ink. White text on cyan is
+     a 3:1 disaster; the dark `bg-base` ink reads at ~9:1 and stops the
+     button from feeling like a glowstick. */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2;
     @apply px-5 py-2.5 min-h-[44px];
-    @apply bg-accent text-white font-medium text-sm;
+    @apply bg-accent text-bg-base font-semibold text-sm;
     @apply rounded-md transition-all duration-200;
     @apply hover:bg-accent-hover hover:shadow-elevated;
     @apply active:scale-[0.98];
@@ -150,7 +156,7 @@
     background:
       radial-gradient(
         ellipse 80% 50% at 20% 0%,
-        rgba(0, 229, 255, 0.10) 0%,
+        rgba(6, 182, 212, 0.08) 0%,
         transparent 50%
       ),
       radial-gradient(

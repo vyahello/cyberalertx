@@ -35,7 +35,7 @@ const config: Config = {
         border: {
           subtle: "#2A2F38",
           strong: "#3A4250",
-          focus: "#00E5FF",        // matches accent (Aperture cyan)
+          focus: "#06B6D4",        // matches accent (calm cyan)
         },
         text: {
           primary: "#E6E8EC",
@@ -43,14 +43,17 @@ const config: Config = {
           tertiary: "#6B7280",
         },
         // ---------------- Brand accent ----------------
-        // Aperture cyan — the alert-ping color, promoted to UI accent.
-        // Used on ≤5% of any screen — brand mark, ONE CTA, ONE focus ring
-        // at a time. Severity colors are NOT brand.
+        // Calm cyan that rhymes with the brand glyph's #00E5FF alert ping
+        // without burning eyes when scaled across UI surfaces. At button
+        // size pure #00E5FF dominates the page; cyan-500 (#06B6D4) carries
+        // the same identity at ~30% less luminance and reads as text on
+        // the dark surface (AA contrast). Pure #00E5FF is reserved for the
+        // ping in the glyph and the OG-card stamp.
         accent: {
-          DEFAULT: "#00E5FF",
-          hover: "#33EBFF",
-          soft: "rgba(0, 229, 255, 0.10)",
-          ring: "rgba(0, 229, 255, 0.40)",
+          DEFAULT: "#06B6D4",
+          hover: "#22D3EE",
+          soft: "rgba(6, 182, 212, 0.10)",
+          ring: "rgba(6, 182, 212, 0.40)",
         },
         level: {
           critical: {
@@ -149,7 +152,7 @@ const config: Config = {
         card: "0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 1px rgba(0, 0, 0, 0.15)",
         elevated:
           "0 8px 24px -8px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)",
-        "focus-ring": "0 0 0 3px rgba(0, 229, 255, 0.40)",
+        "focus-ring": "0 0 0 3px rgba(6, 182, 212, 0.40)",
       },
       animation: {
         // Two motion primitives — both subtle, both purposeful.
