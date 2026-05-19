@@ -54,6 +54,38 @@ npm run test:e2e:prod
 BASE_URL=https://staging.cyberalertx.com npx playwright test
 ```
 
+### Watching the browser (headed mode)
+
+By default the suite runs headless — fast, no window. To actually see the
+clicks happen, use one of these:
+
+```bash
+# Open a real Chromium window and watch it click through.
+# --workers=1 stops multiple windows stacking on top of each other.
+npx playwright test --project=chromium --headed --workers=1
+
+# Same thing, but slow each action down to ~300ms so it's easy to follow:
+npx playwright test --project=chromium --headed --workers=1 --slow-mo=300
+
+# UI mode — a runner app with a timeline, DOM snapshot per step, and
+# selector picker. Best for exploring or debugging a flaky test:
+npm run test:e2e:ui
+
+# Step through a single spec interactively (Playwright Inspector + browser):
+npx playwright test -g "locale toggle" --debug
+
+# Trace every action even on passing runs (otherwise traces are kept only
+# on failure). View afterwards with `npx playwright show-trace …`:
+npx playwright test --trace on
+```
+
+After any run, open the full HTML report (screenshots, video, trace links
+for every test) with:
+
+```bash
+npx playwright show-report
+```
+
 CI gets `forbidOnly`, two retries, and `github` + `html` reporters. Traces,
 screenshots, and video are kept on failure.
 
