@@ -58,3 +58,10 @@ frontend/.env.production
 # ============================================================================
 .DS_Store
 Thumbs.db
+
+# ============================================================================
+# Tool scratch dirs — created by Playwright MCP / ad-hoc browser sessions.
+# Hold snapshots, console logs and screenshots from local exploration and
+# are never part of the source-of-truth.
+# ============================================================================
+.playwright-mcp/

@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { notFound } from "next/navigation";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
-import "./globals.css";
+import "../globals.css";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { SUPPORTED_LOCALES, isLocale } from "@/lib/types";
 
 /**
  * Type stack:
@@ -108,14 +110,28 @@ export const viewport: Viewport = {
   maximumScale: 5,
 };
 
-export default function RootLayout({
+/** Pre-render one shell per supported locale at build time. */
+export function generateStaticParams() {
+  return SUPPORTED_LOCALES.map((locale) => ({ locale }));
+}
+
+export default async function LocaleRootLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
+  params: Promise<{ locale: string }>;
 }) {
+  const { locale } = await params;
+  // Defensive: if the URL holds an unknown locale, render nothing at this
+  // layer and let Next.js' notFound boundary take over. Otherwise we'd
+  // emit `<html lang="xx">` for any garbage segment, defeating the point
+  // of moving lang into this layout.
+  if (!isLocale(locale)) notFound();
+
   return (
     <html
-      lang="en"
+      lang={locale}
       className={`${sans.variable} ${display.variable} ${mono.variable}`}
       suppressHydrationWarning
     >

@@ -438,8 +438,10 @@ Expected. Set `CYBERALERTX_TEST_DB_URL` to a separate DB to enable.
   - `storage/` — JSON + PG backends, factory, dual-write wrappers
   - `api/app.py` — FastAPI application
   - `tools/` — operational CLIs (`pg_migrate`, backfills, compare)
-- `frontend/` — Next.js app
+- `frontend/` — Next.js app (see `frontend/README.md` for dev + e2e)
 - `tests/` — pytest suite (`pytest -q` from repo root)
+- `frontend/tests/e2e/` — Playwright smoke + journey suite
+  (`cd frontend && npm run test:e2e:prod`)
 - `.env` — local secrets (gitignored)
 - `data/` — runtime state (gitignored)
 

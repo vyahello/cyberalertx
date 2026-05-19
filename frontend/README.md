@@ -30,6 +30,33 @@ npm run build && npm run start
 npm run type-check
 ```
 
+## End-to-end tests
+
+Playwright (`@playwright/test`) drives Chromium against a configurable target.
+Specs live in `tests/e2e/` — `smoke.spec.ts` covers landing, feed, healthz,
+locale toggle and 4xx/5xx network guards; `journeys.spec.ts` exercises article
+detail navigation, the trending section, Ukrainian deep-links, basic a11y
+heading order, and a mobile viewport pass.
+
+```bash
+# One-time, per machine (downloads browsers under ~/.cache/ms-playwright):
+npx playwright install chromium
+
+# Default target = http://localhost:3000 — Playwright boots `next dev` for you.
+npm run test:e2e
+
+# Run with the UI runner:
+npm run test:e2e:ui
+
+# Target the production deployment (no local server spun up):
+npm run test:e2e:prod
+# …or any environment via BASE_URL:
+BASE_URL=https://staging.cyberalertx.com npx playwright test
+```
+
+CI gets `forbidOnly`, two retries, and `github` + `html` reporters. Traces,
+screenshots, and video are kept on failure.
+
 ## Architecture
 
 ```
