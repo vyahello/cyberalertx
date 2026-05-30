@@ -279,8 +279,13 @@ def build_default_generator(
     versions had `CYBERALERTX_AI_ENABLE_LLM=1` for this and it surprised
     operators with unexpected bills when set "just in case".
 
-    When opted in, `AISettings.provider` selects which vendor:
-      * "anthropic" — AnthropicProvider if SDK + API key present
+    When opted in, `AISettings.provider` selects which engine:
+      * "claude_cli" — ClaudeCliProvider: renders via the local `claude` CLI
+        (Claude Code headless), reusing its own login. No ANTHROPIC_API_KEY.
+        This is the default. Falls back to rule-based if the CLI is missing
+        or not logged in.
+      * "anthropic" — AnthropicProvider (Haiku 4.5 API) if SDK + API key
+        present. The legacy path, kept intact for an easy switch-back.
       * "openai"    — stub (calls fall back to rule-based, by design)
       * anything else — no provider (rule-based)
     """
@@ -289,7 +294,17 @@ def build_default_generator(
     provider: LLMProvider | None = None
 
     if enable:
-        if cfg.provider == "anthropic" and cfg.api_key:
+        if cfg.provider == "claude_cli":
+            try:
+                from .providers import ClaudeCliProvider
+                provider = ClaudeCliProvider(
+                    binary=cfg.claude_cli_bin,
+                    model=cfg.claude_cli_model,
+                    timeout_seconds=cfg.claude_cli_timeout,
+                )
+            except RuntimeError as exc:
+                logger.warning("Claude CLI provider not available: %s", exc)
+        elif cfg.provider == "anthropic" and cfg.api_key:
             try:
                 from .providers import AnthropicProvider
                 provider = AnthropicProvider(

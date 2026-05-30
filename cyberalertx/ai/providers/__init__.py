@@ -4,6 +4,7 @@ Public surface kept narrow — callers go through `cyberalertx.ai.ContentGenerat
 not directly through these classes.
 """
 from .anthropic_provider import AnthropicProvider
+from .claude_cli_provider import ClaudeCliProvider
 from .openai_stub import OpenAIProvider
 
-__all__ = ["AnthropicProvider", "OpenAIProvider"]
+__all__ = ["AnthropicProvider", "ClaudeCliProvider", "OpenAIProvider"]

@@ -40,7 +40,9 @@ def _build_pipeline() -> Pipeline:
     cost predictable and the mental model simple:
 
         once       →  free (RSS + keyword scoring + ranking)
-        generate   →  paid (Anthropic journalist render, requires --use-llm)
+        generate   →  LLM journalist render, requires --use-llm (default
+                      engine: local `claude` CLI; legacy Haiku API path
+                      available via CYBERALERTX_AI_PROVIDER=anthropic)
         serve      →  free (cache + rule-based fallback)
 
     The legacy AI relevance classifier in `pipeline/relevance.py` is
@@ -146,8 +148,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
     warm and don't care about the long tail).
 
     MVP default is offline — rule-based, no API calls. Pass `--use-llm`
-    to enable the configured provider (Anthropic by default; requires
-    `ANTHROPIC_API_KEY`).
+    to enable the configured provider. The default engine is the local
+    `claude` CLI (Claude Code headless, reusing its own login — no
+    ANTHROPIC_API_KEY). Set CYBERALERTX_AI_PROVIDER=anthropic to switch
+    back to the Haiku 4.5 API path (requires `ANTHROPIC_API_KEY`).
     """
     from datetime import datetime, timezone
 

@@ -44,8 +44,13 @@ class AISettings:
     # factory, overriding this default). Tests may pass `enable_llm=True`
     # as a kwarg directly when constructing AISettings.
     enable_llm: bool = False
-    # "anthropic" | "openai" — only consulted when `enable_llm` is True.
-    provider: str = os.getenv("CYBERALERTX_AI_PROVIDER", "anthropic")
+    # "claude_cli" | "anthropic" | "openai" — only consulted when `enable_llm`
+    # is True. Default is "claude_cli": post content is rendered by the local
+    # `claude` CLI (Claude Code headless) reusing its own login, NOT by a
+    # metered Haiku call through ANTHROPIC_API_KEY. To switch back to the
+    # Haiku 4.5 API path (which is left fully intact), set
+    # CYBERALERTX_AI_PROVIDER=anthropic.
+    provider: str = os.getenv("CYBERALERTX_AI_PROVIDER", "claude_cli")
     # Default to Haiku — journalist rendering is a constrained, schema-bound
     # task where Haiku 4.5 matches Opus quality at ~10x lower cost and
     # 4-5x lower latency. For experiments where you want richer prose,
@@ -54,6 +59,19 @@ class AISettings:
         "CYBERALERTX_AI_MODEL", "claude-haiku-4-5-20251001",
     )
     api_key: str | None = os.getenv("ANTHROPIC_API_KEY")
+    # --- claude_cli provider (the new default content engine) -----------
+    # Path to the `claude` binary. Default resolves it on PATH. The box must
+    # have Claude Code installed AND logged in (interactive `claude` once, or
+    # `claude setup-token`) — otherwise every render raises "Not logged in"
+    # and the generator falls back to rule-based output.
+    claude_cli_bin: str = os.getenv("CYBERALERTX_CLAUDE_CLI_BIN", "claude")
+    # Model alias/id for the CLI session. Empty → use the CLI's own default
+    # model ("you"). Set e.g. CYBERALERTX_CLAUDE_CLI_MODEL=sonnet to pin one.
+    claude_cli_model: str | None = os.getenv("CYBERALERTX_CLAUDE_CLI_MODEL") or None
+    # Per-render subprocess timeout. One `claude -p` call for a single post
+    # typically returns in 10-40s; 120s is a generous ceiling before we give
+    # up and fall back.
+    claude_cli_timeout: int = int(os.getenv("CYBERALERTX_CLAUDE_CLI_TIMEOUT", "120"))
     # OpenAI is stubbed in v1 — config exists so the abstraction is real.
     openai_model: str = os.getenv("CYBERALERTX_OPENAI_MODEL", "gpt-4o-mini")
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")

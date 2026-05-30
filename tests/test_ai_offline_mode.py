@@ -66,9 +66,15 @@ def test_default_factory_with_api_key_in_env_still_offline(
 
 
 def test_use_llm_flag_overrides_env_default(tmp_path: Path) -> None:
-    """The CLI `--use-llm` flag (passed as `use_llm=True`) opts in."""
+    """The CLI `--use-llm` flag (passed as `use_llm=True`) opts in.
+
+    Pins the legacy `anthropic` provider explicitly — the package default is
+    now `claude_cli`, but this test guards the Haiku-API opt-in path that the
+    `anthropic` setting preserves for an easy switch-back.
+    """
     cfg = AISettings(
         enable_llm=False,
+        provider="anthropic",
         api_key="sk-real",
         cache_path=tmp_path / "posts.json",
     )
@@ -80,14 +86,38 @@ def test_use_llm_flag_overrides_env_default(tmp_path: Path) -> None:
 
 
 def test_enable_llm_without_api_key_stays_offline(tmp_path: Path) -> None:
-    """Opting in without credentials should NOT crash — just stay offline."""
+    """Opting into the `anthropic` path without credentials must NOT crash —
+    just stay offline."""
     cfg = AISettings(
         enable_llm=True,
+        provider="anthropic",
         api_key=None,
         cache_path=tmp_path / "posts.json",
     )
     gen = build_default_generator(cfg)
     assert gen._provider is None  # no key → no provider, no error
+
+
+# --------- claude_cli provider (new default content engine) -------------
+
+def test_default_provider_is_claude_cli() -> None:
+    """The package default content engine is the local `claude` CLI, NOT the
+    metered Haiku API — so no ANTHROPIC_API_KEY is consumed by default."""
+    assert AISettings().provider == "claude_cli"
+
+
+def test_claude_cli_missing_binary_stays_offline(tmp_path: Path) -> None:
+    """Opting into `claude_cli` when the CLI binary is absent must fall back
+    to rule-based gracefully (RuntimeError swallowed by the factory)."""
+    cfg = AISettings(
+        enable_llm=True,
+        provider="claude_cli",
+        claude_cli_bin="claude-does-not-exist-xyz",
+        cache_path=tmp_path / "posts.json",
+    )
+    gen = build_default_generator(cfg)
+    assert gen._provider is None
+    assert describe_mode(gen) == "mode=rule-based (offline)"
 
 
 # --------- template-fed rule-based --------------------------------------
