@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "../globals.css";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { UmamiAnalytics } from "@/components/analytics/UmamiAnalytics";
 import { SUPPORTED_LOCALES, isLocale } from "@/lib/types";
 
 /**
@@ -138,6 +139,7 @@ export default async function LocaleRootLayout({
       <body className="min-h-screen flex flex-col">
         <div className="flex-1">{children}</div>
         <SiteFooter />
+        <UmamiAnalytics />
       </body>
     </html>
   );
