@@ -79,6 +79,39 @@ def test_strips_api_key_from_subprocess_env(monkeypatch):
     assert "PATH" in cap["env"]
 
 
+def test_injects_oauth_token_from_env_file(monkeypatch, tmp_path):
+    """The subscription token (CLAUDE_CODE_OAUTH_TOKEN) is loaded from the
+    Claude env file when it isn't already exported — that's what makes a
+    headless render authenticate on the subscription."""
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-billed")
+    env_file = tmp_path / "env"
+    env_file.write_text('export CLAUDE_CODE_OAUTH_TOKEN="oauth-sub-123"\n')
+    cap: dict = {}
+    _patch_run(monkeypatch, cap, _valid_payload())
+
+    provider = ClaudeCliProvider(binary="sh", oauth_env_file=str(env_file))
+    provider.generate_post("system", "user")
+
+    # token injected, API key stripped → subscription billing
+    assert cap["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-sub-123"
+    assert "ANTHROPIC_API_KEY" not in cap["env"]
+
+
+def test_existing_oauth_token_not_overwritten(monkeypatch, tmp_path):
+    """A token already in the environment wins over the file."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "from-env")
+    env_file = tmp_path / "env"
+    env_file.write_text("CLAUDE_CODE_OAUTH_TOKEN=from-file\n")
+    cap: dict = {}
+    _patch_run(monkeypatch, cap, _valid_payload())
+
+    provider = ClaudeCliProvider(binary="sh", oauth_env_file=str(env_file))
+    provider.generate_post("system", "user")
+
+    assert cap["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "from-env"
+
+
 def test_use_subscription_false_keeps_api_key(monkeypatch):
     """Opt-out keeps the key for callers who deliberately want API billing."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-keep")

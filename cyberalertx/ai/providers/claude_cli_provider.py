@@ -30,15 +30,19 @@ Switching back to Haiku is a one-liner: set `CYBERALERTX_AI_PROVIDER=anthropic`
 (the AnthropicProvider and all its logic are left fully intact).
 
 Operational note: the box that runs the pipeline must have the `claude` CLI
-installed AND logged in via the OAuth **subscription** (`claude` once,
-interactively, or a token via `claude setup-token`). If it isn't, every render
-raises "Not logged in" and the generator quietly falls back to rule-based.
+installed AND a subscription login — either `~/.claude/.credentials.json` (from
+interactive `claude` /login) or a `CLAUDE_CODE_OAUTH_TOKEN` from
+`claude setup-token`. If neither is reachable, every render raises "Not logged
+in" and the generator quietly falls back to rule-based.
 
 Billing note (important): the CLI bills the metered API — NOT your subscription
 — whenever `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) is present in its
 environment. Since `.env` and the systemd `EnvironmentFile` inject that key, we
-strip it from the subprocess env (see `_BILLING_ENV_VARS`) so renders go through
-the subscription login. Without this the CLI silently charges Opus API rates.
+strip it from the subprocess env (see `_BILLING_ENV_VARS`). We also pull the
+subscription token (`CLAUDE_CODE_OAUTH_TOKEN`) from `~/.config/claude/env` when
+it isn't already exported — `setup-token` writes it there but nothing loads it
+into a headless subprocess, so without this the CLI can't find the subscription
+and would either fall back to the API key (billed) or report "Not logged in".
 """
 from __future__ import annotations
 
@@ -47,7 +51,8 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import Any, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from ..models import ThreatPostResponse
 
@@ -62,6 +67,41 @@ logger = logging.getLogger(__name__)
 # silently charges the API key at Opus rates. If neither is stripped you pay
 # twice over: subscription AND metered API.
 _BILLING_ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+# The subscription token minted by `claude setup-token`. The CLI reads it from
+# the environment, but it's typically stored in `~/.config/claude/env` (an
+# `export CLAUDE_CODE_OAUTH_TOKEN=...` line) that NOTHING auto-loads into a
+# subprocess. So a headless `claude -p` finds neither this var nor a
+# `~/.claude/.credentials.json` and reports "Not logged in". We load it from
+# that file ourselves so subscription auth works for manual and systemd runs
+# alike, with no duplication of the secret into `.env` or the unit file.
+_OAUTH_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
+_DEFAULT_OAUTH_ENV_FILE = "~/.config/claude/env"
+
+
+def _load_env_file(path: str) -> Dict[str, str]:
+    """Parse a shell-style env file (`export KEY=VALUE` / `KEY=VALUE` lines).
+
+    Best-effort: a missing/unreadable file yields {}. Quotes are stripped;
+    comment and blank lines are skipped. We only need the OAuth token, but we
+    return everything so the caller can decide what to pull through.
+    """
+    out: Dict[str, str] = {}
+    try:
+        text = Path(path).expanduser().read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        out[key.strip()] = val.strip().strip("'\"")
+    return out
 
 
 # Appended to the (already schema-aware) system prompt. render_prompts() ends
@@ -95,6 +135,7 @@ class ClaudeCliProvider:
         timeout_seconds: int = 120,
         extra_args: Optional[List[str]] = None,
         use_subscription: bool = True,
+        oauth_env_file: Optional[str] = _DEFAULT_OAUTH_ENV_FILE,
     ) -> None:
         resolved = shutil.which(binary)
         if resolved is None:
@@ -114,6 +155,9 @@ class ClaudeCliProvider:
         # metered API. Set False only if you deliberately want API-key billing
         # (then AnthropicProvider is usually the better choice).
         self._use_subscription = use_subscription
+        # File to source CLAUDE_CODE_OAUTH_TOKEN from when it isn't already in
+        # the environment (default `~/.config/claude/env`). None disables it.
+        self._oauth_env_file = oauth_env_file
         # Cache the schema once — it's identical for every call.
         self._schema_json = json.dumps(
             ThreatPostResponse.model_json_schema(), ensure_ascii=False
@@ -142,12 +186,18 @@ class ClaudeCliProvider:
             cmd += ["--model", self._model]
         cmd += self._extra_args
 
-        # Force subscription (OAuth) auth by hiding the API-key env vars from
-        # the CLI. `.env` / systemd EnvironmentFile inject ANTHROPIC_API_KEY
-        # into our process; if the subprocess inherits it, `claude` silently
-        # bills the metered API at Opus rates instead of the subscription.
+        # Force subscription (OAuth) auth: (1) make sure the subscription token
+        # is present — load it from the Claude env file if it isn't already in
+        # the environment — and (2) hide the API-key vars so `claude` can't
+        # fall back to metered API billing. `.env` / systemd EnvironmentFile
+        # inject ANTHROPIC_API_KEY into our process; if the subprocess inherits
+        # it, `claude` silently bills the API at Opus rates.
         env = os.environ.copy()
         if self._use_subscription:
+            if self._oauth_env_file and _OAUTH_TOKEN_VAR not in env:
+                token = _load_env_file(self._oauth_env_file).get(_OAUTH_TOKEN_VAR)
+                if token:
+                    env[_OAUTH_TOKEN_VAR] = token
             for var in _BILLING_ENV_VARS:
                 env.pop(var, None)
 

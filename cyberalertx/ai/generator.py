@@ -301,6 +301,7 @@ def build_default_generator(
                     binary=cfg.claude_cli_bin,
                     model=cfg.claude_cli_model,
                     timeout_seconds=cfg.claude_cli_timeout,
+                    oauth_env_file=cfg.claude_cli_env_file or None,
                 )
             except RuntimeError as exc:
                 logger.warning("Claude CLI provider not available: %s", exc)

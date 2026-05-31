@@ -72,6 +72,13 @@ class AISettings:
     # typically returns in 10-40s; 120s is a generous ceiling before we give
     # up and fall back.
     claude_cli_timeout: int = int(os.getenv("CYBERALERTX_CLAUDE_CLI_TIMEOUT", "120"))
+    # Shell env file the subscription token (CLAUDE_CODE_OAUTH_TOKEN) is read
+    # from when it isn't already exported — `claude setup-token` writes it to
+    # `~/.config/claude/env`, which nothing loads into a headless subprocess.
+    # Empty string disables the lookup (rely on env / ~/.claude credentials).
+    claude_cli_env_file: str = os.getenv(
+        "CYBERALERTX_CLAUDE_CLI_ENV_FILE", "~/.config/claude/env",
+    )
     # OpenAI is stubbed in v1 — config exists so the abstraction is real.
     openai_model: str = os.getenv("CYBERALERTX_OPENAI_MODEL", "gpt-4o-mini")
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
