@@ -30,14 +30,21 @@ Switching back to Haiku is a one-liner: set `CYBERALERTX_AI_PROVIDER=anthropic`
 (the AnthropicProvider and all its logic are left fully intact).
 
 Operational note: the box that runs the pipeline must have the `claude` CLI
-installed AND logged in (`claude` once, interactively, or a token via
-`claude setup-token`). If it isn't, every render raises "Not logged in" and the
-generator quietly falls back to rule-based output.
+installed AND logged in via the OAuth **subscription** (`claude` once,
+interactively, or a token via `claude setup-token`). If it isn't, every render
+raises "Not logged in" and the generator quietly falls back to rule-based.
+
+Billing note (important): the CLI bills the metered API — NOT your subscription
+— whenever `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) is present in its
+environment. Since `.env` and the systemd `EnvironmentFile` inject that key, we
+strip it from the subprocess env (see `_BILLING_ENV_VARS`) so renders go through
+the subscription login. Without this the CLI silently charges Opus API rates.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 from typing import Any, List, Optional
@@ -45,6 +52,16 @@ from typing import Any, List, Optional
 from ..models import ThreatPostResponse
 
 logger = logging.getLogger(__name__)
+
+# Env vars that make the `claude` CLI authenticate (and BILL) via the
+# pay-per-token API instead of the user's OAuth subscription. We strip these
+# from the subprocess environment so headless renders go through the
+# subscription login (`claude` / `claude setup-token`) — the whole point of
+# using the CLI over AnthropicProvider. `.env` puts ANTHROPIC_API_KEY into the
+# process (and systemd injects it via EnvironmentFile), so without this the CLI
+# silently charges the API key at Opus rates. If neither is stripped you pay
+# twice over: subscription AND metered API.
+_BILLING_ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
 
 # Appended to the (already schema-aware) system prompt. render_prompts() ends
@@ -77,6 +94,7 @@ class ClaudeCliProvider:
         model: Optional[str] = None,
         timeout_seconds: int = 120,
         extra_args: Optional[List[str]] = None,
+        use_subscription: bool = True,
     ) -> None:
         resolved = shutil.which(binary)
         if resolved is None:
@@ -91,6 +109,11 @@ class ClaudeCliProvider:
         self._model = model
         self._timeout = timeout_seconds
         self._extra_args = list(extra_args or [])
+        # When True (default), strip ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN from
+        # the subprocess env so the CLI bills the OAuth subscription, not the
+        # metered API. Set False only if you deliberately want API-key billing
+        # (then AnthropicProvider is usually the better choice).
+        self._use_subscription = use_subscription
         # Cache the schema once — it's identical for every call.
         self._schema_json = json.dumps(
             ThreatPostResponse.model_json_schema(), ensure_ascii=False
@@ -119,6 +142,15 @@ class ClaudeCliProvider:
             cmd += ["--model", self._model]
         cmd += self._extra_args
 
+        # Force subscription (OAuth) auth by hiding the API-key env vars from
+        # the CLI. `.env` / systemd EnvironmentFile inject ANTHROPIC_API_KEY
+        # into our process; if the subprocess inherits it, `claude` silently
+        # bills the metered API at Opus rates instead of the subscription.
+        env = os.environ.copy()
+        if self._use_subscription:
+            for var in _BILLING_ENV_VARS:
+                env.pop(var, None)
+
         try:
             proc = subprocess.run(
                 cmd,
@@ -127,6 +159,7 @@ class ClaudeCliProvider:
                 text=True,
                 timeout=self._timeout,
                 check=False,
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
