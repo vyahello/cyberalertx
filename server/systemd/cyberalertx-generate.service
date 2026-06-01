@@ -37,11 +37,13 @@ User=cax
 Group=cax
 WorkingDirectory=/home/cax/cax
 EnvironmentFile=/home/cax/cax/.env
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 2 --use-llm
-# A 10-min cap is generous — 2 items typically render in ~20-40s. Beyond
-# 10 min something's wrong (rate-limited, hung connection); the timer
-# will retry on the next fire anyway.
-TimeoutStartSec=600
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 4 --use-llm
+# 4 items/fire (×4 fires/day = up to 16 renders/day) keeps the feed current
+# with the news cycle. Renders go through the OAuth subscription (no API
+# cost), so a higher limit isn't a billing concern — only a wall-clock one.
+# At ~20-40s/locale, 4 items × ~1.5 locales ≈ 2-4 min; the 15-min cap leaves
+# headroom for subscription latency before the timer gives up and retries.
+TimeoutStartSec=900
 StandardOutput=journal
 StandardError=journal
 

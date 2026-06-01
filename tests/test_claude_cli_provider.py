@@ -124,6 +124,33 @@ def test_use_subscription_false_keeps_api_key(monkeypatch):
     assert cap["env"]["ANTHROPIC_API_KEY"] == "sk-keep"
 
 
+def test_resolves_binary_from_fallback_dir_when_not_on_path(monkeypatch, tmp_path):
+    """When `claude` isn't on PATH (the systemd-minimal-PATH case), the
+    provider still finds it in a known install dir like ~/.local/bin."""
+    import cyberalertx.ai.providers.claude_cli_provider as mod
+
+    # Simulate a fake `claude` living in a dir that's NOT on PATH.
+    bindir = tmp_path / "localbin"
+    bindir.mkdir()
+    fake = bindir / "claude"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+
+    monkeypatch.setattr(mod.shutil, "which", lambda _b: None)  # nothing on PATH
+    monkeypatch.setattr(mod, "_FALLBACK_BIN_DIRS", (str(bindir),))
+
+    provider = ClaudeCliProvider(binary="claude")
+    assert provider._binary == str(fake)
+
+
+def test_missing_binary_everywhere_raises(monkeypatch):
+    import cyberalertx.ai.providers.claude_cli_provider as mod
+    monkeypatch.setattr(mod.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(mod, "_FALLBACK_BIN_DIRS", ())
+    with pytest.raises(RuntimeError, match="claude CLI not found"):
+        ClaudeCliProvider(binary="claude")
+
+
 def test_extract_json_object_handles_fences_and_prose():
     fenced = "prelude\n```json\n{\"a\": {\"b\": 1}}\n```\ntrailer"
     assert _extract_json_object(fenced) == '{"a": {"b": 1}}'

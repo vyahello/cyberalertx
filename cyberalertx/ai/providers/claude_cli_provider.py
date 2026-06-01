@@ -78,6 +78,39 @@ _BILLING_ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 _OAUTH_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 _DEFAULT_OAUTH_ENV_FILE = "~/.config/claude/env"
 
+# Where `claude` commonly installs. systemd runs services with a minimal PATH
+# (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`) that omits
+# ~/.local/bin — the npm-global default for the CLI. So a bare `claude` resolves
+# fine in an interactive shell but NOT under the timer, which silently dropped
+# us to rule-based (unpersisted) renders. We search these as a fallback so the
+# provider works without hard-coding an absolute path in every deployment.
+_FALLBACK_BIN_DIRS = (
+    "~/.local/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/opt/homebrew/bin",  # macOS dev boxes
+)
+
+
+def _resolve_binary(binary: str) -> Optional[str]:
+    """Find the `claude` executable, robust to a minimal PATH.
+
+    1. Normal PATH lookup (also handles an absolute/relative path with a
+       separator — `shutil.which` checks it directly).
+    2. If that misses AND `binary` is a bare name, probe common install dirs.
+    Returns the resolved path or None.
+    """
+    found = shutil.which(binary)
+    if found:
+        return found
+    if os.sep in binary:  # an explicit path was given and it wasn't executable
+        return None
+    for directory in _FALLBACK_BIN_DIRS:
+        candidate = os.path.join(os.path.expanduser(directory), binary)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
 
 def _load_env_file(path: str) -> Dict[str, str]:
     """Parse a shell-style env file (`export KEY=VALUE` / `KEY=VALUE` lines).
@@ -137,14 +170,15 @@ class ClaudeCliProvider:
         use_subscription: bool = True,
         oauth_env_file: Optional[str] = _DEFAULT_OAUTH_ENV_FILE,
     ) -> None:
-        resolved = shutil.which(binary)
+        resolved = _resolve_binary(binary)
         if resolved is None:
             # Mirror AnthropicProvider's "missing dep is a clear error, not
             # import death" contract: raise RuntimeError so the factory logs
             # it and stays offline (rule-based) instead of crashing.
             raise RuntimeError(
-                f"claude CLI not found on PATH (looked for {binary!r}). "
-                "Install Claude Code or set CYBERALERTX_CLAUDE_CLI_BIN to its path."
+                f"claude CLI not found (looked for {binary!r} on PATH and in "
+                f"{', '.join(_FALLBACK_BIN_DIRS)}). Install Claude Code or set "
+                "CYBERALERTX_CLAUDE_CLI_BIN to its absolute path."
             )
         self._binary = resolved
         self._model = model
