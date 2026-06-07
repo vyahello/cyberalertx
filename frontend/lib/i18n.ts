@@ -81,6 +81,10 @@ type StringTable = {
   detail_not_found_title: string;
   detail_not_found_hint: string;
   detail_action_panel_title: string;
+  // Share
+  share_label: string;
+  share_copy: string;
+  share_copied: string;
   // Intelligence layer (signals + corroboration + presets)
   intel_who_should_care: string;
   intel_potential_impact: string;
@@ -299,6 +303,9 @@ const EN: StringTable = {
   detail_not_found_hint:
     "This item may have been replaced, archived, or never existed.",
   detail_action_panel_title: "Take action",
+  share_label: "Share",
+  share_copy: "Copy link",
+  share_copied: "Copied",
   // --- intelligence layer ---
   intel_who_should_care: "Who should care",
   intel_potential_impact: "Potential impact",
@@ -448,6 +455,9 @@ const UK: StringTable = {
   detail_not_found_hint:
     "Можливо, її замінили, заархівували, або такої ніколи не існувало.",
   detail_action_panel_title: "Що зробити",
+  share_label: "Поділитися",
+  share_copy: "Скопіювати посилання",
+  share_copied: "Скопійовано",
   // --- intelligence layer ---
   intel_who_should_care: "Кого це стосується",
   intel_potential_impact: "Потенційний вплив",

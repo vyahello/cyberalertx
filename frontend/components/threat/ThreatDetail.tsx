@@ -9,6 +9,7 @@ import { FeedbackWidget } from "./FeedbackWidget";
 import { QuickFacts } from "./QuickFacts";
 import { References } from "./References";
 import { RelativeTime } from "./RelativeTime";
+import { ShareBar } from "@/components/share/ShareBar";
 import { ThreatBadge } from "./ThreatBadge";
 import { ThreatSnapshot } from "./ThreatSnapshot";
 import { strings } from "@/lib/i18n";
@@ -199,6 +200,12 @@ export function ThreatDetail({ post, lang }: Props) {
               </a>
             </div>
           )}
+
+          {/* Share row — copy link + Telegram / WhatsApp / X intents, plus
+              the native share sheet on mobile. */}
+          <div className="border-t border-border-subtle pt-6">
+            <ShareBar title={c.title} lang={lang} />
+          </div>
 
           {/* External references — CVE, CISA, vendor, CERT bulletins.
               Compact grid, opens in new tab. Only present on detail
