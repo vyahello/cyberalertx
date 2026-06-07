@@ -17,13 +17,15 @@
 
 # CyberAlertX
 
-Cybersecurity intel feed — RSS ingestion → AI editorial render → calm,
-scannable feed. Three questions per story: **what happened, who's hit,
-what to do**.
+Cybersecurity intel platform — RSS ingestion → AI editorial render → a calm,
+scannable **website** (en/ua) and auto-published **Telegram channels**. Three
+questions per story: **what happened, who's hit, what to do**.
 
 - **Backend** — Python 3.11+ (FastAPI + APScheduler + SQLAlchemy 2.0)
-- **Frontend** — Next.js 15 (App Router, ISR)
-- **AI** — Anthropic Claude Haiku (optional; pipeline runs offline by default)
+- **Frontend** — Next.js 15 (App Router, ISR), bilingual `en` / `ua`
+- **AI** — local Claude CLI (subscription) with a deterministic rule-based
+  fallback; Anthropic API path optional. Pipeline runs offline by default.
+- **Distribution** — website + Telegram channels (EN + UA)
 - **Storage** — JSON (authoritative) + PostgreSQL via Supabase (shadow-write,
   JSON-first reads with PG fallback)
 
@@ -95,37 +97,31 @@ migrations before flipping `STORAGE_BACKEND=dual`.
 
 ## Architecture
 
+CyberAlertX is a **batch pipeline**, not a monolith — five small services,
+each with one job, that hand work to each other through shared storage:
+
 ```
-                ┌─────────────────────────────────────────────┐
-RSS feeds ────▶ │  Pipeline: ingest → filter → rank → store   │
-                │                                             │
-                │            ContentGenerator                 │
-                │  rule-based  ←  optional Anthropic LLM      │
-                │                                             │
-                │            ThreatPost cache                 │
-                │       JSON (auth)  +  PostgreSQL (shadow)   │
-                └──────────────────┬──────────────────────────┘
-                                   │
-                              FastAPI surface
-                          /posts (newest 15, AI-only)
-                          /posts/{id}, /posts/trending
-                                   │
-                                   ▼
-                        ┌────────────────────┐
-                        │   Next.js App      │
-                        │   /[locale]/...    │  ← en, ua
-                        └────────────────────┘
+RSS ─▶ [ ingest ] ─▶ items.json ─▶ [ generate ] ─▶ threat_posts ───┬──▶ [ API ] ─▶ [ website ]
+        every 15m       (raw)         every 6h        (rendered)   │
+         no AI        + Claude CLI                                 └─▶ [ telegram ] ─▶ channels
+                                                                        every 6h+15m    en · ua
 ```
 
-**Three-stage offline architecture:**
+| Service | Cadence | Job |
+|---|---|---|
+| **run** | every 15 min | Ingest pipeline: RSS → filter → enrich → rank → store. Deterministic, free. |
+| **generate** | every 6 h | Renders raw items into localized posts via the Claude CLI. **The only thing that calls AI.** |
+| **api** | always-on | Read-only FastAPI feed (`/posts`, `/healthz`). Serves cached renders. |
+| **frontend** | always-on | Next.js website (en / ua), SSR + 60 s ISR. |
+| **telegram** | every 6 h +15 min | Publishes qualifying cached posts to the Telegram channels. |
 
-| Stage | Cost | Trigger | What happens |
-|---|---|---|---|
-| `ingest` (`once` / `run`) | free | manual or scheduled | RSS → enrich → store |
-| `render` (`generate --use-llm`) | paid (Anthropic) | manual | AI journalist render, cached |
-| `serve` | free | API requests | cache-hit only, no live AI calls |
+**The golden rule:** AI is expensive, so it runs in exactly one place —
+`generate`. Ingest, the API, the website, and Telegram only ever *read* what
+`generate` already produced. That's what keeps the bill predictable.
 
-The serve path **never** calls Anthropic. Only the `generate` CLI does.
+> 📖 **Full picture** — component diagram, data stores, one story's end-to-end
+> lifecycle, the Telegram publish path, and the request / Open-Graph flows:
+> **[docs/architecture.md](docs/architecture.md)**.
 
 ---
 
@@ -223,6 +219,19 @@ Endpoints:
 - `GET /posts/{id}` — detail page; renders fallback if cache miss
 - `POST /feedback` — thumbs-up/down signal collection
 - `GET /admin/metrics`, `/admin/sources` — JSON observability
+
+### `publish-telegram` — post to the Telegram channels
+
+```bash
+python -m cyberalertx.main publish-telegram --dry-run      # preview, sends nothing
+python -m cyberalertx.main publish-telegram --limit 5      # publish up to 5 / channel
+python -m cyberalertx.main publish-telegram --language ua  # one channel only
+```
+
+Sends already-rendered, high-signal posts (High/Critical or urgent, from
+trusted sources) to the EN/UA channels. Reuses the cache-only serve path —
+**never calls AI**. Idempotent via `data/telegram_published.jsonl`. Full
+setup + deploy: [`server/README.md`](server/README.md) → "Telegram publishing".
 
 ---
 
