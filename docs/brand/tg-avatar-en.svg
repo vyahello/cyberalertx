@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CyberAlertX EN channel">
+  <!-- Telegram channel avatar (EN). Square master, rendered as a circle by
+       Telegram — all key content sits inside the central safe circle.
+       Same Aperture identity as docs/banner.svg / the frontend brand mark. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#061523"/>
+      <stop offset="100%" stop-color="#0B0E12"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="44%" r="58%">
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#00E5FF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#FFFFFF" fill-opacity="0.05"/>
+    </pattern>
+  </defs>
+
+  <!-- Full-bleed background so the circular crop has no corners showing -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#grid)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- Aperture glyph, centered & enlarged. Master 100×100 grid scaled to 300px. -->
+  <g transform="translate(106 96)">
+    <svg viewBox="0 0 100 100" width="300" height="300">
+      <g fill="none" stroke="#EAF4FF" stroke-width="3.5">
+        <circle cx="50" cy="50" r="42" opacity="0.22"/>
+        <circle cx="50" cy="50" r="30" opacity="0.45"/>
+        <circle cx="50" cy="50" r="18" opacity="0.7"/>
+      </g>
+      <circle cx="50" cy="50" r="5" fill="#EAF4FF"/>
+      <!-- cyan alert ping -->
+      <circle cx="76" cy="24" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.35"/>
+      <circle cx="76" cy="24" r="9" fill="#00E5FF"/>
+    </svg>
+  </g>
+
+  <!-- Locale tag — small, inside the safe circle, distinguishes EN vs UA -->
+  <text x="256" y="436" text-anchor="middle"
+        font-family="'Space Grotesk', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="58" font-weight="700" letter-spacing="0.18em"
+        fill="#EAF4FF">EN</text>
+</svg>
