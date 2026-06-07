@@ -15,7 +15,9 @@ server/
 │   ├── cyberalertx-run.service            APScheduler ingest every 15 min
 │   ├── cyberalertx-frontend.service       Next.js on 127.0.0.1:3000
 │   ├── cyberalertx-generate.service       AI render one-shot (fires from timer)
-│   └── cyberalertx-generate.timer         Every 6h, runs the generate one-shot
+│   ├── cyberalertx-generate.timer         Every 6h, runs the generate one-shot
+│   ├── cyberalertx-telegram.service       Telegram publish one-shot (fires from timer)
+│   └── cyberalertx-telegram.timer         Every 6h (+15m), publishes to TG channels
 ├── nginx/
 │   └── cyberalertx.conf                   reverse proxy + SSL
 ├── scripts/
@@ -71,6 +73,8 @@ all logs to journald, all gated by the same `.env` at `<app-dir>/.env`.
 | `cyberalertx-frontend` | simple | always-on | Next.js production server on `127.0.0.1:3000`. SSR + ISR (60s window). | No |
 | `cyberalertx-generate.service` | oneshot | fires from timer | Runs `generate --limit 2 --use-llm` — top-2 newest uncached items get an AI render. | **Yes** |
 | `cyberalertx-generate.timer` | timer | every 6h (00, 06, 12, 18 UTC) | Activates the generate one-shot. Persistent (catches up after reboots). | n/a |
+| `cyberalertx-telegram.service` | oneshot | fires from timer | Runs `publish-telegram` — sends qualifying *already-rendered* posts to the EN/UA Telegram channels. Idempotent via `data/telegram_published.jsonl`. | No |
+| `cyberalertx-telegram.timer` | timer | every 6h, +15m (00:15, 06:15, 12:15, 18:15 UTC) | Activates the publish one-shot 15 min after generate, so freshly rendered posts go out same cycle. Persistent. | n/a |
 
 Memory budget on a small VPS (~2 GB RAM):
 
@@ -278,6 +282,74 @@ python -m server.scripts.refresh_feed
 
 Cost of `--regen` at default 20-cap: ~20 items × 1.5 locales × $0.009 ≈
 **~$0.30** on Haiku. Do this rarely — once per prompt iteration.
+
+---
+
+## Telegram publishing
+
+Sends high-signal, already-AI-rendered posts to Telegram channels. Like AI
+render, it's a **timer-fired one-shot** — decoupled from ingest and from the
+render path. It never calls Anthropic (it only publishes posts `generate`
+already rendered) and is idempotent via a JSONL ledger
+(`data/telegram_published.jsonl`), so re-runs and reboot catch-ups never
+double-post.
+
+### What gets published
+
+A post is sent to a channel iff **all** hold:
+- it has a persisted AI render in that channel's locale (`generate` ran for it);
+- `source_tier ∈ {trusted, verified}`;
+- `threat_level ≥ CYBERALERTX_TELEGRAM_MIN_LEVEL` (default `High`) **OR**
+  `actionability_level == urgent_action`;
+- it isn't already in the publish ledger.
+
+EN channel = English-source items only. UA channel = English-source (UA
+translation) **plus** Ukrainian-source items — same asymmetric rule as the site.
+
+### One-time setup
+
+1. **Create the bot + channels.** In Telegram, talk to **@BotFather** →
+   `/newbot` → copy the token. Create your channel(s), then **add the bot as an
+   administrator** of each (required for `sendMessage` to a channel).
+2. **Add secrets to `<app-dir>/.env`** (then `chmod 600 .env`):
+   ```bash
+   CYBERALERTX_TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
+   CYBERALERTX_TELEGRAM_CHANNEL_EN=@your_en_channel      # or a numeric -100… id
+   CYBERALERTX_TELEGRAM_CHANNEL_UA=@your_ua_channel      # optional — omit to disable UA
+   # Optional tuning:
+   # CYBERALERTX_TELEGRAM_MIN_LEVEL=High                 # Low|Medium|High|Critical
+   # CYBERALERTX_TELEGRAM_LIMIT=5                         # max sends per channel per fire
+   # CYBERALERTX_PUBLIC_BASE_URL=https://cyberalertx.com  # deep-link base
+   ```
+3. **Preview before going live** (no messages sent):
+   ```bash
+   cd <app-dir> && source venv/bin/activate
+   python -m cyberalertx.main publish-telegram --dry-run
+   # narrow it: --language en   |   cap it: --limit 2
+   ```
+4. **Send for real once** to confirm formatting in-channel:
+   ```bash
+   python -m cyberalertx.main publish-telegram --limit 1
+   ```
+5. **Install + enable the timer:**
+   ```bash
+   sudo cp <app-dir>/server/systemd/cyberalertx-telegram.* /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now cyberalertx-telegram.timer
+   ```
+
+### Control & inspect
+
+| Action | Command |
+|---|---|
+| Show next fire | `systemctl list-timers --no-pager \| grep telegram` |
+| Trigger now | `sudo systemctl start cyberalertx-telegram.service` |
+| Last fire result | `sudo journalctl -u cyberalertx-telegram.service --since "24h ago"` |
+| Pause publishing | `sudo systemctl disable --now cyberalertx-telegram.timer` |
+| What's been sent | `tail <app-dir>/data/telegram_published.jsonl` |
+
+To re-publish a post that was already sent (e.g. after fixing its render),
+delete its line from `data/telegram_published.jsonl` and fire the service.
 
 ---
 

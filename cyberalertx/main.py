@@ -286,6 +286,26 @@ def _required_locales_for(item, forced_language: str | None) -> tuple[str, ...]:
     return ("ua",) if source_lang == "ua" else ("en", "ua")
 
 
+def cmd_publish_telegram(args: argparse.Namespace) -> int:
+    """Publish qualifying AI-rendered posts to the Telegram channels.
+
+    Selects already-rendered posts above the configured severity/urgency bar
+    from trusted/verified sources, skips anything already in the publish
+    ledger, and sends the rest. Never calls Anthropic (reuses the cost-safe
+    `_PostService`). `--dry-run` prints what would be sent without touching
+    Telegram — run it before the first real fire to confirm the selection.
+    """
+    from .publish.service import publish_once
+
+    result = publish_once(
+        limit=args.limit if args.limit and args.limit > 0 else None,
+        language=args.language,
+        dry_run=args.dry_run,
+    )
+    print(f"[cyberalertx publish-telegram] {result}", file=sys.stderr)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cyberalertx", description="CyberAlertX data layer")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -324,6 +344,24 @@ def main(argv: Sequence[str] | None = None) -> int:
              "Use this before every real run to confirm the token budget.",
     )
 
+    tg_p = sub.add_parser(
+        "publish-telegram",
+        help="Publish qualifying AI-rendered posts to the Telegram channels",
+    )
+    tg_p.add_argument(
+        "--limit", type=int, default=0,
+        help="Max sends per channel this run (default: from "
+             "CYBERALERTX_TELEGRAM_LIMIT / 5).",
+    )
+    tg_p.add_argument("--language", choices=["en", "ua"], default=None,
+                      help="Restrict to a single channel locale (default: all "
+                           "configured channels).")
+    tg_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the messages that would be sent without calling Telegram. "
+             "Run this before the first real publish to confirm selection.",
+    )
+
     serve_p = sub.add_parser("serve", help="Start the HTTP API (FastAPI/uvicorn)")
     serve_p.add_argument("--host", default="127.0.0.1",
                          help="Bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
@@ -339,6 +377,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "run": cmd_run,
         "top": cmd_top,
         "generate": cmd_generate,
+        "publish-telegram": cmd_publish_telegram,
         "serve": cmd_serve,
     }[args.cmd](args)
 

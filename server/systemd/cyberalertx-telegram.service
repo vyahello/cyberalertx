@@ -1,0 +1,43 @@
+# /etc/systemd/system/cyberalertx-telegram.service
+#
+# Telegram publisher — one-shot helper invoked by cyberalertx-telegram.timer.
+#
+# Runs `publish-telegram`: selects already-AI-rendered posts above the
+# severity/urgency bar from trusted/verified sources, skips anything already
+# in data/telegram_published.jsonl, and sends the rest to the EN/UA channels.
+#
+# NEVER calls Anthropic — it reuses the cost-safe _PostService, so only posts
+# already rendered by cyberalertx-generate are eligible. An un-rendered item
+# is simply skipped (and picked up on a later fire once it's been rendered).
+#
+# Idempotent: every successful send is recorded in the JSONL ledger, so a
+# re-run (or a catch-up after downtime) never double-posts.
+#
+# Requires these keys in <app-dir>/.env:
+#   CYBERALERTX_TELEGRAM_BOT_TOKEN   (from @BotFather)
+#   CYBERALERTX_TELEGRAM_CHANNEL_EN  (e.g. @cyberalertx_en or a numeric id)
+#   CYBERALERTX_TELEGRAM_CHANNEL_UA  (optional; omit to disable the UA channel)
+# Optional tuning:
+#   CYBERALERTX_TELEGRAM_MIN_LEVEL=High   (Low|Medium|High|Critical)
+#   CYBERALERTX_TELEGRAM_LIMIT=5          (max sends per channel per fire)
+#
+# The bot must be an ADMIN of each channel for sendMessage to succeed.
+
+[Unit]
+Description=CyberAlertX Telegram publisher (one-shot, fired by timer)
+After=network.target cyberalertx-api.service
+Wants=cyberalertx-api.service
+
+[Service]
+Type=oneshot
+User=cax
+Group=cax
+WorkingDirectory=/home/cax/cax
+EnvironmentFile=/home/cax/cax/.env
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main publish-telegram
+# A handful of HTTP calls with ~1s pacing — generous ceiling before retry.
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+
+# No [Install] — this is started by the .timer unit, not on boot.
