@@ -39,7 +39,37 @@ const mono = JetBrains_Mono({
   weight: ["400", "500"],
 });
 
-export const metadata: Metadata = {
+// Per-locale Open Graph card. The image, OG locale tag, and social
+// description all switch by locale so a shared UA link renders a Ukrainian
+// preview (image + copy) instead of the English default. Regenerate the PNGs
+// from the SVG masters with `npm run brand:png` (og-mark.svg → og-image.png,
+// og-mark-ua.svg → og-image-ua.png).
+const OG_BY_LOCALE: Record<
+  string,
+  { image: string; ogLocale: string; description: string; alt: string }
+> = {
+  en: {
+    image: "/brand/og-image.png",
+    ogLocale: "en_US",
+    description: "We see — and we surface what matters.",
+    alt: "CyberAlertX — We see and we surface what matters",
+  },
+  ua: {
+    image: "/brand/og-image-ua.png",
+    ogLocale: "uk_UA",
+    description: "Ми бачимо — і показуємо те, що важливо.",
+    alt: "CyberAlertX — Ми бачимо і показуємо те, що важливо",
+  },
+};
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const og = OG_BY_LOCALE[locale] ?? OG_BY_LOCALE.en;
+  return {
   title: "CyberAlertX — Cyber threats. Before they hit you.",
   description:
     "Today's cybersecurity threats in plain English. What happened, who it hits, and what to do — without the panic or the jargon.",
@@ -77,18 +107,19 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "CyberAlertX",
-    description: "We see — and we surface what matters.",
+    description: og.description,
     type: "website",
     siteName: "CyberAlertX",
+    locale: og.ogLocale,
     // PNG — every social-card crawler (Twitter, LinkedIn, Slack, Facebook,
     // Discord) prefers raster over SVG. Regenerate via the npm script:
     //   cd frontend && npm run brand:png
     images: [
       {
-        url: "/brand/og-image.png",
+        url: og.image,
         width: 1200,
         height: 630,
-        alt: "CyberAlertX — We see and we surface what matters",
+        alt: og.alt,
         type: "image/png",
       },
     ],
@@ -96,10 +127,11 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "CyberAlertX",
-    description: "We see — and we surface what matters.",
-    images: ["/brand/og-image.png"],
+    description: og.description,
+    images: [og.image],
   },
-};
+  };
+}
 
 export const viewport: Viewport = {
   // Matches `--brand-bg` in globals.css. Used by mobile browsers for the
