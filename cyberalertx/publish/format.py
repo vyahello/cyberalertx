@@ -11,6 +11,13 @@ keyed by locale. We pull the requested locale's text content from there.
 from __future__ import annotations
 
 import html
+import re
+
+# Bare CVE identifiers (e.g. "CVE-2026-45247") that the AI writes into the
+# summary / quick facts are plain text — Telegram doesn't auto-link them. We
+# turn each into a link to its canonical NVD page (the URL is deterministic
+# from the id, so this needs no lookup against the references array).
+_CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 
 # Severity → leading emoji. Calm, not alarmist (matches the product's
 # "alert, not alarmed" design language).
@@ -32,6 +39,24 @@ _MAX_SUMMARY_CHARS = 600
 def _esc(text: str) -> str:
     """Escape the three characters that are special in Telegram HTML mode."""
     return html.escape(text or "", quote=False)
+
+
+def _linkify_cves(escaped_text: str) -> str:
+    """Wrap CVE identifiers in a link to their NVD detail page.
+
+    Runs on already-escaped text. CVE ids contain only `[A-Z0-9-]`, so they're
+    untouched by HTML-escaping and safe to match/wrap here without re-escaping.
+    """
+    def _repl(m: re.Match[str]) -> str:
+        cve = m.group(0).upper()
+        return f'<a href="https://nvd.nist.gov/vuln/detail/{cve}">{m.group(0)}</a>'
+
+    return _CVE_RE.sub(_repl, escaped_text)
+
+
+def _text(raw: str) -> str:
+    """Escape then linkify CVEs — the standard treatment for body text."""
+    return _linkify_cves(_esc(raw))
 
 
 def deep_link(base_url: str, locale: str, fingerprint: str) -> str:
@@ -64,15 +89,15 @@ def render_message(payload: dict, *, locale: str, base_url: str) -> str:
     link = deep_link(base_url, locale, fingerprint)
     read_more = "Читати більше" if locale == "ua" else "Read more"
 
-    lines: list[str] = [f"{emoji} <b>{_esc(title)}</b>"]
+    lines: list[str] = [f"{emoji} <b>{_text(title)}</b>"]
     if summary:
         lines.append("")
-        lines.append(_esc(summary))
+        lines.append(_text(summary))
 
     facts = [f for f in (content.get("quick_facts") or []) if f][:_MAX_QUICK_FACTS]
     if facts:
         lines.append("")
-        lines.extend(f"• {_esc(str(f))}" for f in facts)
+        lines.extend(f"• {_text(str(f))}" for f in facts)
 
     lines.append("")
     lines.append(f'🔗 <a href="{_esc(link)}">{read_more}</a>')

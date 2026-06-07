@@ -156,6 +156,22 @@ def test_render_message_escapes_html() -> None:
     assert "&amp;" in msg
 
 
+def test_render_message_linkifies_cve_ids() -> None:
+    item = _item("cve")
+    payload = _payload(
+        item, "ua",
+        title="ABB AC500 V3 RCE",
+        summary="Критична вразливість CVE-2025-15467 дозволяє RCE.",
+        facts=["CVE-2025-2595: обхід автентифікації", "cve-2025-41691 DoS"],
+    )
+    msg = render_message(payload, locale="ua", base_url="https://cyberalertx.com")
+    # Each CVE id becomes an NVD link; the visible label keeps its casing.
+    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-15467">CVE-2025-15467</a>' in msg
+    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-2595">CVE-2025-2595</a>' in msg
+    # Lowercase input → uppercased URL, original-case label.
+    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-41691">cve-2025-41691</a>' in msg
+
+
 def test_render_message_ua_uses_localized_cta() -> None:
     item = _item("c", language="ua")
     payload = _payload(item, "ua", title="Заголовок", summary="Опис.")
