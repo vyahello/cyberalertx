@@ -15,7 +15,7 @@ import pytest
 
 from cyberalertx.models import NewsItem
 from cyberalertx.publish.config import TelegramSettings
-from cyberalertx.publish.format import deep_link, render_message
+from cyberalertx.publish.format import deep_link, quality_problem, render_message
 from cyberalertx.publish.ledger import PublishLedger
 from cyberalertx.publish.service import publish_once, qualifies
 from cyberalertx.publish.telegram import TelegramError
@@ -39,9 +39,11 @@ def _item(url_id: str, *, language: str = "en", tier: str = "trusted",
 def _payload(item: NewsItem, locale: str, *, level: str = "High",
              actionability: str = "informational",
              title: str = "Title", summary: str = "A summary.",
-             facts: list[str] | None = None) -> dict[str, Any]:
+             facts: list[str] | None = None,
+             source: str = "BleepingComputer") -> dict[str, Any]:
     return {
         "id": item.fingerprint,
+        "source": source,
         "threat_level": level,
         "actionability_level": actionability,
         "translations": {
@@ -187,6 +189,62 @@ def test_render_message_missing_translation_raises() -> None:
         render_message(payload, locale="ua", base_url="https://cyberalertx.com")
 
 
+def test_render_message_includes_source_attribution() -> None:
+    item = _item("s")
+    payload = _payload(item, "en", source="Krebs on Security")
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "· Krebs on Security" in msg
+
+
+# --------------------- pre-send quality gate ------------------------------
+
+def test_quality_problem_passes_good_post() -> None:
+    item = _item("g")
+    payload = _payload(item, "ua", title="Критична вразливість у ABB",
+                       summary="CISA повідомляє про серйозну проблему.")
+    assert quality_problem(payload, locale="ua") is None
+
+
+def test_quality_problem_flags_missing_translation() -> None:
+    item = _item("g")
+    payload = _payload(item, "en")
+    assert quality_problem(payload, locale="ua") is not None
+
+
+def test_quality_problem_flags_wrong_script_summary() -> None:
+    item = _item("g")
+    # UA title but an English summary body — the half-translated case render()
+    # doesn't catch (it only script-checks the title).
+    payload = _payload(
+        item, "ua",
+        title="Критична вразливість у системі керування ABB AC500",
+        summary="CISA reports a critical remote code execution vulnerability "
+                "affecting industrial controllers worldwide right now.",
+    )
+    assert quality_problem(payload, locale="ua") is not None
+
+
+def test_publish_once_skips_invalid_post(tmp_path: Path) -> None:
+    item = _item("u", language="ua")
+    # Wrong-script summary → should be gated out, not sent.
+    payload = _payload(
+        item, "ua", level="Critical",
+        title="Критична вразливість у промисловому контролері ABB AC500 V3",
+        summary="A long English sentence that clearly is not Ukrainian text "
+                "at all and should trip the wrong-script summary guard here.",
+    )
+    svc = _FakeService([item], {(item.fingerprint, "ua"): payload})
+    led = PublishLedger(tmp_path / "pub.jsonl")
+    pub = _FakePublisher()
+    result = publish_once(
+        settings=_settings(channels={"ua": "@cax_ua"}),
+        service=svc, ledger=led, publisher=pub,
+    )
+    assert result.sent == 0
+    assert result.skipped_invalid == 1
+    assert pub.sent == []
+
+
 # --------------------- ledger ---------------------------------------------
 
 def test_ledger_records_and_dedups(tmp_path: Path) -> None:
@@ -313,12 +371,17 @@ def test_publish_once_excludes_unverified_tier(tmp_path: Path) -> None:
 def test_publish_once_language_gate_ua_item_not_on_en_channel(tmp_path: Path) -> None:
     ua_item = _item("u", language="ua")
     en_item = _item("e", language="en")
+    # UA payloads need real Ukrainian text or the pre-send quality gate
+    # (wrong-script guard) would correctly drop them — this test is about
+    # channel routing, not content quality.
+    ua_text = dict(title="Критична вразливість у системі ABB AC500",
+                   summary="CISA повідомляє про серйозну загрозу безпеці.")
     svc = _FakeService(
         [ua_item, en_item],
         {
-            (ua_item.fingerprint, "ua"): _payload(ua_item, "ua", level="High"),
+            (ua_item.fingerprint, "ua"): _payload(ua_item, "ua", level="High", **ua_text),
             (en_item.fingerprint, "en"): _payload(en_item, "en", level="High"),
-            (en_item.fingerprint, "ua"): _payload(en_item, "ua", level="High"),
+            (en_item.fingerprint, "ua"): _payload(en_item, "ua", level="High", **ua_text),
         },
     )
     led = PublishLedger(tmp_path / "pub.jsonl")

@@ -22,7 +22,7 @@ from typing import Any
 
 from ..config import DATA_DIR
 from .config import LEVEL_WEIGHT, TelegramSettings, build_telegram_settings
-from .format import render_message
+from .format import quality_problem, render_message
 from .ledger import PublishLedger
 from .telegram import TelegramError, TelegramPublisher
 
@@ -46,6 +46,7 @@ class PublishResult:
     skipped_already: int = 0
     skipped_filtered: int = 0
     skipped_uncached: int = 0
+    skipped_invalid: int = 0
     errors: int = 0
     dry_run: bool = False
     by_channel: dict[str, int] = field(default_factory=dict)
@@ -56,7 +57,8 @@ class PublishResult:
         return (
             f"{mode}sent={self.sent} ({per}) "
             f"already={self.skipped_already} filtered={self.skipped_filtered} "
-            f"uncached={self.skipped_uncached} errors={self.errors}"
+            f"uncached={self.skipped_uncached} invalid={self.skipped_invalid} "
+            f"errors={self.errors}"
         )
 
 
@@ -168,6 +170,15 @@ def publish_once(
                     continue
                 if not qualifies(payload, settings):
                     result.skipped_filtered += 1
+                    continue
+                # Pre-send quality gate — never ship a half-translated or
+                # empty card, even if it's cached and qualifies on severity.
+                problem = quality_problem(payload, locale=locale)
+                if problem:
+                    logger.info(
+                        "skipping %s/%s — %s", item.fingerprint, locale, problem,
+                    )
+                    result.skipped_invalid += 1
                     continue
 
                 try:

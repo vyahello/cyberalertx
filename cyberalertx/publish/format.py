@@ -64,6 +64,39 @@ def deep_link(base_url: str, locale: str, fingerprint: str) -> str:
     return f"{base_url.rstrip('/')}/{locale}/threat/{fingerprint}"
 
 
+def quality_problem(payload: dict, *, locale: str) -> str | None:
+    """Return a reason string if this post shouldn't be published, else None.
+
+    A pre-send gate that runs BEFORE formatting. The render path already drops
+    wrong-script *titles* per locale, but not summaries — and a stale cache
+    entry can still carry an English body on a UA-target render. We re-check
+    both here so a half-translated card never reaches the channel.
+
+    Checks (cheap, deterministic):
+      * the requested locale has a translation with a non-empty title
+      * neither the title nor the summary is in the wrong script for the locale
+    """
+    content = (payload.get("translations") or {}).get(locale)
+    if not content:
+        return f"no '{locale}' translation"
+
+    title = (content.get("title") or "").strip()
+    if not title:
+        return "empty title"
+
+    # Local import keeps the ai → publish dependency one-way and off the hot path.
+    from ..ai.validation import _wrong_script_for_language
+
+    if _wrong_script_for_language(title, locale):
+        return f"title in wrong script for {locale!r}"
+
+    summary = (content.get("short_summary") or "").strip()
+    if summary and _wrong_script_for_language(summary, locale):
+        return f"summary in wrong script for {locale!r}"
+
+    return None
+
+
 def render_message(payload: dict, *, locale: str, base_url: str) -> str:
     """Build the HTML message body for one post in one locale.
 
@@ -99,10 +132,17 @@ def render_message(payload: dict, *, locale: str, base_url: str) -> str:
         lines.append("")
         lines.extend(f"• {_text(str(f))}" for f in facts)
 
+    # Footer: read-more link + source attribution. The source name is a brand
+    # (BleepingComputer, CISA, itc.ua) — no translation, just a middot so the
+    # reader knows who reported it.
+    footer = f'🔗 <a href="{_esc(link)}">{read_more}</a>'
+    source = (payload.get("source") or "").strip()
+    if source:
+        footer += f" · {_esc(source)}"
     lines.append("")
-    lines.append(f'🔗 <a href="{_esc(link)}">{read_more}</a>')
+    lines.append(footer)
 
     return "\n".join(lines)
 
 
-__all__ = ["render_message", "deep_link"]
+__all__ = ["render_message", "deep_link", "quality_problem"]
