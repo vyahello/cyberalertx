@@ -189,11 +189,14 @@ def test_render_message_missing_translation_raises() -> None:
         render_message(payload, locale="ua", base_url="https://cyberalertx.com")
 
 
-def test_render_message_includes_source_attribution() -> None:
+def test_render_message_omits_source_attribution() -> None:
+    # The original source is deliberately NOT appended to the footer — it would
+    # read as if the 'Read more' link points at the source rather than our site.
     item = _item("s")
     payload = _payload(item, "en", source="Krebs on Security")
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "· Krebs on Security" in msg
+    assert "Krebs on Security" not in msg
+    assert "· " not in msg
 
 
 # --------------------- pre-send quality gate ------------------------------

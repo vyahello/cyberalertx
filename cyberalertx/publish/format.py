@@ -132,15 +132,12 @@ def render_message(payload: dict, *, locale: str, base_url: str) -> str:
         lines.append("")
         lines.extend(f"• {_text(str(f))}" for f in facts)
 
-    # Footer: read-more link + source attribution. The source name is a brand
-    # (BleepingComputer, CISA, itc.ua) — no translation, just a middot so the
-    # reader knows who reported it.
-    footer = f'🔗 <a href="{_esc(link)}">{read_more}</a>'
-    source = (payload.get("source") or "").strip()
-    if source:
-        footer += f" · {_esc(source)}"
+    # Footer: just the read-more link to our own detail page. We intentionally
+    # do NOT append the original source here — it sits right after a link that
+    # points at our site, which reads as if the link goes to the source. The
+    # AI summary already names the outlet ("BleepingComputer повідомляє…").
     lines.append("")
-    lines.append(footer)
+    lines.append(f'🔗 <a href="{_esc(link)}">{read_more}</a>')
 
     return "\n".join(lines)
 
