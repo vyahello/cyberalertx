@@ -29,6 +29,11 @@ def _setup_logging(verbose: bool) -> None:
         level=level,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    # httpx logs every request URL at INFO. For the Telegram publisher that URL
+    # embeds the bot token (`/bot<token>/sendMessage`), which would leak the
+    # secret into journald. Quiet it to WARNING — the request URLs carry no
+    # diagnostic value the app doesn't already log itself.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _build_pipeline() -> Pipeline:

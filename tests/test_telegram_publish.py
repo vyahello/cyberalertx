@@ -18,6 +18,7 @@ from cyberalertx.publish.config import TelegramSettings
 from cyberalertx.publish.format import deep_link, render_message
 from cyberalertx.publish.ledger import PublishLedger
 from cyberalertx.publish.service import publish_once, qualifies
+from cyberalertx.publish.telegram import TelegramError
 
 
 # --------------------- helpers --------------------------------------------
@@ -90,6 +91,21 @@ class _FakePublisher:
         self._next_id += 1
         self.sent.append((chat_id, text))
         return self._next_id
+
+    def close(self) -> None:
+        pass
+
+
+class _FailingPublisher:
+    """Always raises a given TelegramError; counts how many sends were tried."""
+
+    def __init__(self, error: TelegramError) -> None:
+        self._error = error
+        self.attempts = 0
+
+    def send_message(self, chat_id: str, text: str, **_kw: Any) -> int:
+        self.attempts += 1
+        raise self._error
 
     def close(self) -> None:
         pass
@@ -323,4 +339,65 @@ def test_publish_once_no_channels_is_noop(tmp_path: Path) -> None:
     svc = _FakeService([], {})
     led = PublishLedger(tmp_path / "pub.jsonl")
     result = publish_once(settings=_settings(channels={}), service=svc, ledger=led)
+    assert result.sent == 0
+
+
+# --------------------- error classification + early-abort -----------------
+
+def test_telegram_error_channel_fatal_classification() -> None:
+    assert TelegramError("x", status_code=403,
+                         description="bot is not a member").is_channel_fatal
+    assert TelegramError("x", status_code=401,
+                         description="Unauthorized").is_channel_fatal
+    assert TelegramError("x", status_code=400,
+                         description="Bad Request: chat not found").is_channel_fatal
+    # A generic 400 (e.g. a bad message body) is NOT channel-fatal — it's
+    # item-specific, so the run should move on to the next post.
+    assert not TelegramError("x", status_code=400,
+                             description="message text is empty").is_channel_fatal
+    assert not TelegramError("x", status_code=429,
+                             description="Too Many Requests").is_channel_fatal
+
+
+def test_publish_once_aborts_channel_on_chat_not_found(tmp_path: Path) -> None:
+    """A 'chat not found' must stop after ONE attempt, not retry every item —
+    this is the retry-storm guard."""
+    items = [_item(f"i{n}", published=datetime(2026, 5, n + 1, tzinfo=timezone.utc))
+             for n in range(20)]
+    rendered = {
+        (it.fingerprint, "en"): _payload(it, "en", level="Critical") for it in items
+    }
+    svc = _FakeService(items, rendered)
+    led = PublishLedger(tmp_path / "pub.jsonl")
+    pub = _FailingPublisher(
+        TelegramError("nope", status_code=400, description="chat not found")
+    )
+    result = publish_once(
+        settings=_settings(channels={"en": "@cax_en"}),
+        service=svc, ledger=led, publisher=pub,
+    )
+    assert pub.attempts == 1          # aborted immediately, did NOT hammer all 20
+    assert result.errors == 1
+    assert result.sent == 0
+
+
+def test_publish_once_continues_past_item_level_error(tmp_path: Path) -> None:
+    """A non-fatal (item-specific) error skips that post but keeps going."""
+    items = [_item(f"i{n}", published=datetime(2026, 5, n + 1, tzinfo=timezone.utc))
+             for n in range(3)]
+    rendered = {
+        (it.fingerprint, "en"): _payload(it, "en", level="Critical") for it in items
+    }
+    svc = _FakeService(items, rendered)
+    led = PublishLedger(tmp_path / "pub.jsonl")
+    pub = _FailingPublisher(
+        TelegramError("nope", status_code=429, description="Too Many Requests")
+    )
+    result = publish_once(
+        settings=_settings(channels={"en": "@cax_en"}),
+        service=svc, ledger=led, publisher=pub, limit=5,
+    )
+    # Not channel-fatal → it tries every candidate (3), all fail, none abort.
+    assert pub.attempts == 3
+    assert result.errors == 3
     assert result.sent == 0

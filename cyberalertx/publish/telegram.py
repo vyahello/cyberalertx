@@ -18,7 +18,41 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramError(RuntimeError):
-    """Raised when the Bot API call fails (transport error, non-2xx, ok:false)."""
+    """Raised when the Bot API call fails (transport error, non-2xx, ok:false).
+
+    `status_code` / `description` carry the Bot API response so the caller can
+    tell a *channel-level* misconfiguration (bad chat id, bot not admin) apart
+    from a one-off / transient failure. The former should abort the whole
+    channel; the latter only skips one post.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        description: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.description = description
+
+    @property
+    def is_channel_fatal(self) -> bool:
+        """True when retrying other posts to this channel is pointless.
+
+        401/403 → bad token or the bot isn't an admin of the channel.
+        400 'chat not found' / empty chat_id → the configured chat id is wrong.
+        All three are channel-wide, not item-specific.
+        """
+        desc = self.description.lower()
+        if self.status_code in (401, 403):
+            return True
+        if self.status_code == 400 and (
+            "chat not found" in desc or "chat_id is empty" in desc
+        ):
+            return True
+        return False
 
 
 class TelegramPublisher:
@@ -82,7 +116,9 @@ class TelegramPublisher:
         if resp.status_code >= 400 or not body.get("ok"):
             desc = body.get("description") or resp.text[:200]
             raise TelegramError(
-                f"sendMessage failed (HTTP {resp.status_code}): {desc}"
+                f"sendMessage failed (HTTP {resp.status_code}): {desc}",
+                status_code=resp.status_code,
+                description=str(desc),
             )
 
         message_id = (body.get("result") or {}).get("message_id")

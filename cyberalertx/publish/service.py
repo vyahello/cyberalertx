@@ -194,11 +194,23 @@ def publish_once(
                 try:
                     message_id = publisher.send_message(chat_id, message)
                 except TelegramError as exc:
+                    result.errors += 1
+                    # A channel-level failure (bad chat id, bot not admin, bad
+                    # token) is not item-specific — retrying every other post
+                    # would just rack up identical errors and risk a flood-wait.
+                    # Abort this channel with one actionable line.
+                    if getattr(exc, "is_channel_fatal", False):
+                        logger.error(
+                            "channel %r (%s) is misconfigured: %s — skipping the "
+                            "rest of this channel. Check the chat id is correct "
+                            "and the bot is an admin with 'Post Messages'.",
+                            chat_id, locale, exc,
+                        )
+                        break
                     logger.warning(
                         "telegram send failed for %s/%s: %s",
                         item.fingerprint, locale, exc,
                     )
-                    result.errors += 1
                     continue
 
                 ledger.record(
