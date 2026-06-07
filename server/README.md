@@ -353,6 +353,66 @@ delete its line from `data/telegram_published.jsonl` and fire the service.
 
 ---
 
+## Social previews (Open Graph)
+
+The link card that Telegram / X / Slack / LinkedIn show when someone shares a
+page comes from the page's `og:*` meta tags. These are **baked at build /
+render time**, and three independent caches sit in front of them — so a change
+isn't visible until all three are busted. Skipping a step is the usual reason
+"I fixed it but it still shows the old card".
+
+### What controls the card
+
+| Page | Card source |
+|---|---|
+| `/{locale}` (home) | `app/[locale]/layout.tsx` → `generateMetadata` (per-locale image + tagline) |
+| `/{locale}/threat/{id}` | `app/[locale]/threat/[id]/page.tsx` → `generateMetadata` (article title + summary + locale image) |
+
+Per-locale images live at `frontend/public/brand/og-image.png` (EN) and
+`og-image-ua.png` (UA), generated from the SVG masters by `npm run brand:png`.
+
+### Prerequisite — `NEXT_PUBLIC_SITE_URL`
+
+OG image URLs must be **absolute** for crawlers to fetch them. Next.js builds
+them from `metadataBase`, which reads `NEXT_PUBLIC_SITE_URL`. If it's unset the
+base falls back to `http://localhost:3000` and every preview image 404s for the
+outside world.
+
+```bash
+# Must print the production URL:
+grep NEXT_PUBLIC_SITE_URL <app-dir>/.env <app-dir>/frontend/.env* 2>/dev/null
+# If missing, add it where the frontend service reads env, then rebuild:
+#   NEXT_PUBLIC_SITE_URL=https://<your-domain>
+```
+
+### Deploy an OG / metadata change (bust all three caches)
+
+```bash
+# 1. Rebuild — OG tags are emitted at build/render time, not runtime.
+cd <app-dir> && git pull
+cd frontend && npm run build
+sudo systemctl restart cyberalertx-frontend
+
+# 2. Confirm the origin emits the right tags (bypasses every cache):
+curl -s https://<your-domain>/ua/threat/<fingerprint> \
+  | grep -iE 'og:(title|description|image|locale)'
+#   expect: UA title + summary, og:image …/og-image-ua.png, og:locale uk_UA
+
+# 3. Purge Cloudflare — it caches the HTML (with the old tags).
+#    Dashboard → Caching → Configuration → Purge Everything (or single URL).
+
+# 4. Refresh the messenger's OWN preview cache — the step people miss.
+#    Telegram caches previews per-URL, basically forever. To force a re-fetch:
+#      • Telegram: DM @WebpageBot the exact URL → it re-crawls + clears the cache
+#      • X:        https://cards-dev.twitter.com/validator
+#      • Facebook/LinkedIn: their post/link inspectors re-scrape on demand
+```
+
+If `curl` (step 2) shows the correct tags but the share preview is still old,
+the origin is fine — it's purely a messenger/CDN cache (steps 3–4).
+
+---
+
 ## Service control
 
 Long-lived services:
