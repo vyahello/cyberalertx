@@ -30,9 +30,33 @@ export async function generateMetadata({
   if (!c) {
     return { title: `${post.source} — CyberAlertX` };
   }
+  // Per-article, per-locale social card. Without an explicit openGraph here,
+  // a shared link would inherit the layout's generic site card (the brand
+  // tagline) instead of the article — and in the wrong language. We set the
+  // article's own title/summary plus the locale-matched brand image so a
+  // shared UA link unfurls in Ukrainian with the actual story.
+  const ogImage = locale === "ua" ? "/brand/og-image-ua.png" : "/brand/og-image.png";
+  const ogLocale = locale === "ua" ? "uk_UA" : "en_US";
   return {
     title: `${c.title} — CyberAlertX`,
     description: c.short_summary,
+    openGraph: {
+      title: c.title,
+      description: c.short_summary,
+      type: "article",
+      siteName: "CyberAlertX",
+      locale: ogLocale,
+      url: `/${locale}/threat/${id}`,
+      images: [
+        { url: ogImage, width: 1200, height: 630, type: "image/png" },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: c.title,
+      description: c.short_summary,
+      images: [ogImage],
+    },
   };
 }
 
