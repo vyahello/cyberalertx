@@ -34,8 +34,10 @@ User=cax
 Group=cax
 WorkingDirectory=/home/cax/cax
 EnvironmentFile=/home/cax/cax/.env
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main publish-telegram
-# A handful of HTTP calls with ~1s pacing — generous ceiling before retry.
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main publish-telegram --limit 1
+# --limit 1 = at most one message PER CHANNEL per fire. With the hourly timer
+# this paces each channel (EN/UA) to one post/hour instead of batch-flooding.
+# A couple of HTTP calls with ~1s pacing — generous ceiling before retry.
 TimeoutStartSec=300
 StandardOutput=journal
 StandardError=journal

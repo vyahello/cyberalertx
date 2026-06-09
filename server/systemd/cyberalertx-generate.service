@@ -37,13 +37,13 @@ User=cax
 Group=cax
 WorkingDirectory=/home/cax/cax
 EnvironmentFile=/home/cax/cax/.env
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 4 --use-llm
-# 4 items/fire (×4 fires/day = up to 16 renders/day) keeps the feed current
-# with the news cycle. Renders go through the OAuth subscription (no API
-# cost), so a higher limit isn't a billing concern — only a wall-clock one.
-# At ~20-40s/locale, 4 items × ~1.5 locales ≈ 2-4 min; the 15-min cap leaves
-# headroom for subscription latency before the timer gives up and retries.
-TimeoutStartSec=900
+ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 1 --use-llm
+# 1 item/fire × hourly = up to 24 renders/day — a steady drip that keeps the
+# feed fresh while pacing the Telegram channels to one post/hour (the publish
+# timer at :15 is also capped to 1/channel). Renders go through the OAuth
+# subscription (no API cost). One item × ~1.5 locales is ~1-2 min; the 5-min
+# cap leaves ample headroom for subscription latency before a retry.
+TimeoutStartSec=300
 StandardOutput=journal
 StandardError=journal
 

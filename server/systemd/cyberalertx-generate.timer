@@ -1,11 +1,9 @@
 # /etc/systemd/system/cyberalertx-generate.timer
 #
-# Fires cyberalertx-generate.service every 6 hours. Four runs per day at
-# 00:00, 06:00, 12:00, 18:00 UTC.
-#
-# Test cadence — lighter than the originally-planned every-4h. Easy to
-# tighten later by editing OnCalendar (e.g. 00,04,08,12,16,20:00:00 for
-# every 4h, or 00,02,...,22:00:00 for every 2h).
+# Fires cyberalertx-generate.service once an hour, at minute :00. Paired with
+# `--limit 1` in the service, this mints at most one fresh story per hour
+# (<=24/day) — a steady drip that keeps the feed current without flooding the
+# Telegram channels (publish runs at :15, capped to one per channel).
 #
 # Persistent=true: if the VPS was off when a scheduled fire was due,
 # systemd runs it as soon as the box is back up.
@@ -14,11 +12,11 @@
 # the fleet don't all hit Anthropic at the same wall-clock second.
 
 [Unit]
-Description=CyberAlertX AI generate timer (every 6h)
+Description=CyberAlertX AI generate timer (hourly)
 Requires=cyberalertx-generate.service
 
 [Timer]
-OnCalendar=*-*-* 00,06,12,18:00:00
+OnCalendar=*-*-* *:00:00
 Persistent=true
 RandomizedDelaySec=180
 Unit=cyberalertx-generate.service
