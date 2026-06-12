@@ -75,3 +75,34 @@ jobs:
           # up in CI, fetch fails — the page still renders via fallback.
           # Telemetry off to keep logs clean.
           NEXT_TELEMETRY_DISABLED: "1"
+
+  # ------------------------------------------------------------------
+  # Deploy — SSH to the VPS and run server/deploy.sh. Runs ONLY when both
+  # test jobs pass AND this is a push to main (never on PRs or other
+  # branches; forked-PR runs can't see secrets anyway). Serialized via its
+  # own concurrency group so two deploys never overlap.
+  # ------------------------------------------------------------------
+  deploy:
+    name: Deploy to VPS
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: vps-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # Fail the job if any deploy command exits non-zero.
+          script_stop: true
+          # npm ci + next build can take a few minutes.
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            cd ~/cax
+            ./server/deploy.sh
