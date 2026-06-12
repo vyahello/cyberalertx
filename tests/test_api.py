@@ -5,7 +5,7 @@ an in-memory NewsItem list — keeps tests fast and avoids touching disk.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytest
@@ -21,7 +21,12 @@ def _item(**overrides) -> NewsItem:
         title="Critical RCE in widget framework",
         source="BleepingComputer",
         url=f"https://e.test/{overrides.get('url_id', 'x')}",
-        published_at=datetime(2026, 5, 11, 12, 0, tzinfo=timezone.utc),
+        # Relative to "now" so the item stays inside the freshness windows the
+        # API applies (/posts/trending: 14d EN / 45d UA). A hardcoded absolute
+        # date is a time bomb — it ages out of the window and trending starts
+        # dropping fixture items (CI failed exactly this way once the fixture
+        # date passed 14 days old).
+        published_at=datetime.now(timezone.utc) - timedelta(days=1),
         raw_content="A widget framework has an RCE flaw under active exploitation.",
         threat_score=70.0,
         category="vulnerability",
