@@ -125,7 +125,10 @@ class NewsItem:
             title=data["title"],
             source=data["source"],
             url=data["url"],
-            published_at=_parse_dt(data["published_at"]),
+            # `published_at` is required, but a corrupt/empty stored value
+            # parses to None — fall back to now() so the field stays a
+            # datetime (mirrors the `fetched_at` handling below).
+            published_at=_parse_dt(data["published_at"]) or _utcnow(),
             raw_content=data.get("raw_content", ""),
             threat_score=float(data.get("threat_score", 0.0)),
             tags=list(data.get("tags", [])),

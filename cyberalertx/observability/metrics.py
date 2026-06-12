@@ -39,7 +39,10 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
+
+if TYPE_CHECKING:
+    from ..pipeline.relevance import FilterStats
 
 from ..config import DATA_DIR
 
@@ -148,7 +151,7 @@ class QualityMetrics:
             self._stamp()
             self._flush()
 
-    def merge_relevance_stats(self, stats) -> None:
+    def merge_relevance_stats(self, stats: "FilterStats") -> None:
         """Roll one cycle's `FilterStats` into the cumulative counters.
 
         Called from the orchestrator immediately after a cycle completes.
@@ -182,11 +185,12 @@ class QualityMetrics:
             self._stamp()
             self._flush()
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         """Serializable snapshot — used by the API and tests."""
         # Always returns every known counter (zero when never bumped) so
         # the API consumer doesn't have to handle "missing key" cases.
-        full = {name: self.counters.get(name, 0) for name in _COUNTERS}
+        # Values are mostly int counters plus a few derived float|None rates.
+        full: dict[str, Any] = {name: self.counters.get(name, 0) for name in _COUNTERS}
         full.update(self.counters)  # in case we've added unknown counters
         # Derived rates — cheap to compute, far more useful than raw counts.
         attempts = full.get("ai_renders_attempted", 0)

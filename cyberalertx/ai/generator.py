@@ -17,11 +17,10 @@ To wire a different provider, pass an instance that implements the
 from __future__ import annotations
 
 import logging
-from typing import Iterable, List
+from typing import TYPE_CHECKING, Iterable, List
 
 from ..models import NewsItem
 from .config import AISettings, AI_SETTINGS
-from .cache import ThreatPostCache
 from .models import ThreatPost, ThreatPostResponse
 from .provider import LLMProvider
 from .rule_based import RuleBasedGenerator
@@ -33,6 +32,12 @@ from .templates import (
 )
 from .validation import ValidationFailure, validate_journalist_response
 
+if TYPE_CHECKING:
+    # The cache is used only via .get()/.set(); accept any backend that
+    # satisfies the ThreatPostStore Protocol (raw JSON cache OR the
+    # dual-write PG wrapper), not just the concrete ThreatPostCache.
+    from ..storage.dual_write import ThreatPostStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +47,7 @@ class ContentGenerator:
         *,
         provider: LLMProvider | None = None,
         template_registry: TemplateRegistry | None = None,
-        cache: ThreatPostCache | None = None,
+        cache: "ThreatPostStore | None" = None,
         rule_based: RuleBasedGenerator | None = None,
         prefer_audience: str | None = None,
         force_language: str | None = None,

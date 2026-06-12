@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html
 import re
+from typing import Any
 
 # Bare CVE identifiers (e.g. "CVE-2026-45247") that the AI writes into the
 # summary / quick facts are plain text — Telegram doesn't auto-link them. We
@@ -64,7 +65,7 @@ def deep_link(base_url: str, locale: str, fingerprint: str) -> str:
     return f"{base_url.rstrip('/')}/{locale}/threat/{fingerprint}"
 
 
-def quality_problem(payload: dict, *, locale: str) -> str | None:
+def quality_problem(payload: dict[str, Any], *, locale: str) -> str | None:
     """Return a reason string if this post shouldn't be published, else None.
 
     A pre-send gate that runs BEFORE formatting. The render path already drops
@@ -97,7 +98,7 @@ def quality_problem(payload: dict, *, locale: str) -> str | None:
     return None
 
 
-def render_message(payload: dict, *, locale: str, base_url: str) -> str:
+def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> str:
     """Build the HTML message body for one post in one locale.
 
     Raises KeyError/ValueError if the payload lacks the requested locale's

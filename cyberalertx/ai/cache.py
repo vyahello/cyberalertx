@@ -28,7 +28,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from .models import ThreatPost
 
@@ -43,7 +43,7 @@ class ThreatPostCache:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._store: dict[str, dict] = {}
+        self._store: dict[str, dict[str, Any]] = {}
         # `_mtime_seen` enables auto-reload when another process (the CLI
         # `generate` command, an editor, a deploy script) updates the cache
         # file while the API server is running. Without this, the server
@@ -83,7 +83,7 @@ class ThreatPostCache:
             #   * Pre-rename caches used the BCP-47 code `:uk` for
             #     Ukrainian. We now use `:ua`. Rewrite the suffix on load
             #     so legacy entries stay live without a re-warm.
-            normalized: dict[str, dict] = {}
+            normalized: dict[str, dict[str, Any]] = {}
             for k, v in raw.items():
                 if not isinstance(v, dict):
                     continue

@@ -63,7 +63,7 @@ def _parse_arg_as_fingerprint(raw: str) -> str | None:
     # URL — pull the last 16-hex segment.
     matches = _FP_RE.findall(raw)
     if matches:
-        return matches[-1]
+        return str(matches[-1])
     return None
 
 

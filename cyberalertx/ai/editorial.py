@@ -51,7 +51,7 @@ from .models import ThreatPostResponse
 # fragment behind).
 # =========================================================================
 
-AI_FLUFF_PATTERNS_EN: tuple[re.Pattern, ...] = tuple(
+AI_FLUFF_PATTERNS_EN: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"\bstay\s+vigilant\b",
         r"\bremain\s+vigilant\b",
@@ -106,7 +106,7 @@ AI_FLUFF_PATTERNS_EN: tuple[re.Pattern, ...] = tuple(
     )
 )
 
-AI_FLUFF_PATTERNS_UA: tuple[re.Pattern, ...] = tuple(
+AI_FLUFF_PATTERNS_UA: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"важливо\s+(?:залишатися|бути|зберігати)\s+пильн",
         r"у\s+сучасному\s+(?:цифровому|складному|стрімкому)\s+(?:світі|просторі|середовищі)",
@@ -150,7 +150,7 @@ AI_FLUFF_PATTERNS_UA: tuple[re.Pattern, ...] = tuple(
 # to "be careful" instead of telling them what to actually DO.
 # =========================================================================
 
-GENERIC_ADVICE_PATTERNS_EN: tuple[re.Pattern, ...] = tuple(
+GENERIC_ADVICE_PATTERNS_EN: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"\bimprove\s+(?:your\s+)?security\s+posture\b",
         r"\b(?:maintain|practice|ensure)\s+(?:good\s+)?(?:cyber\s+)?hygiene\b",
@@ -169,7 +169,7 @@ GENERIC_ADVICE_PATTERNS_EN: tuple[re.Pattern, ...] = tuple(
     )
 )
 
-GENERIC_ADVICE_PATTERNS_UA: tuple[re.Pattern, ...] = tuple(
+GENERIC_ADVICE_PATTERNS_UA: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"будьте\s+(?:обережн|пильн|уважн)",
         r"залишайтеся\s+(?:пильн|обережн|уважн)",
@@ -306,7 +306,7 @@ def dedupe_detail_paragraphs(
     return "\n\n".join(kept)
 
 
-def _matches_any(text: str, patterns: Iterable[re.Pattern]) -> bool:
+def _matches_any(text: str, patterns: Iterable[re.Pattern[str]]) -> bool:
     return any(p.search(text) for p in patterns)
 
 

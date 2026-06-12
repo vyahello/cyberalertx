@@ -21,7 +21,7 @@ import argparse
 import logging
 import sys
 from dataclasses import asdict
-from typing import Iterable
+from typing import Any, Iterable, Iterator
 
 from ..ai.cache import ThreatPostCache
 from ..ai.config import AI_SETTINGS
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 _VOLATILE_FIELDS = frozenset({"fetched_at"})
 
 
-def _normalize_for_compare(item: NewsItem) -> dict:
+def _normalize_for_compare(item: NewsItem) -> dict[str, Any]:
     """Return a dict that removes volatile fields and normalizes list ordering.
 
     Lists like `tags` and `corroborating_sources` are conceptually sets;
@@ -132,7 +132,7 @@ def compare_news(full: bool = False) -> int:
 # Fields that aren't expected to round-trip identically across stores even
 # when content matches. Empty for now; reserved for future provenance / TS
 # fields if we add them.
-_AI_VOLATILE_FIELDS = frozenset()
+_AI_VOLATILE_FIELDS: frozenset[str] = frozenset()
 
 
 def _diff_threat_posts(a: ThreatPost, b: ThreatPost) -> list[str]:
@@ -156,7 +156,7 @@ def _diff_threat_posts(a: ThreatPost, b: ThreatPost) -> list[str]:
     return fields
 
 
-def _iter_json_ai_cache(cache: ThreatPostCache):
+def _iter_json_ai_cache(cache: ThreatPostCache) -> Iterator[tuple[str, str, ThreatPost]]:
     """Yield (fingerprint, locale, ThreatPost) for every JSON cache entry."""
     for raw_key, raw_val in cache._store.items():  # noqa: SLF001
         if ":" not in raw_key:
@@ -168,7 +168,7 @@ def _iter_json_ai_cache(cache: ThreatPostCache):
             continue
 
 
-def _iter_pg_ai_cache(pg: PgThreatPostStore):
+def _iter_pg_ai_cache(pg: PgThreatPostStore) -> Iterator[tuple[str, str, ThreatPost]]:
     """Yield (fingerprint, locale, ThreatPost) by scanning threat_posts."""
     from sqlalchemy import select
     from ..storage.pg.engine import get_engine

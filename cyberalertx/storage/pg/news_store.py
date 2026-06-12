@@ -55,7 +55,7 @@ class PgNewsStore(NewsRepository):
             result = conn.execute(
                 select(news_items).order_by(news_items.c.published_at.desc())
             )
-            return [row_to_news_item(r._mapping) for r in result]
+            return [row_to_news_item(dict(r._mapping)) for r in result]
 
     def upsert_many(self, items: Iterable[NewsItem]) -> List[NewsItem]:
         """INSERT ... ON CONFLICT (fingerprint) DO UPDATE.

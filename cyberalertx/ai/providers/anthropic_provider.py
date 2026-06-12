@@ -22,7 +22,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from ..models import ThreatPostResponse
 
@@ -100,7 +100,9 @@ class AnthropicProvider:
         if usage is not None:
             self._record_usage(usage)
 
-        return parsed
+        # `parsed_output` is typed `Any` by the SDK; the `output_format=`
+        # contract guarantees it's a validated ThreatPostResponse here.
+        return cast(ThreatPostResponse, parsed)
 
     @staticmethod
     def _record_usage(usage: Any) -> None:

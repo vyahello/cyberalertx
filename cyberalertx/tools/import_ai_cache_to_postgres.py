@@ -19,15 +19,19 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from typing import TYPE_CHECKING, Iterator
 
 from ..ai.cache import ThreatPostCache
 from ..ai.config import AI_SETTINGS
 from ..storage.pg.threat_cache import PgThreatPostStore
 
+if TYPE_CHECKING:
+    from ..ai.models import ThreatPost
+
 logger = logging.getLogger(__name__)
 
 
-def _iter_cache_entries(cache: ThreatPostCache):
+def _iter_cache_entries(cache: ThreatPostCache) -> Iterator[tuple[str, str, "ThreatPost"]]:
     """Yield (fingerprint, locale, ThreatPost) for every entry in the JSON
     cache. Uses the private `_store` dict directly so we get the
     fingerprint+locale keys, not just the value list `all()` returns.

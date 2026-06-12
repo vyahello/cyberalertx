@@ -1,0 +1,22 @@
+# Tool configuration only. This project is run as a module
+# (`python -m cyberalertx.main`), not pip-installed, so there is no
+# [build-system] / [project] table here — just static-analysis config.
+
+[tool.mypy]
+python_version = "3.13"
+files = ["cyberalertx"]
+strict = true
+# Surface the file:line on every error and show the error code so
+# `# type: ignore[code]` comments can be written precisely.
+show_error_codes = true
+pretty = true
+
+# Third-party packages that ship no type information (no py.typed, no stub
+# package on PyPI). Scoped per-module rather than globally so a typo'd
+# first-party import still fails loudly instead of being silently ignored.
+[[tool.mypy.overrides]]
+module = [
+    "feedparser",
+    "apscheduler.*",
+]
+ignore_missing_imports = true

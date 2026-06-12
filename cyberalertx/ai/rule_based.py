@@ -28,7 +28,7 @@ the upgrade — see `cyberalertx/ai/generator.py` for the wiring.
 from __future__ import annotations
 
 import re
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from ..models import NewsItem
 from .models import ThreatPost
@@ -993,7 +993,7 @@ _PLATFORM_HINTS_UK: Mapping[str, list[str]] = {
 }
 
 
-def _tables(language: str) -> tuple:
+def _tables(language: str) -> tuple[Any, ...]:
     """Return the locale-specific bundle:
     (why_it_matters, actions, avoids, audience, category_label, phrases,
     generic_actions, platform_hints)."""

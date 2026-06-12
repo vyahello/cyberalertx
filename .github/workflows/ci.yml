@@ -35,6 +35,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Type-check (mypy)
+        # Strict type checking over the cyberalertx package; config lives in
+        # pyproject.toml [tool.mypy]. Runs before pytest so a type regression
+        # fails fast with a clear signal.
+        run: mypy
+
       - name: Run pytest
         run: pytest -q --tb=short
 

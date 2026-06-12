@@ -27,6 +27,7 @@ from .json_store import JsonNewsStore
 
 if TYPE_CHECKING:  # avoids ai.cache → storage import cycle at runtime
     from ..ai.cache import ThreatPostCache
+    from .dual_write import ThreatPostStore
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def build_news_repository(
     return primary
 
 
-def build_threat_post_cache(cache_path: Path):
+def build_threat_post_cache(cache_path: Path) -> "ThreatPostStore":
     """Return the configured ThreatPost cache.
 
     Returns:

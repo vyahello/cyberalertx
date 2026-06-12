@@ -220,6 +220,7 @@ class _PostService:
         source_lang = item.language if item.language in ("en", "ua") else "en"
         translations: dict[str, dict[str, Any]] = {}
 
+        locales: tuple[str, ...]
         if source_lang == "ua":
             locales = ("ua",)
         else:

@@ -12,11 +12,12 @@ import json
 import logging
 import signal
 import sys
-from typing import Sequence
+from typing import Any, Sequence
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from .config import SETTINGS
+from .models import NewsItem
 from .pipeline.orchestrator import Pipeline
 from .sources.registry import build_sources
 from .storage import build_news_repository
@@ -196,7 +197,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     missing_pairs: list[tuple[object, str]] = []
     cache_hits = 0
-    items_to_render: list = []  # ordered, deduped, capped at target_new
+    items_to_render: list[NewsItem] = []  # ordered, deduped, capped at target_new
 
     for item in in_window:
         required = _required_locales_for(item, args.language)
@@ -244,7 +245,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     # render(). render() iterates all required locales for the item, but
     # generate() inside it will cache-hit anything already populated, so
     # we never burn tokens on an already-rendered locale.
-    rendered: list[dict] = []
+    rendered: list[dict[str, Any]] = []
     by_provenance: dict[str, int] = {}
     for item in missing_items:
         try:
@@ -281,7 +282,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _required_locales_for(item, forced_language: str | None) -> tuple[str, ...]:
+def _required_locales_for(item: NewsItem, forced_language: str | None) -> tuple[str, ...]:
     """Mirror the asymmetric render rule in api/app.py:render(). Kept here
     as a private helper so `cmd_generate` doesn't need to import the full
     `_PostService.render` machinery just to introspect required locales."""

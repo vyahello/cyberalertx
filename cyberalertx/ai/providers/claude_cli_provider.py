@@ -274,7 +274,7 @@ class ClaudeCliProvider:
     # ----------------------- internals -------------------------------
 
     @staticmethod
-    def _parse_envelope(stdout: str) -> dict:
+    def _parse_envelope(stdout: str) -> dict[str, Any]:
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError as exc:
@@ -286,7 +286,7 @@ class ClaudeCliProvider:
         return data
 
     @staticmethod
-    def _result_text(envelope: dict) -> str:
+    def _result_text(envelope: dict[str, Any]) -> str:
         """Pull the assistant text out of the `--output-format json` envelope.
 
         The envelope carries `is_error` / `subtype` / `result`. A failed run
@@ -303,7 +303,7 @@ class ClaudeCliProvider:
         return result
 
     @staticmethod
-    def _record_usage(usage: dict, total_cost_usd: Any) -> None:
+    def _record_usage(usage: dict[str, Any], total_cost_usd: Any) -> None:
         """Log token usage + bump observability counters (best-effort).
 
         Mirrors AnthropicProvider._record_usage so the prompt-cache and spend

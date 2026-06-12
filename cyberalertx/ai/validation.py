@@ -27,9 +27,11 @@ Why this lives in its own module:
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from typing import Hashable, Iterable, TypeVar
 
 from .models import ThreatPostResponse
+
+_H = TypeVar("_H", bound=Hashable)
 
 # Token regex for n-gram extraction. Cyrillic + Latin words, hyphenated
 # compounds preserved (so "zero-day" is one token, not two).
@@ -269,7 +271,7 @@ def _shingles(text: str, n: int) -> set[tuple[str, ...]]:
     return {tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)}
 
 
-def _jaccard(a: set, b: set) -> float:
+def _jaccard(a: set[_H], b: set[_H]) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)

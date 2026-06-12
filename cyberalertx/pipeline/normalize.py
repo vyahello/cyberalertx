@@ -43,7 +43,7 @@ _CTRL_RE = re.compile(
 # We use MULTILINE so each pattern can anchor to line boundaries when the
 # upstream feed preserved them, and DOTALL is intentionally off so a
 # pattern can't eat across paragraph breaks unexpectedly.
-_JUNK_PATTERNS: tuple[re.Pattern, ...] = (
+_JUNK_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Newsletter / subscription prompts.
     re.compile(r"(?im)^\s*subscribe(?:\s+now)?\b[^.\n]*\.?\s*$"),
     re.compile(r"(?im)\bsign\s+up\s+for\s+(?:our|the)\s+newsletter[^.\n]*\.?"),

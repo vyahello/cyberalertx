@@ -10,7 +10,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from time import mktime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import feedparser
 import httpx
@@ -110,7 +110,7 @@ class RssSource(Source):
         return items
 
 
-def _entry_datetime(entry) -> datetime:
+def _entry_datetime(entry: Any) -> datetime:
     for attr in ("published_parsed", "updated_parsed", "created_parsed"):
         struct = getattr(entry, attr, None)
         if struct:

@@ -202,6 +202,9 @@ def publish_once(
                     sent_here += 1
                     continue
 
+                # Not a dry-run past this point, so `publisher` was built
+                # above (owns_publisher) or passed in — never None here.
+                assert publisher is not None
                 try:
                     message_id = publisher.send_message(chat_id, message)
                 except TelegramError as exc:

@@ -35,6 +35,8 @@ class ThreatPostStore(Protocol):
 
     def get(self, fingerprint: str, locale: str = "en") -> Optional[ThreatPost]: ...
     def set(self, fingerprint: str, locale: str, post: ThreatPost) -> None: ...
+    def all(self) -> Iterable[ThreatPost]: ...
+    def __len__(self) -> int: ...
 
 
 class DualWriteNewsStore(NewsRepository):
@@ -175,16 +177,16 @@ class DualWriteThreatPostCache:
                 type(exc).__name__, exc,
             )
 
-    def all(self):  # type: ignore[no-untyped-def]
+    def all(self) -> Iterable[ThreatPost]:
         # Delegate to JSON — `all()` is used by ops tooling, not the
         # request path, and JSON is fast for that scan.
         return self._json.all()
 
     def __len__(self) -> int:
         try:
-            return len(self._json)  # type: ignore[arg-type]
+            return len(self._json)
         except TypeError:
-            return sum(1 for _ in self._json.all())  # type: ignore[union-attr]
+            return sum(1 for _ in self._json.all())
 
     @property
     def shadow_stats(self) -> dict[str, int]:

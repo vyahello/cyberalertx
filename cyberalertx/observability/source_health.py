@@ -36,7 +36,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from ..config import DATA_DIR
 from ..models import NewsItem
@@ -128,7 +128,7 @@ class SourceHealth:
                         stats.cred_n += 1
             self._flush()
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         """Serializable snapshot for the API. Includes derived rates."""
         return {
             "last_cycle_utc": self.last_cycle_utc,

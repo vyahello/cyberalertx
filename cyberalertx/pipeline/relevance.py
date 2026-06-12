@@ -54,7 +54,7 @@ import tempfile
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from ..models import NewsItem
 from .filter import _REJECTED_LANGUAGES, relevance_score
@@ -146,9 +146,9 @@ class RelevanceCache:
     def __init__(self, path: Path):
         self._path = Path(path)
         self._lock = threading.Lock()
-        self._data: dict[str, dict] = self._load()
+        self._data: dict[str, dict[str, Any]] = self._load()
 
-    def _load(self) -> dict[str, dict]:
+    def _load(self) -> dict[str, dict[str, Any]]:
         if not self._path.exists():
             return {}
         try:
@@ -346,7 +346,7 @@ class AIRelevanceClassifier:
         )
 
     @staticmethod
-    def _extract_text(response) -> str:
+    def _extract_text(response: Any) -> str:
         # The SDK's `messages.create` returns a Message; concatenate all
         # text blocks. Robust against a future shape change.
         blocks = getattr(response, "content", None) or []
