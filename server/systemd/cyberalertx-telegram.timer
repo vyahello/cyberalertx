@@ -1,10 +1,11 @@
 # /etc/systemd/system/cyberalertx-telegram.timer
 #
-# Fires cyberalertx-telegram.service once an hour at minute :15, 15 minutes
-# AFTER the generate timer (which runs at :00). The offset gives
-# cyberalertx-generate time to finish rendering the hour's story, so it's
-# publishable in the same cycle. With `--limit 1` in the service this sends at
-# most one message per channel per hour — pacing the channels, not flooding.
+# Fires cyberalertx-telegram.service every 2 hours at minute :15 (even hours:
+# 00,02,...,22), 15 minutes after the generate timer ticks at :00. The offset
+# lets cyberalertx-generate finish rendering before publish. With `--limit 1`
+# in the service this sends at most one message per channel every 2 hours —
+# slower than site generation (hourly) to keep the channels uncluttered.
+# Site posting (cyberalertx-generate) is unaffected — still hourly.
 #
 # Persistent=true: if the VPS was off when a fire was due, systemd runs it as
 # soon as the box is back up (the ledger prevents double-posting).
@@ -13,11 +14,11 @@
 # Telegram API at the same wall-clock second.
 
 [Unit]
-Description=CyberAlertX Telegram publish timer (hourly, +15m after generate)
+Description=CyberAlertX Telegram publish timer (every 2h, +15m after generate)
 Requires=cyberalertx-telegram.service
 
 [Timer]
-OnCalendar=*-*-* *:15:00
+OnCalendar=*-*-* 0/2:15:00
 Persistent=true
 RandomizedDelaySec=120
 Unit=cyberalertx-telegram.service
