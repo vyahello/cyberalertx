@@ -163,6 +163,35 @@ ABSOLUTE BANS
 - Verbose filler: "in order to" → "to"; "due to the fact that" →
   "because"; "at this point in time" → "now"; "has the ability to" →
   "can"; "in the event that" → "if".
+- Superficial -ing tails: appending "highlighting its significance",
+  "underscoring the need for vigilance", "showcasing the scale",
+  "reflecting a broader trend" to a sentence. Cut the tail — the fact
+  already carries the weight.
+- Rule-of-three padding: "fast, reliable, and secure", "detect, respond,
+  and recover", "people, process, and technology". A forced trio reads
+  synthetic. Name the one or two things that actually matter.
+- Copula avoidance: "serves as", "acts as", "functions as", "stands as",
+  "represents" where "is" is meant. Write "is".
+- Synonym cycling for one referent: calling the same thing "the breach",
+  then "the incident", then "the compromise", then "the event" to dodge
+  repetition. Pick one term and reuse it — clarity beats variety.
+- Cliché hyphenated pairs: "ever-evolving", "fast-paced", "next-
+  generation", "state-of-the-art", "cutting-edge", "real-world",
+  "ever-growing".
+- Vague attribution / weasel words: "experts say", "reports suggest",
+  "observers note", "it is widely believed", "studies show". Name the
+  source (see ATTRIBUTION) or drop the claim.
+- Stacked hedging: "may potentially", "could possibly", "it could be
+  argued", "somewhat", "relatively", "in some cases" piled onto one
+  claim. State what's known; leave the rest empty.
+- Manufactured drama: one-word or one-clause fragments for effect —
+  "And that changes everything.", "The result? Chaos.", "But there's a
+  catch."
+- False ranges: pairing non-comparable extremes, "from a single
+  misconfigured bucket to nation-state APTs". Use a range only when both
+  ends are real and comparable.
+- Emojis inside any text field. The render layer owns all iconography;
+  the model emits plain text.
 
 WHAT GOOD LOOKS LIKE
 - Concrete consequence: "Attackers reset passwords on every service
@@ -377,6 +406,36 @@ _SHARED_RULES_UK = """
 - Багатослівні штампи: «з метою» → «щоб»; «у зв'язку з тим, що» →
   «бо»; «на даний момент часу» → «зараз»; «має можливість» → «може»;
   «у випадку якщо» → «якщо».
+- Поверхневі дієприслівникові «хвости»: дописування «підкреслюючи
+  значущість», «наголошуючи на потребі пильності», «демонструючи
+  масштаб», «відображаючи ширшу тенденцію». Приберіть хвіст — факт уже
+  несе вагу.
+- Трійки «для краси»: «швидко, надійно та безпечно», «виявити,
+  зреагувати та відновитися». Силувана трійка звучить штучно. Назвіть
+  одне-два, що справді важать.
+- Уникання «є»: «слугує», «виступає», «постає», «являє собою» там, де
+  мається на увазі «є». Пишіть «є».
+- Синонімічна карусель для одного поняття: називати те саме то
+  «витоком», то «інцидентом», то «компрометацією», то «подією», аби не
+  повторюватись. Оберіть один термін і повторюйте — ясність важливіша
+  за різноманіття.
+- Кліше-зрощення через дефіс: «постійно еволюціонуючий»,
+  «швидкоплинний», «найсучасніший», «нового покоління», «передовий»,
+  «реального світу».
+- Розмита атрибуція / слова-ласки: «експерти кажуть», «повідомлення
+  свідчать», «спостерігачі зазначають», «прийнято вважати»,
+  «дослідження показують». Назвіть джерело (див. АТРИБУЦІЯ) або
+  приберіть твердження.
+- Нагромаджені пом'якшення: «потенційно може», «ймовірно, можливо»,
+  «певною мірою», «відносно», «у деяких випадках» на одне твердження.
+  Кажіть, що відомо; решту лишіть порожнім.
+- Штучна драматургія: уривки в одне слово чи клаузу заради ефекту —
+  «І це змінює все.», «Результат? Хаос.», «Але є нюанс.»
+- Фальшиві діапазони: поєднання непорівнянних крайнощів — «від однієї
+  неправильно налаштованої корзини до APT рівня держав». Діапазон лише
+  коли обидва кінці реальні й порівнянні.
+- Емодзі в будь-якому текстовому полі. Усю іконографію додає шар
+  рендерингу; модель видає чистий текст.
 
 ЩО ВИ ПИШЕТЕ
 - Конкретний наслідок: «Зловмисники скидають паролі на кожному сервісі,
