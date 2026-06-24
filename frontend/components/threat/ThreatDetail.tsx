@@ -113,13 +113,27 @@ export function ThreatDetail({ post, lang }: Props) {
           the second ActionPanel render below. */}
       <div className="grid gap-10 lg:gap-12 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section className="space-y-7">
+          {/* Plain-language lead — the everyday "what this means for you"
+              line, first thing in the narrative so a non-technical reader
+              gets the point before any editorial or technical detail. Shown
+              only when the post carries one; older cached posts skip it and
+              lead with the summary below. */}
+          {c.plain_summary?.trim() && (
+            <div>
+              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+                {s.plain_meaning_label}
+              </h2>
+              <p className="lead-text measure">{c.plain_summary}</p>
+            </div>
+          )}
+
           {/* "At a glance" block — short summary + quick facts grouped, so
               the user can decide whether to keep reading in <5 seconds. */}
           <div>
             <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
               {s.detail_at_a_glance}
             </h2>
-            <p className="text-base sm:text-lg text-text-primary leading-relaxed mb-4">
+            <p className="text-base sm:text-lg text-text-primary leading-relaxed measure mb-4">
               {c.short_summary}
             </p>
             {c.quick_facts.length > 0 && <QuickFacts facts={c.quick_facts} />}
@@ -132,7 +146,7 @@ export function ThreatDetail({ post, lang }: Props) {
               <p className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-1">
                 {s.card_why_it_matters}
               </p>
-              <p className="text-base text-text-primary leading-relaxed">
+              <p className="text-base text-text-primary leading-relaxed measure">
                 {c.why_it_matters}
               </p>
             </div>
@@ -150,7 +164,9 @@ export function ThreatDetail({ post, lang }: Props) {
               <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
                 {s.detail_analysis_heading}
               </h2>
-              <DetailBody body={c.detail_body} />
+              <div className="measure">
+                <DetailBody body={c.detail_body} />
+              </div>
             </div>
           )}
 

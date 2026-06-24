@@ -39,6 +39,8 @@ def _item(url_id: str, *, language: str = "en", tier: str = "trusted",
 def _payload(item: NewsItem, locale: str, *, level: str = "High",
              actionability: str = "informational",
              title: str = "Title", summary: str = "A summary.",
+             plain: str = "",
+             actions: list[str] | None = None,
              facts: list[str] | None = None,
              source: str = "BleepingComputer") -> dict[str, Any]:
     return {
@@ -50,6 +52,8 @@ def _payload(item: NewsItem, locale: str, *, level: str = "High",
             locale: {
                 "title": title,
                 "short_summary": summary,
+                "plain_summary": plain,
+                "what_to_do": actions or [],
                 "quick_facts": facts or [],
             }
         },
@@ -137,15 +141,35 @@ def test_render_message_structure_and_link() -> None:
     item = _item("a")
     payload = _payload(item, "en", level="Critical",
                        title="RCE in Foo", summary="Patch now.",
-                       facts=["CVSS 9.8", "PoC public"])
+                       actions=["Install the vendor patch and reboot.",
+                                "Audit exposed hosts."])
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
     assert "🔴" in msg
     assert "<b>RCE in Foo</b>" in msg
     assert "Patch now." in msg
-    assert "• CVSS 9.8" in msg
-    assert "• PoC public" in msg
+    # Plain-language brief: ONE concrete action (the first `what_to_do`),
+    # prefixed with a check mark — not a list of quick-fact bullets.
+    assert "✅ Install the vendor patch and reboot." in msg
+    assert "Audit exposed hosts." not in msg  # only the first action shows
+    assert "•" not in msg                     # no quick-fact bullets anymore
     assert deep_link("https://cyberalertx.com", "en", item.fingerprint) in msg
     assert ">Read more</a>" in msg
+
+
+def test_render_message_prefers_plain_summary() -> None:
+    """The everyday-language `plain_summary` leads when present; the editorial
+    `short_summary` is the fallback for older cached posts without one."""
+    item = _item("plain")
+    payload = _payload(
+        item, "en",
+        title="Apple ships emergency iPhone fix",
+        summary="Apple reports a zero-click CoreText flaw, CVE-2026-1, exploited in the wild.",
+        plain="A booby-trapped text can take over your iPhone — update now.",
+    )
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "A booby-trapped text can take over your iPhone — update now." in msg
+    # The jargon-y editorial summary is NOT shown when a plain lead exists.
+    assert "zero-click CoreText flaw" not in msg
 
 
 def test_render_message_escapes_html() -> None:
@@ -163,14 +187,15 @@ def test_render_message_linkifies_cve_ids() -> None:
     payload = _payload(
         item, "ua",
         title="ABB AC500 V3 RCE",
-        summary="Критична вразливість CVE-2025-15467 дозволяє RCE.",
-        facts=["CVE-2025-2595: обхід автентифікації", "cve-2025-41691 DoS"],
+        summary="Критична вразливість CVE-2025-15467 та CVE-2025-2595 дозволяють RCE.",
+        actions=["Оновіть прошивку, що усуває cve-2025-41691."],
     )
     msg = render_message(payload, locale="ua", base_url="https://cyberalertx.com")
-    # Each CVE id becomes an NVD link; the visible label keeps its casing.
+    # CVE ids are linkified wherever they appear in the rendered body — the
+    # lead summary AND the action line. The visible label keeps its casing.
     assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-15467">CVE-2025-15467</a>' in msg
     assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-2595">CVE-2025-2595</a>' in msg
-    # Lowercase input → uppercased URL, original-case label.
+    # Lowercase input (in the action line) → uppercased URL, original-case label.
     assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-41691">cve-2025-41691</a>' in msg
 
 

@@ -207,6 +207,16 @@ case (preserve known acronyms like CVE, RCE, M365).
 short_summary — THE FEED LINE. 1-2 sentences MAX. 120-220 chars. Lead
 with attribution + the threat in one breath. Do NOT restate the title.
 
+plain_summary — THE PLAIN-LANGUAGE LEAD, written for a NON-TECHNICAL
+reader. ONE sentence, ≤22 words, everyday words. Say what happened and
+what it means for that person in concrete terms. NO jargon, NO CVE IDs,
+NO vendor/product acronyms, NO attribution clause. Imagine explaining it
+to a relative who isn't in tech — lead with the action when there is one.
+  GOOD: "Update your iPhone now — a booby-trapped text message can take
+         over your phone without you tapping anything."
+  BAD : "A zero-click RCE in CoreText enables unauthenticated remote
+         code execution via malformed glyph tables."
+
 detail_body — THE ANALYSIS. 80-160 WORDS TOTAL. 2-3 short paragraphs
 separated by `\\n\\n`. Analyst tone. Signal density: every sentence MUST
 either add operational context, reduce uncertainty, explain urgency, or
@@ -452,6 +462,16 @@ title — 6-14 слів. Описово, без сенсаційності. Бе
 short_summary — РЯДОК СТРІЧКИ. 1-2 речення МАКСИМУМ. 120-220 символів.
 Починайте з атрибуції + суть загрози одним подихом. НЕ повторюйте
 заголовок.
+
+plain_summary — ПРОСТИЙ ВСТУП, написаний для НЕТЕХНІЧНОГО читача. ОДНЕ
+речення, ≤22 слова, повсякденні слова. Скажіть, що сталося і що це означає
+для цієї людини конкретно. БЕЗ жаргону, БЕЗ номерів CVE, БЕЗ вендорських
+акронімів, БЕЗ атрибуції. Уявіть, що пояснюєте це родичу, який не з ІТ —
+починайте з дії, якщо вона є.
+  ДОБРЕ: «Оновіть iPhone зараз — шкідливе повідомлення може захопити
+          ваш телефон без жодного натискання.»
+  ПОГАНО: «Zero-click RCE у CoreText дозволяє віддалене виконання коду
+          через некоректні таблиці гліфів.»
 
 detail_body — АНАЛІТИКА. 80-160 СЛІВ. 2-3 короткі абзаци, розділені
 `\\n\\n`. Аналітичний тон. Щільність сигналу: кожне речення МАЄ або

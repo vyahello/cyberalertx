@@ -72,6 +72,22 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #3A4250;
   }
+
+  /* Honour the OS "reduce motion" preference (WCAG 2.3.3). The product
+     leans on a few subtle animations — card fade-up, the live pulse/ring,
+     the slow hero drift — which can trigger vestibular discomfort. For
+     users who opt out we collapse all animation and long transitions to
+     an instant, non-moving state rather than removing the elements. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer components {
@@ -136,6 +152,14 @@
     @apply absolute inset-0 rounded-full;
     @apply bg-signal-live animate-pulse-ring;
   }
+
+  /* Plain-language lead — the everyday-language "what this means for you"
+     sentence that opens a card and the detail page. Larger and softer than
+     surrounding copy so a general (non-technical) reader's eye lands on the
+     plain explanation first, before any badges or jargon. */
+  .lead-text {
+    @apply text-base sm:text-lg text-text-primary leading-relaxed;
+  }
 }
 
 @layer utilities {
@@ -149,6 +173,13 @@
       black calc(100% - 24px),
       transparent 100%
     );
+  }
+
+  /* Optimal reading measure — caps body/narrative text at ~68 characters
+     so long paragraphs stay comfortable to read on wide phones, tablets,
+     and desktop instead of stretching the full container width. */
+  .measure {
+    max-width: 68ch;
   }
 
   /* Subtle radial gradient for the hero — moves slowly via bg-drift. */

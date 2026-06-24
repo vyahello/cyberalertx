@@ -126,15 +126,17 @@ const config: Config = {
         ],
       },
       fontSize: {
-        // A modest 7-step scale; we don't need a 12-step type ramp on a
-        // single-feed product. Numbers picked to play well with 1.5rem
-        // baseline spacing.
+        // A modest scale tuned for READABILITY by general readers. Body
+        // (`base`) is 16px — the mobile-readable floor — with a generous
+        // 1.6 line-height; `lg` (used for lead summaries) is 18px. The two
+        // micro sizes (2xs/xs) are reserved for badges, timestamps, and
+        // uppercase labels — never body copy.
         "2xs": ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.01em" }],
         xs: ["0.75rem", { lineHeight: "1.1rem", letterSpacing: "0.005em" }],
-        sm: ["0.8125rem", { lineHeight: "1.25rem" }],
-        base: ["0.9375rem", { lineHeight: "1.5rem" }],
-        lg: ["1.0625rem", { lineHeight: "1.6rem" }],
-        xl: ["1.25rem", { lineHeight: "1.7rem", letterSpacing: "-0.01em" }],
+        sm: ["0.875rem", { lineHeight: "1.4rem" }],
+        base: ["1rem", { lineHeight: "1.65rem" }],
+        lg: ["1.125rem", { lineHeight: "1.8rem" }],
+        xl: ["1.3125rem", { lineHeight: "1.8rem", letterSpacing: "-0.01em" }],
         "2xl": ["1.5rem", { lineHeight: "1.95rem", letterSpacing: "-0.015em" }],
         "3xl": ["1.875rem", { lineHeight: "2.25rem", letterSpacing: "-0.02em" }],
         "4xl": ["2.375rem", { lineHeight: "2.7rem", letterSpacing: "-0.025em" }],

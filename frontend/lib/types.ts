@@ -73,6 +73,11 @@ export interface ThreatReference {
 export interface LocalizedContent {
   title: string;
   short_summary: string;
+  /** Everyday-language one-liner ("what this means for you") for
+   *  non-technical readers. Leads the card and detail page. Optional —
+   *  empty on posts generated before this field existed, in which case the
+   *  UI falls back to `short_summary`. */
+  plain_summary?: string;
   why_it_matters: string;
   affected_users: string[];
   what_to_do: string[];

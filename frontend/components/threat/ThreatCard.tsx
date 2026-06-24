@@ -60,7 +60,10 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
   // We normalize to safe defaults here so a missing field renders as
   // absence (block skipped) instead of "undefined" in the DOM.
   const title = content.title?.trim() || s.empty_locale_unavailable;
-  const summary = content.short_summary?.trim() || "";
+  // Plain-language first: lead with the everyday-language line when the post
+  // has one, falling back to the editorial summary for older cached posts
+  // that predate `plain_summary`.
+  const lead = content.plain_summary?.trim() || content.short_summary?.trim() || "";
   const quickFacts = content.quick_facts ?? [];
   const readingTime = Number.isFinite(content.reading_time_seconds)
     ? content.reading_time_seconds
@@ -142,9 +145,9 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
           />
         </div>
 
-        {summary && (
-          <p className="text-base text-text-primary leading-relaxed mb-3">
-            {summary}
+        {lead && (
+          <p className="lead-text measure mb-3">
+            {lead}
           </p>
         )}
 

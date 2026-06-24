@@ -154,6 +154,7 @@ class ContentGenerator:
             from .uk_glossary import normalize_ukrainian
             response.title = normalize_ukrainian(response.title)
             response.short_summary = normalize_ukrainian(response.short_summary)
+            response.plain_summary = normalize_ukrainian(response.plain_summary)
             response.why_it_matters = normalize_ukrainian(response.why_it_matters)
             response.detail_body = normalize_ukrainian(response.detail_body)
             response.affected_users = [normalize_ukrainian(s) for s in response.affected_users]
@@ -252,6 +253,7 @@ class ContentGenerator:
         return ThreatPost(
             title=response.title.strip()[:160],
             short_summary=response.short_summary.strip(),
+            plain_summary=response.plain_summary.strip(),
             threat_level=response.threat_level,
             why_it_matters=response.why_it_matters.strip(),
             affected_users=[s.strip() for s in response.affected_users if s.strip()],

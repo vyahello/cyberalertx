@@ -29,9 +29,6 @@ _LEVEL_EMOJI = {
     "Low": "🟢",
 }
 
-# Max quick facts to surface — keep the message scannable, not a wall.
-_MAX_QUICK_FACTS = 2
-
 # Telegram hard-caps a message at 4096 chars. We aim well below and trim the
 # summary if a render is unusually long.
 _MAX_SUMMARY_CHARS = 600
@@ -110,9 +107,16 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
         raise ValueError(f"payload has no '{locale}' translation")
 
     title = (content.get("title") or "").strip()
-    summary = (content.get("short_summary") or "").strip()
     if not title:
         raise ValueError("payload translation has no title")
+
+    # Plain-language first: lead the post with the everyday-language line
+    # when the post has one, falling back to the editorial summary for older
+    # cached posts that predate `plain_summary`.
+    summary = (
+        (content.get("plain_summary") or "").strip()
+        or (content.get("short_summary") or "").strip()
+    )
     if len(summary) > _MAX_SUMMARY_CHARS:
         summary = summary[: _MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
@@ -128,16 +132,21 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
         lines.append("")
         lines.append(_text(summary))
 
-    facts = [f for f in (content.get("quick_facts") or []) if f][:_MAX_QUICK_FACTS]
-    if facts:
-        lines.append("")
-        lines.extend(f"• {_text(str(f))}" for f in facts)
-
-    # Footer: just the read-more link to our own detail page. We intentionally
-    # do NOT append the original source here — it sits right after a link that
-    # points at our site, which reads as if the link goes to the source. The
-    # AI summary already names the outlet ("BleepingComputer повідомляє…").
+    # Footer group, separated from the lead by a blank line.
     lines.append("")
+
+    # One clear, concrete action — the single most useful next step. We take
+    # the FIRST `what_to_do` item (the prompt orders them by priority) instead
+    # of a list of quick facts: a non-technical reader wants "what do I do",
+    # not a spec sheet. Skipped when the post carries no action.
+    actions = [a for a in (content.get("what_to_do") or []) if str(a).strip()]
+    if actions:
+        lines.append(f"✅ {_text(str(actions[0]).strip())}")
+
+    # Read-more link to our own detail page. We intentionally do NOT append the
+    # original source here — it sits right after a link that points at our
+    # site, which reads as if the link goes to the source. The AI summary
+    # already names the outlet ("BleepingComputer повідомляє…").
     lines.append(f'🔗 <a href="{_esc(link)}">{read_more}</a>')
 
     return "\n".join(lines)

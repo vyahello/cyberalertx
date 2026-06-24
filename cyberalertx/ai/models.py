@@ -85,6 +85,12 @@ class ThreatPost:
     quick_facts: List[str] = field(default_factory=list)
     emotional_weight: float = 0.0
     reading_time_seconds: int = 25
+    # Plain-language one-liner — "what this means for you" in everyday words,
+    # no jargon, written for a non-technical reader. Leads the feed card, the
+    # detail page, and the Telegram post. Optional + defaulted so older cached
+    # posts (which predate it) load cleanly and consumers fall back to
+    # `short_summary` when it's empty.
+    plain_summary: str = ""
     # ----- new in v0.4 (additive — defaults preserve cache compat) -----
     detail_body: str = ""
     references: List[Reference] = field(default_factory=list)
@@ -110,6 +116,7 @@ class ThreatPost:
             quick_facts=list(data.get("quick_facts", [])),
             emotional_weight=float(data.get("emotional_weight", 0.0)),
             reading_time_seconds=int(data.get("reading_time_seconds", 25)),
+            plain_summary=str(data.get("plain_summary", "")),
             detail_body=str(data.get("detail_body", "")),
             references=[
                 Reference.from_dict(r) if isinstance(r, dict) else r
@@ -136,6 +143,9 @@ class ThreatPostResponse(BaseModel):
 
     title: str
     short_summary: str
+    # Everyday-language one-liner for non-technical readers (optional so older
+    # prompts / cached responses still validate). See `ThreatPost.plain_summary`.
+    plain_summary: str = ""
     threat_level: ThreatLevel
     why_it_matters: str
     affected_users: List[str]

@@ -42,6 +42,7 @@ type StringTable = {
   filter_search_placeholder: string;
 
   // Card
+  plain_meaning_label: string;
   card_why_it_matters: string;
   card_what_to_do: string;
   card_what_not_to_do: string;
@@ -243,6 +244,7 @@ const EN: StringTable = {
   filters_active: (n) => (n === 1 ? "1 filter" : `${n} filters`),
   filters_button: "Filters",
 
+  plain_meaning_label: "What this means for you",
   card_why_it_matters: "Why it matters",
   card_what_to_do: "What to do",
   card_what_not_to_do: "What to avoid",
@@ -395,6 +397,7 @@ const UK: StringTable = {
   filters_active: (n) => (n === 1 ? "1 фільтр" : `${n} фільтрів`),
   filters_button: "Фільтри",
 
+  plain_meaning_label: "Що це означає для вас",
   card_why_it_matters: "Чому це важливо",
   card_what_to_do: "Що робити",
   card_what_not_to_do: "Чого не робити",

@@ -146,8 +146,9 @@ class _PostService:
     # Fields the generator owns (text content). Everything else is shared
     # metadata about the item and lives at the top level of the response.
     _LOCALIZED_FIELDS = (
-        "title", "short_summary", "why_it_matters", "affected_users",
-        "what_to_do", "what_not_to_do", "quick_facts", "reading_time_seconds",
+        "title", "short_summary", "plain_summary", "why_it_matters",
+        "affected_users", "what_to_do", "what_not_to_do", "quick_facts",
+        "reading_time_seconds",
         # New in v0.4 — extended detail-page content.
         "detail_body", "references",
     )
