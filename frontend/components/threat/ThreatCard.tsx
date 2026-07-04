@@ -69,7 +69,9 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
     ? content.reading_time_seconds
     : 25;
 
-  const delay = `${Math.min(index, 8) * 60}ms`;
+  // Entrance stagger capped tight — beyond ~250ms the tail of the feed
+  // reads as "content arriving late" rather than as choreography.
+  const delay = `${Math.min(index, 5) * 50}ms`;
 
   return (
     <Link

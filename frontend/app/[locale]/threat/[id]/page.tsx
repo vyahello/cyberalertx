@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
-import { Header } from "@/components/layout/Header";
 import { ThreatDetail } from "@/components/threat/ThreatDetail";
 import { RelatedThreats } from "@/components/threat/RelatedThreats";
 import { fetchPost, fetchPosts } from "@/lib/api";
@@ -85,29 +84,22 @@ export default async function ThreatDetailPage({
     fetchPosts(locale, 20, { cachedOnly: true }),
   ]);
 
+  // Header renders in app/[locale]/layout.tsx — persistent app shell.
   if (!post) {
-    return (
-      <>
-        <Header lang={locale} />
-        <NotFound lang={locale} />
-      </>
-    );
+    return <NotFound lang={locale} />;
   }
 
   return (
-    <>
-      <Header lang={locale} />
-      <main className="min-h-screen">
-        <ThreatDetail post={post} lang={locale} />
-        <div className="mx-auto max-w-6xl px-5 sm:px-8 pb-20">
-          <RelatedThreats
-            pool={postsAvailableIn(pool, locale)}
-            current={post}
-            lang={locale}
-          />
-        </div>
-      </main>
-    </>
+    <main className="min-h-screen">
+      <ThreatDetail post={post} lang={locale} />
+      <div className="mx-auto max-w-6xl px-5 sm:px-8 pb-20">
+        <RelatedThreats
+          pool={postsAvailableIn(pool, locale)}
+          current={post}
+          lang={locale}
+        />
+      </div>
+    </main>
   );
 }
 

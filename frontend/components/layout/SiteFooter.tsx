@@ -18,7 +18,9 @@ export function SiteFooter() {
       role="contentinfo"
       className="border-t border-border-subtle mt-auto"
     >
-      <div className="mx-auto max-w-6xl px-5 sm:px-8 py-6 text-center text-2xs text-text-tertiary">
+      {/* Bottom padding clears the iOS home indicator (safe-area inset)
+          when the page is scrolled to the very end. */}
+      <div className="mx-auto max-w-6xl px-5 sm:px-8 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-center text-2xs text-text-tertiary">
         <div className="flex items-center justify-center gap-5 mb-3">
           <ObfuscatedEmail className={socialLinkClass} />
         </div>

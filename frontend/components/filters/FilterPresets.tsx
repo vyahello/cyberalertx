@@ -136,9 +136,12 @@ export function FilterPresets({ state, onChange, lang }: Props) {
           {s.preset_label}
         </p>
       </div>
-      {/* Horizontal scroller — fits 7 presets on mobile without wrapping. */}
+      {/* Horizontal scroller — fits 7 presets on mobile without wrapping.
+          `sm:mask-none` lifts the edge fade once the row stops scrolling
+          (utility defined in globals.css — Tailwind ships none). */}
       <ul
-        className="flex gap-2 overflow-x-auto -mx-5 sm:-mx-0 px-5 sm:px-0 pb-1 mask-fade-x sm:mask-none"
+        className="flex gap-2 overflow-x-auto no-scrollbar overscroll-x-contain
+                   -mx-5 sm:-mx-0 px-5 sm:px-0 pb-1 mask-fade-x sm:mask-none"
         role="list"
       >
         {PRESETS.map(({ id, i18nKey, icon: Icon, build }) => {
@@ -151,12 +154,14 @@ export function FilterPresets({ state, onChange, lang }: Props) {
                 onClick={() => onChange(target)}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full",
-                  "border px-3 py-1.5 text-xs font-medium",
+                  // 40px tap lane on phones; compact chip from sm+.
+                  "min-h-[40px] sm:min-h-0",
+                  "border px-3.5 sm:px-3 py-1.5 text-xs font-medium",
                   "transition-colors duration-150",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
                   active
                     ? "bg-accent-soft border-accent/50 text-accent"
-                    : "bg-bg-elevated-2 border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-strong",
+                    : "bg-bg-elevated-2 border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-strong active:border-border-strong",
                 )}
                 aria-pressed={active}
               >

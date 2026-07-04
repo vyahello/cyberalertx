@@ -56,8 +56,9 @@ export function ThreatDetail({ post, lang }: Props) {
           with the hero. */}
       <Link
         href={`/${lang}#feed`}
+        // py/-my expand the tap area to ~40px without moving the text.
         className="inline-flex items-center gap-1.5 text-sm text-text-secondary
-                   hover:text-text-primary transition-colors mb-6 group"
+                   hover:text-text-primary transition-colors mb-6 group py-2 -my-2"
       >
         <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
         {s.detail_back_to_feed}
@@ -84,7 +85,7 @@ export function ThreatDetail({ post, lang }: Props) {
         </div>
 
         <h1 className="text-2xl sm:text-3xl lg:text-[2.125rem] font-semibold
-                       text-text-primary tracking-tight leading-[1.15] mb-4 max-w-4xl">
+                       text-text-primary tracking-tight leading-[1.15] mb-4 max-w-4xl break-words">
           {c.title}
         </h1>
 

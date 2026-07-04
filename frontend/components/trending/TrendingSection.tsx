@@ -100,7 +100,11 @@ export function TrendingSection({ posts, lang }: Props) {
       </header>
 
       <div className="relative">
-        <div className="overflow-x-auto -mx-5 sm:-mx-8 px-5 sm:px-8 pb-2 mask-fade-x">
+        {/* no-scrollbar: the styled 10px bar under the cards reads as page
+            chrome; the edge fade + peeking card already signal scroll.
+            overscroll-x-contain stops the row's edge-bounce from turning
+            into a browser back-swipe on iOS. */}
+        <div className="overflow-x-auto no-scrollbar overscroll-x-contain -mx-5 sm:-mx-8 px-5 sm:px-8 pb-2 mask-fade-x">
           <ul className="flex gap-3 snap-x snap-mandatory">
             {trending.map((post) => {
               const c = contentFor(post, lang);

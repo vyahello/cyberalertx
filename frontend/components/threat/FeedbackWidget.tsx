@@ -90,9 +90,10 @@ export function FeedbackWidget({ postId, lang }: Props) {
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full",
                 "border border-border-subtle bg-bg-elevated-2",
-                "px-3 py-1.5 text-xs font-medium text-text-secondary",
+                // 40px tap lane on phones, compact chip from sm+.
+                "min-h-[40px] sm:min-h-0 px-3.5 sm:px-3 py-1.5 text-xs font-medium text-text-secondary",
                 "transition-colors duration-150",
-                "hover:text-text-primary hover:border-border-strong",
+                "hover:text-text-primary hover:border-border-strong active:border-border-strong",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
               )}
             >

@@ -23,6 +23,10 @@ interface Props {
   /** Same for platforms / audiences — keeps the panel tight to live data. */
   availablePlatforms: string[];
   availableAudiences: Audience[];
+  /** Suppress the panel's own title row. The mobile drawer sets this —
+   *  its sheet header already carries the same title, and doubling it
+   *  reads as a rendering glitch. The reset action stays visible. */
+  hideTitle?: boolean;
   className?: string;
 }
 
@@ -46,6 +50,7 @@ export function FilterPanel({
   availableCategories,
   availablePlatforms,
   availableAudiences,
+  hideTitle = false,
   className,
 }: Props) {
   const s = strings(lang);
@@ -68,22 +73,27 @@ export function FilterPanel({
     <div className={cn("space-y-6", className)}>
       {/* Header — title + reset, both visible at all times on desktop. The
           reset button is suppressed when no filters are applied so it can't
-          read as "destroy work". */}
-      <header className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-text-primary">
-          {s.filters_title}
-        </h3>
-        {hasActiveFilters(state) && (
-          <button
-            type="button"
-            onClick={onReset}
-            className="inline-flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" />
-            {s.filters_reset}
-          </button>
-        )}
-      </header>
+          read as "destroy work". With hideTitle (mobile drawer) the row
+          collapses entirely until there's a reset to offer. */}
+      {(!hideTitle || hasActiveFilters(state)) && (
+        <header className="flex items-center justify-between">
+          {!hideTitle && (
+            <h3 className="text-sm font-semibold text-text-primary">
+              {s.filters_title}
+            </h3>
+          )}
+          {hasActiveFilters(state) && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="ml-auto inline-flex items-center gap-1.5 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              {s.filters_reset}
+            </button>
+          )}
+        </header>
+      )}
 
       {/* Search — debounced via parent state, no internal input ref dance. */}
       <div>
@@ -101,7 +111,12 @@ export function FilterPanel({
             value={state.query}
             onChange={(e) => onChange({ ...state, query: e.target.value })}
             placeholder={s.filter_search_placeholder}
-            className="w-full pl-8 pr-3 py-2 bg-bg-elevated-2 border border-border-subtle rounded-md text-sm
+            autoComplete="off"
+            enterKeyHint="search"
+            // 16px font on touch layouts — anything smaller makes iOS
+            // Safari zoom the whole page when the field gains focus.
+            className="w-full pl-8 pr-3 py-2 bg-bg-elevated-2 border border-border-subtle rounded-md
+                       text-base sm:text-sm
                        text-text-primary placeholder:text-text-tertiary
                        focus:border-border-focus transition-colors"
           />

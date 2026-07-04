@@ -35,7 +35,8 @@ export function Header({ lang }: Props) {
     <header
       className="sticky top-0 z-30
                  bg-bg-base/85 backdrop-blur supports-[backdrop-filter]:bg-bg-base/65
-                 border-b border-border-subtle"
+                 border-b border-border-subtle
+                 pt-[env(safe-area-inset-top)]"
     >
       <div className="mx-auto max-w-6xl px-5 sm:px-8 h-14 flex items-center justify-between gap-4">
         <Link

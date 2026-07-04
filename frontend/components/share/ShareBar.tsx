@@ -85,11 +85,12 @@ export function ShareBar({ title, lang, className }: Props) {
     }
   }
 
+  // 40px tap lane on phones (thumb targets), compact chip from sm+.
   const itemClass =
     "inline-flex items-center gap-1.5 rounded-md border border-border-subtle " +
-    "px-2.5 py-1.5 text-xs text-text-secondary transition-colors " +
-    "hover:text-text-primary hover:border-border-strong focus-visible:outline-none " +
-    "focus-visible:ring-2 focus-visible:ring-border-focus";
+    "min-h-[40px] sm:min-h-0 px-3 sm:px-2.5 py-1.5 text-xs text-text-secondary transition-colors " +
+    "hover:text-text-primary hover:border-border-strong active:border-border-strong " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus";
 
   return (
     <div className={className}>

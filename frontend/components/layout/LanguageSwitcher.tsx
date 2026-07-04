@@ -61,7 +61,11 @@ export function LanguageSwitcher({ lang }: Props) {
             prefetch={active ? false : undefined}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "px-2.5 py-1 rounded text-xs font-semibold tracking-wider",
+              // Taller lane than the visual pill suggests — the header is
+              // height-capped, so we widen the hit area with padding while
+              // the rounded plate keeps its compact look.
+              "inline-flex items-center justify-center min-w-[2.25rem]",
+              "px-2.5 py-1.5 rounded text-xs font-semibold tracking-wider",
               "transition-colors duration-150",
               active
                 ? "bg-bg-base text-text-primary"

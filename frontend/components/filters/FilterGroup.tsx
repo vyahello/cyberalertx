@@ -51,11 +51,15 @@ export function FilterGroup<T extends string>({
               onClick={() => onToggle(opt.value)}
               aria-pressed={active}
               className={cn(
-                "min-h-[32px] px-3 py-1 rounded-md text-sm font-medium",
+                // 40px tap height on touch layouts, denser 32px from sm+
+                // where the pointer is precise. Active ink is dark bg-base
+                // on the cyan ground — white-on-cyan fails AA contrast
+                // (same rule as .btn-primary).
+                "min-h-[40px] sm:min-h-[32px] px-3 py-1 rounded-md text-sm font-medium",
                 "transition-colors duration-150 border",
                 active
-                  ? "bg-accent text-white border-accent"
-                  : "bg-bg-elevated-2 text-text-secondary border-border-subtle hover:border-border-strong hover:text-text-primary",
+                  ? "bg-accent text-bg-base border-accent font-semibold"
+                  : "bg-bg-elevated-2 text-text-secondary border-border-subtle hover:border-border-strong hover:text-text-primary active:border-border-strong",
               )}
             >
               {opt.label}
@@ -63,7 +67,7 @@ export function FilterGroup<T extends string>({
                 <span
                   className={cn(
                     "ml-1.5 text-xs tabular-nums",
-                    active ? "text-white/70" : "text-text-tertiary",
+                    active ? "text-bg-base/70" : "text-text-tertiary",
                   )}
                 >
                   {opt.count}

@@ -2,8 +2,10 @@ import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "../globals.css";
+import { Header } from "@/components/layout/Header";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { UmamiAnalytics } from "@/components/analytics/UmamiAnalytics";
+import { strings } from "@/lib/i18n";
 import { SUPPORTED_LOCALES, isLocale } from "@/lib/types";
 
 /**
@@ -62,6 +64,22 @@ const OG_BY_LOCALE: Record<
   },
 };
 
+// Browser-tab title + search-snippet description, per locale. A UA reader's
+// tab and Google result should read in Ukrainian — mirrors the hero copy so
+// the promise in search matches the promise on the page.
+const META_BY_LOCALE: Record<string, { title: string; description: string }> = {
+  en: {
+    title: "CyberAlertX — Cyber threats. Before they hit you.",
+    description:
+      "Today's cybersecurity threats in plain English. What happened, who it hits, and what to do — without the panic or the jargon.",
+  },
+  ua: {
+    title: "CyberAlertX — Кіберзагрози. Перш ніж вони дістануться вас.",
+    description:
+      "Сьогоднішні кіберзагрози простою мовою. Що сталося, кого це стосується і що робити — без паніки та жаргону.",
+  },
+};
+
 export async function generateMetadata({
   params,
 }: {
@@ -69,10 +87,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale } = await params;
   const og = OG_BY_LOCALE[locale] ?? OG_BY_LOCALE.en;
+  const meta = META_BY_LOCALE[locale] ?? META_BY_LOCALE.en;
   return {
-  title: "CyberAlertX — Cyber threats. Before they hit you.",
-  description:
-    "Today's cybersecurity threats in plain English. What happened, who it hits, and what to do — without the panic or the jargon.",
+  title: meta.title,
+  description: meta.description,
   applicationName: "CyberAlertX",
   authors: [{ name: "CyberAlertX" }],
   // Required by Next.js to convert relative OG / Twitter image URLs into
@@ -141,6 +159,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Allow user zoom; never trap accessibility for visual control.
   maximumScale: 5,
+  // Draw edge-to-edge on notched phones; safe-area insets in globals.css
+  // (body gutters, header top pad, FAB / drawer bottom pads) keep content
+  // clear of the sensor housing and home indicator.
+  viewportFit: "cover",
 };
 
 /** Pre-render one shell per supported locale at build time. */
@@ -169,7 +191,21 @@ export default async function LocaleRootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">
-        <div className="flex-1">{children}</div>
+        {/* Keyboard-user escape hatch — first tab stop on every page.
+            Visually hidden until focused, then surfaces as a floating
+            accent chip above the sticky header. */}
+        <a href="#main-content" className="skip-link">
+          {strings(locale).skip_to_content}
+        </a>
+        {/* Header lives in the LAYOUT, not in each page: it persists
+            across route transitions (feed → detail), so navigation swaps
+            only the content region while the brand bar stays put — and
+            loading.tsx skeletons render beneath a stable header instead
+            of a blank viewport. */}
+        <Header lang={locale} />
+        <div id="main-content" className="flex-1">
+          {children}
+        </div>
         <SiteFooter />
         <UmamiAnalytics />
       </body>

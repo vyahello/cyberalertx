@@ -13,6 +13,8 @@ type StringTable = {
   // Header / brand
   brand: string;
   tagline_short: string;
+  /** Keyboard-user escape hatch — first focusable element on the page. */
+  skip_to_content: string;
 
   // Hero
   hero_eyebrow: string;
@@ -214,6 +216,7 @@ function formatReadingTime(total: number, lang: Locale): string {
 const EN: StringTable = {
   brand: "CyberAlertX",
   tagline_short: "Threat intelligence for everyone",
+  skip_to_content: "Skip to content",
 
   hero_eyebrow: "Real-time cybersecurity awareness",
   // NBSP between the final two words pins them on the same line in older
@@ -371,6 +374,7 @@ const EN: StringTable = {
 const UK: StringTable = {
   brand: "CyberAlertX",
   tagline_short: "Розвідка загроз для кожного",
+  skip_to_content: "Перейти до вмісту",
 
   hero_eyebrow: "Кіберобізнаність у реальному часі",
   hero_headline: "Кіберзагрози. Перш ніж вони дістануться вас.",

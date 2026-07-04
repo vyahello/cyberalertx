@@ -18,7 +18,6 @@ import { TrendingSection } from "../trending/TrendingSection";
 import { FilterPanel, countActiveFilters } from "../filters/FilterPanel";
 import { FilterPresets } from "../filters/FilterPresets";
 import { MobileFilterDrawer } from "../filters/MobileFilterDrawer";
-import { Header } from "./Header";
 
 interface Props {
   /** The locale the URL says we're in. The shell does NOT own locale state
@@ -89,8 +88,7 @@ export function HomeShell({ lang, initialPosts }: Props) {
 
   return (
     <>
-      <Header lang={lang} />
-
+      {/* Header renders in app/[locale]/layout.tsx — persistent app shell. */}
       <main>
         <Hero lang={lang} activeThreats={activeThreats} />
         <TrendingSection posts={localePosts} lang={lang} />
@@ -98,7 +96,9 @@ export function HomeShell({ lang, initialPosts }: Props) {
         <section
           id="feed"
           aria-labelledby="feed-heading"
-          className="mx-auto max-w-6xl px-5 sm:px-8 pb-24"
+          // scroll-mt clears the sticky header when the hero CTA anchors
+          // here — without it the feed heading lands hidden under the bar.
+          className="mx-auto max-w-6xl px-5 sm:px-8 pb-24 scroll-mt-20"
         >
           <header className="mb-6 sm:mb-8 flex items-end justify-between flex-wrap gap-3">
             <div>

@@ -74,22 +74,27 @@ export function MobileFilterDrawer({
   return (
     <>
       {/* Trigger — visible only below `lg`. Floats with a small drop shadow
-          so it doesn't get lost on dense cards behind it. */}
+          so it doesn't get lost on dense cards behind it. Ink is dark
+          `bg-base` on the cyan ground (white-on-cyan fails contrast — same
+          rule as .btn-primary); bottom offset respects the iOS home
+          indicator via safe-area inset. */}
       <button
         type="button"
         onClick={() => onOpenChange(true)}
         className={cn(
-          "lg:hidden fixed bottom-5 right-5 z-30",
-          "inline-flex items-center gap-2 px-4 py-3 rounded-full",
-          "bg-accent text-white shadow-elevated",
-          "hover:bg-[#4A7EE8] active:scale-[0.97] transition",
+          "lg:hidden fixed z-30",
+          "right-[max(1.25rem,env(safe-area-inset-right))]",
+          "bottom-[max(1.25rem,env(safe-area-inset-bottom))]",
+          "inline-flex items-center gap-2 px-4 py-3 min-h-[48px] rounded-full",
+          "bg-accent text-bg-base shadow-elevated",
+          "hover:bg-accent-hover active:scale-[0.97] transition",
         )}
         aria-label={s.filters_button}
       >
-        <SlidersHorizontal className="w-4 h-4" />
-        <span className="text-sm font-medium">{s.filters_button}</span>
+        <SlidersHorizontal className="w-4 h-4" strokeWidth={2.5} />
+        <span className="text-sm font-semibold">{s.filters_button}</span>
         {activeCount > 0 && (
-          <span className="bg-white/20 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums">
+          <span className="bg-bg-base/15 rounded-full px-2 py-0.5 text-2xs font-bold tabular-nums">
             {activeCount}
           </span>
         )}
@@ -111,7 +116,9 @@ export function MobileFilterDrawer({
             aria-labelledby="mobile-filter-title"
             className={cn(
               "absolute bottom-0 left-0 right-0",
-              "max-h-[85vh] overflow-y-auto",
+              // dvh, not vh — mobile browsers' collapsing URL bar makes
+              // 85vh overflow the *visual* viewport and hide the footer.
+              "max-h-[85dvh] overflow-y-auto overscroll-contain",
               "bg-bg-elevated border-t border-border-subtle",
               "rounded-t-xl shadow-elevated",
               "animate-fade-up",
@@ -133,7 +140,8 @@ export function MobileFilterDrawer({
                 <button
                   type="button"
                   onClick={() => onOpenChange(false)}
-                  className="p-1.5 -mr-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-elevated-2"
+                  className="p-2.5 -mr-2.5 -my-1 rounded-md text-text-secondary
+                             hover:text-text-primary hover:bg-bg-elevated-2 active:bg-bg-elevated-2"
                   aria-label="Close"
                 >
                   <X className="w-5 h-5" />
@@ -149,11 +157,15 @@ export function MobileFilterDrawer({
                 availableCategories={availableCategories}
                 availablePlatforms={availablePlatforms}
                 availableAudiences={availableAudiences}
+                // The sheet header above already says "Refine the feed".
+                hideTitle
               />
             </div>
             {/* Sticky bottom action — fixes a common bottom-sheet bug where
-                the user scrolls and loses the "done" button. */}
-            <div className="sticky bottom-0 bg-bg-elevated border-t border-border-subtle px-5 py-3">
+                the user scrolls and loses the "done" button. Bottom padding
+                clears the iOS home indicator (safe-area inset). */}
+            <div className="sticky bottom-0 bg-bg-elevated border-t border-border-subtle px-5 pt-3
+                            pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}
