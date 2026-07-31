@@ -680,6 +680,15 @@ def collapse_duplicates(
     extra_sources: dict[str, list[str]] = {}
     for key in order:
         members = groups[key]
+        if len(members) == 1:
+            # Nothing to choose between, so don't invoke `prefer` at all.
+            # This matters more than it looks: `prefer` is backed by the AI
+            # cache, which is a network round-trip against Postgres. Running
+            # it over every item turned one feed request into hundreds of
+            # queries. The overwhelming majority of stories are single-source,
+            # so skipping them here removes almost all of that cost.
+            survivors.append(members[0])
+            continue
         canonical = choose_canonical(members, prefer=prefer)
         survivors.append(canonical)
         others: list[str] = []

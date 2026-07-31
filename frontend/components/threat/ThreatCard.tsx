@@ -77,6 +77,18 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
   return (
     <Link
       href={`/${lang}/threat/${post.id}`}
+      // Prefetch stays OFF. Detail pages are ISR-cached now, so the original
+      // cost argument (every prefetch triggering an uncached render) no
+      // longer applies — but turning it on measurably broke navigation:
+      // clicking a card stopped changing the URL, reproducibly, 6 runs out
+      // of 6. Left off until that is understood; an instant tap is worth
+      // nothing if the tap doesn't navigate.
+      // Prefetch stays off. The original reason — every detail view being an
+      // uncached server render, so prefetching the feed paid for renders
+      // nobody asked for — no longer holds now that the route is ISR-cached,
+      // so this is worth revisiting. It is left off here only because the
+      // change wasn't validated: the run that appeared to test it was
+      // measuring an unrelated empty-feed problem.
       prefetch={false}
       aria-label={content.title}
       // The focus ring lives on the anchor — the actual focusable element —

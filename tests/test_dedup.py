@@ -451,3 +451,55 @@ def test_storage_dicts_written_before_clustering_load_with_empty_defaults():
     restored = NewsItem.from_storage_dict(payload)
     assert restored.story_key == ""
     assert restored.duplicate_of == ""
+
+
+# --------------------------------------------------------------------------
+# Cost of the read-time collapse
+# --------------------------------------------------------------------------
+
+def test_collapse_does_not_probe_single_source_stories():
+    """`prefer` is backed by the AI cache, which is a Postgres round-trip.
+
+    Calling it for every item turned one feed request into hundreds of
+    queries and made /posts roughly five times slower than before story
+    clustering existed. Most stories are single-source, and a group of one
+    has nothing to choose between, so those must not be probed at all.
+    """
+    singles = [
+        item("Acme Bank phishing wave targets mobile customers", "Krebs on Security"),
+        item("Globex Gateway ships fix for memory corruption", "SecurityWeek", days=-1),
+        item("Initech Router firmware leaks admin credentials", "DarkReading", days=-2),
+        item("Umbrella Cloud console exposed without authentication", "SC Media", days=-3),
+        item("Soylent CMS plugin abused to plant webshells", "The Hacker News", days=-4),
+        item("Tyrell Robotics ransomware halts assembly lines", "InfoSecurity Magazine", days=-5),
+    ]
+    pair_a = item("VMware fixes three critical flaws allowing auth bypass, VM escapes")
+    pair_b = item(
+        "Three Critical VMware Flaws Allow Auth Bypass, Code Execution, and VM Escape",
+        "The Hacker News", days=1,
+    )
+    items = [*singles, pair_a, pair_b]
+    assign_story_keys(items)
+
+    probed: list[str] = []
+
+    def prefer(i: NewsItem) -> bool:
+        probed.append(i.fingerprint)
+        return True
+
+    collapse_duplicates(items, prefer=prefer)
+
+    # Only the two members of the one multi-source story may be probed.
+    assert set(probed) <= {pair_a.fingerprint, pair_b.fingerprint}
+    assert len(probed) <= 2
+
+
+def test_collapse_without_prefer_never_probes():
+    items = [
+        item("Acme Bank phishing wave targets mobile customers", "Krebs on Security"),
+        item("Globex Gateway ships fix for memory corruption", "SecurityWeek", days=-1),
+        item("Initech Router firmware leaks admin credentials", "DarkReading", days=-2),
+    ]
+    assign_story_keys(items)
+    survivors, _ = collapse_duplicates(items)
+    assert len(survivors) == 3

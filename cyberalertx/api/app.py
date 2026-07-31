@@ -534,6 +534,7 @@ def build_app(
 
     def _dedupe_stories(
         items: list[NewsItem], language: str | None,
+        cache_probe: dict[str, bool] | None = None,
     ) -> tuple[list[NewsItem], dict[str, list[str]]]:
         """Collapse multi-source coverage down to one item per story.
 
@@ -545,10 +546,23 @@ def build_app(
 
         Returns the survivors plus, per surviving fingerprint, the other
         sources that covered the same story.
+
+        The `prefer` lookup hits the AI cache, which is a Postgres round-trip
+        in the dual-write configuration. Results are recorded in `cache_probe`
+        so the render loop that runs next can reuse them instead of asking
+        about the same fingerprint a second time — the two stages together
+        now cost one lookup per item, not two.
         """
-        return collapse_duplicates(
-            items, prefer=lambda i: svc.has_cached_render(i, language),
-        )
+        seen = cache_probe if cache_probe is not None else {}
+
+        def _renderable(item: NewsItem) -> bool:
+            cached = seen.get(item.fingerprint)
+            if cached is None:
+                cached = svc.has_cached_render(item, language)
+                seen[item.fingerprint] = cached
+            return cached
+
+        return collapse_duplicates(items, prefer=_renderable)
 
     def _render_many(
         items: list[NewsItem], *,
@@ -556,6 +570,7 @@ def build_app(
         language: str | None = None,
         limit: int | None = None,
         extra_sources: dict[str, list[str]] | None = None,
+        cache_probe: dict[str, bool] | None = None,
     ) -> list[dict[str, Any]]:
         """Render a batch.
 
@@ -581,6 +596,11 @@ def build_app(
                 break
             try:
                 if cached_only:
+                    # The dedup stage already asked the cache about some of
+                    # these fingerprints. Reuse a negative answer rather than
+                    # paying for the same round-trip twice.
+                    if cache_probe is not None and cache_probe.get(item.fingerprint) is False:
+                        continue
                     payload = svc.render_if_cached(item, required_locale=language)
                     if payload is None:
                         continue
@@ -664,7 +684,8 @@ def build_app(
         # One card per story. When BleepingComputer, The Hacker News and CISA
         # all cover the same zero-day, the reader gets a single post that says
         # three sources reported it — not three near-identical cards.
-        items, story_sources = _dedupe_stories(items, language)
+        cache_probe: dict[str, bool] = {}
+        items, story_sources = _dedupe_stories(items, language, cache_probe)
         # Walk the full filtered store, collecting up to `limit` items that
         # actually satisfy `cached_only` for the requested locale. NOT a
         # `items[:limit]` slice — that would let a freshly-ingested item
@@ -675,7 +696,7 @@ def build_app(
         # from going half-empty between fires.
         rendered = _render_many(
             items, cached_only=cached_only, language=language, limit=limit,
-            extra_sources=story_sources,
+            extra_sources=story_sources, cache_probe=cache_probe,
         )
         # Post-render filter: when `?language=X` is set, drop items that
         # ended up without a rendered translation in X. This catches the
@@ -732,11 +753,12 @@ def build_app(
         # Render a generous candidate pool, then sort the rendered shape
         # by the same key the frontend uses. `cached_only=True` means
         # items without AI renders never appear in trending.
-        items, story_sources = _dedupe_stories(items, language)
+        cache_probe: dict[str, bool] = {}
+        items, story_sources = _dedupe_stories(items, language, cache_probe)
         candidates = items[: max(limit * 3, 30)]
         rendered = _render_many(
             candidates, cached_only=True, language=language,
-            extra_sources=story_sources,
+            extra_sources=story_sources, cache_probe=cache_probe,
         )
         if language:
             rendered = [

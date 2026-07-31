@@ -19,9 +19,21 @@ export const SITE_URL = (
 
 export const SITE_NAME = "CyberAlertX";
 
-/** Telegram channels, per locale. Empty string = not published for that locale. */
+/**
+ * Telegram channels, per locale.
+ *
+ * These MUST match `CYBERALERTX_TELEGRAM_CHANNEL_EN` / `_UA` in the
+ * backend's environment — that's where the publisher actually sends. They
+ * are duplicated here rather than read from the API because the footer is a
+ * static server component and a whole endpoint for two constants isn't
+ * worth it; the tradeoff is that they have to be changed in both places.
+ *
+ * Both locales use the `_xx` suffix. There is no bare `@cyberalertx`
+ * channel — linking to one sent readers to Telegram's "username not found"
+ * dialog.
+ */
 export const TELEGRAM_CHANNELS: Record<Locale, string> = {
-  en: "https://t.me/cyberalertx",
+  en: "https://t.me/cyberalertx_en",
   ua: "https://t.me/cyberalertx_ua",
 };
 

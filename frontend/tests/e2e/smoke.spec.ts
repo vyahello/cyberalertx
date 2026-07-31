@@ -116,6 +116,31 @@ test.describe("smoke @smoke", () => {
     await expect(page.getByRole("contentinfo")).toBeVisible();
   });
 
+  test("footer links to the real Telegram channel for each locale", async ({ page }) => {
+    // Both channels carry the locale suffix. A bare `@cyberalertx` looks
+    // plausible and resolves with HTTP 200, but it is Telegram's "contact"
+    // stub, not a channel — clicking it pops "username not found". These
+    // must stay in sync with CYBERALERTX_TELEGRAM_CHANNEL_EN / _UA on the
+    // backend, which is where posts are actually published.
+    for (const [locale, channel] of [
+      ["en", "cyberalertx_en"],
+      ["ua", "cyberalertx_ua"],
+    ] as const) {
+      await page.goto(`/${locale}`);
+      const link = page
+        .getByRole("contentinfo")
+        .getByRole("link", { name: /telegram/i });
+      await expect(link).toHaveAttribute("href", `https://t.me/${channel}`);
+    }
+  });
+
+  test("footer links to the RSS feed for the active locale", async ({ page }) => {
+    await page.goto("/ua");
+    await expect(
+      page.getByRole("contentinfo").getByRole("link", { name: /RSS/i }),
+    ).toHaveAttribute("href", "/ua/feed.xml");
+  });
+
   test("brand favicon is reachable", async ({ baseURL }) => {
     const ctx = await request.newContext({ baseURL });
     try {
