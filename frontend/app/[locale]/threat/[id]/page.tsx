@@ -4,13 +4,35 @@ import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
 import { ThreatDetail } from "@/components/threat/ThreatDetail";
 import { RelatedThreats } from "@/components/threat/RelatedThreats";
+import { ThreatJsonLd } from "@/components/seo/JsonLd";
 import { fetchPost, fetchPosts } from "@/lib/api";
 import { strings } from "@/lib/i18n";
+import { postUrl } from "@/lib/site";
 import { contentFor, isLocale, postsAvailableIn } from "@/lib/types";
 
-/** Same ISR window as the homepage — detail content shouldn't go stale
- *  faster than the feed it belongs to. */
-export const revalidate = 60;
+/**
+ * Detail pages are cached and revalidated, not re-rendered per request.
+ *
+ * `revalidate` alone did nothing here. A dynamic segment without
+ * `generateStaticParams` opts out of the static/ISR path entirely, so
+ * `next build` reported this route as fully dynamic with no revalidate
+ * window and every visit paid for three API round-trips. Exporting an
+ * empty param list is the documented way to say "prerender none of these
+ * at build time, but still cache them on first request" — the pages are
+ * generated on demand and then served from cache.
+ *
+ * 300s rather than 60s: a threat brief is written once and not revised,
+ * so the only thing a shorter window buys is load.
+ */
+export const revalidate = 300;
+
+export function generateStaticParams(): { locale: string; id: string }[] {
+  return [];
+}
+
+/** Fingerprints are 16 hex chars (see `NewsItem.fingerprint`). Anything else
+ *  can't exist, so we reject it before spending a backend call on it. */
+const FINGERPRINT_RE = /^[0-9a-f]{16}$/;
 
 /**
  * Per-page metadata. Pulls the localized title + summary so social
@@ -23,8 +45,15 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale, id } = await params;
   if (!isLocale(locale)) return {};
+  if (!FINGERPRINT_RE.test(id)) {
+    return { title: "Threat not found — CyberAlertX", robots: { index: false } };
+  }
   const post = await fetchPost(id);
-  if (!post) return { title: "Threat not found — CyberAlertX" };
+  // Keep unresolvable ids out of the index — a crawler that finds a stale
+  // link shouldn't add an empty page to the search results.
+  if (!post) {
+    return { title: "Threat not found — CyberAlertX", robots: { index: false } };
+  }
   const c = contentFor(post, locale);
   if (!c) {
     return { title: `${post.source} — CyberAlertX` };
@@ -36,9 +65,26 @@ export async function generateMetadata({
   // shared UA link unfurls in Ukrainian with the actual story.
   const ogImage = locale === "ua" ? "/brand/og-image-ua.png" : "/brand/og-image.png";
   const ogLocale = locale === "ua" ? "uk_UA" : "en_US";
+
+  // Language alternates for THIS story — listing only the locales it was
+  // actually rendered in. A UA-sourced story has no English version (we
+  // never auto-translate Ukrainian news), and advertising an `en` alternate
+  // would point search engines at a "not available in this language" page.
+  const languages: Record<string, string> = {};
+  if (post.available_locales?.includes("en")) {
+    languages["en-US"] = postUrl("en", id);
+  }
+  if (post.available_locales?.includes("ua")) {
+    languages["uk"] = postUrl("ua", id);
+  }
+
   return {
     title: `${c.title} — CyberAlertX`,
-    description: c.short_summary,
+    description: c.plain_summary?.trim() || c.short_summary,
+    alternates: {
+      canonical: postUrl(locale, id),
+      ...(Object.keys(languages).length > 1 ? { languages } : {}),
+    },
     openGraph: {
       title: c.title,
       description: c.short_summary,
@@ -66,6 +112,8 @@ export default async function ThreatDetailPage({
 }) {
   const { locale, id } = await params;
   if (!isLocale(locale)) notFound();
+  // Reject malformed ids before touching the backend.
+  if (!FINGERPRINT_RE.test(id)) notFound();
 
   // Parallel fetches: the single post + a small pool for related-threats.
   //
@@ -91,6 +139,10 @@ export default async function ThreatDetailPage({
 
   return (
     <main className="min-h-screen">
+      {/* NewsArticle structured data — the gate for Google Top Stories /
+          Discover eligibility, and what makes the brief citable by AI
+          assistants rather than merely readable. */}
+      <ThreatJsonLd post={post} lang={locale} />
       <ThreatDetail post={post} lang={locale} />
       <div className="mx-auto max-w-6xl px-5 sm:px-8 pb-20">
         <RelatedThreats

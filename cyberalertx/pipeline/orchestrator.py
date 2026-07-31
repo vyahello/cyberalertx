@@ -33,6 +33,7 @@ from .actionability import analyze_all as analyze_actionability_all
 from .audience import classify_all as classify_audience_all
 from .category import categorize_all
 from .credibility import analyze_all as analyze_credibility_all
+from .dedup import assign_incremental
 from .filter import filter_relevant
 from .normalize import normalize_all
 from .platforms import extract_all
@@ -59,13 +60,17 @@ class CycleResult:
     audience_tagged: int = 0
     actionable: int = 0  # items at recommended_action or urgent_action
     trusted: int = 0  # items whose computed credibility tier is "trusted"
+    # Items recognized as later coverage of a story we already have. They're
+    # still stored (they power the "also reported by" trust line) but never
+    # get their own feed card, AI render, or Telegram post.
+    duplicates: int = 0
 
     def __str__(self) -> str:
         return (
             f"fetched={self.fetched} relevant={self.relevant} "
             f"categorized={self.categorized} audience={self.audience_tagged} "
             f"actionable={self.actionable} trusted={self.trusted} "
-            f"new={self.new}"
+            f"duplicates={self.duplicates} new={self.new}"
         )
 
 
@@ -135,6 +140,20 @@ class Pipeline:
         analyze_credibility_all(relevant)
         # Stage: rank. Sees the WHOLE batch so cross-source bonus can fire.
         score_items(relevant)
+        # Stage: story clustering. Assigns `story_key` / `duplicate_of` so the
+        # same story arriving from three outlets becomes one post with two
+        # corroborating sources instead of three near-identical cards.
+        #
+        # Matched against what's already stored, not just this batch: outlets
+        # publish hours apart, so the second report usually lands in a later
+        # cycle than the first. Runs last because `choose_canonical` reads the
+        # credibility score that the stage above assigns.
+        duplicates = assign_incremental(relevant, self._repo.all())
+        if duplicates:
+            logger.info(
+                "story dedup: %d of %d relevant items are later coverage of "
+                "stories we already have", len(duplicates), len(relevant),
+            )
         new_items = self._repo.upsert_many(relevant)
         self._notify(new_items)
         # Per-source health update — runs after the full pipeline so it
@@ -154,6 +173,7 @@ class Pipeline:
                 1 for i in relevant if i.actionability_level != "informational"
             ),
             trusted=sum(1 for i in relevant if i.source_tier == "trusted"),
+            duplicates=len(duplicates),
         )
         logger.info("cycle complete: %s", result)
         return result

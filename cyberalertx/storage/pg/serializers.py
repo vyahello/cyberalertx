@@ -47,6 +47,8 @@ def news_item_to_row(item: NewsItem) -> dict[str, Any]:
         "source_tier": item.source_tier or "unverified",
         "source_credibility_score": float(item.source_credibility_score),
         "corroborating_sources": list(item.corroborating_sources or []),
+        "story_key": item.story_key or "",
+        "duplicate_of": item.duplicate_of or "",
     }
 
 
@@ -73,6 +75,8 @@ def row_to_news_item(row: Mapping[str, Any]) -> NewsItem:
         source_tier=row.get("source_tier") or "unverified",
         source_credibility_score=float(row.get("source_credibility_score", 0.0) or 0.0),
         corroborating_sources=list(row.get("corroborating_sources") or []),
+        story_key=row.get("story_key") or "",
+        duplicate_of=row.get("duplicate_of") or "",
     )
 
 

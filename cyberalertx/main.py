@@ -174,6 +174,11 @@ def cmd_generate(args: argparse.Namespace) -> int:
     now = datetime.now(timezone.utc)
     all_items = svc.list_items()
     in_window = [i for i in all_items if _within_homepage_window(i, now)]
+    # Never spend tokens rendering later coverage of a story we already have
+    # a post for — the feed collapses it to a corroboration line anyway, so
+    # the render would be paid for and then never shown.
+    duplicates_skipped = sum(1 for i in in_window if getattr(i, "duplicate_of", ""))
+    in_window = [i for i in in_window if not getattr(i, "duplicate_of", "")]
     # Reverse-chronological — matches the homepage sort order so the
     # AI-warm set is exactly the set the reader sees.
     in_window.sort(key=lambda i: i.published_at, reverse=True)
@@ -225,7 +230,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
         f"[cyberalertx generate] {describe_mode(generator)}  scope={scope_label}\n"
         f"                       cache_hits={cache_hits}  "
         f"missing_keys={len(missing_pairs)}  "
-        f"items_to_render={len(missing_items)}",
+        f"items_to_render={len(missing_items)}  "
+        f"duplicate_stories_skipped={duplicates_skipped}",
         file=sys.stderr,
     )
 
@@ -312,6 +318,63 @@ def cmd_publish_telegram(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dedup(args: argparse.Namespace) -> int:
+    """Backfill story keys over the existing store.
+
+    New items get clustered at ingest, but everything already on disk
+    predates the feature and carries no `story_key`. This walks the whole
+    store once, assigns keys, and reports every story that has more than one
+    article so the grouping can be eyeballed before it's committed.
+
+    Read-only by default — pass `--apply` to write. That default is
+    deliberate: a bad merge hides real advisories from readers, so the
+    grouping should be reviewed at least once per corpus.
+    """
+    from .config import SETTINGS
+    from .pipeline.dedup import assign_story_keys
+    from .storage.json_store import JsonNewsStore
+
+    store = JsonNewsStore(SETTINGS.storage_path, max_items=SETTINGS.max_items_retained)
+    items = store.all()
+    if not items:
+        print("store is empty — run `once` first", file=sys.stderr)
+        return 1
+
+    clusters = assign_story_keys(items)
+    multi = [c for c in clusters if len(c.members) > 1]
+    collapsed = sum(len(c.members) - 1 for c in multi)
+
+    for cluster in sorted(multi, key=lambda c: -len(c.members)):
+        members = [i for i in items if i.story_key == cluster.key]
+        canonical = next((i for i in members if not i.duplicate_of), members[0])
+        print(f"\n[{len(members)} articles] {canonical.source}: {canonical.title}")
+        for m in members:
+            if m.fingerprint != canonical.fingerprint:
+                print(f"    duplicate  {m.source}: {m.title}")
+
+    print(
+        f"\n[cyberalertx dedup] {len(items)} articles -> {len(clusters)} stories "
+        f"({len(multi)} multi-source, {collapsed} articles collapsed)",
+        file=sys.stderr,
+    )
+
+    if not args.apply:
+        print(
+            "[cyberalertx dedup] --dry-run (default): nothing written. "
+            "Re-run with --apply to persist.",
+            file=sys.stderr,
+        )
+        return 0
+
+    # `upsert_many` only refreshes scores for items it already knows, so
+    # write through the store's cache directly and flush once.
+    for item in items:
+        store._cache[item.fingerprint] = item  # noqa: SLF001 — backfill tool
+    store._flush()  # noqa: SLF001
+    print(f"[cyberalertx dedup] wrote story keys for {len(items)} items.", file=sys.stderr)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cyberalertx", description="CyberAlertX data layer")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -368,6 +431,16 @@ def main(argv: Sequence[str] | None = None) -> int:
              "Run this before the first real publish to confirm selection.",
     )
 
+    dd_p = sub.add_parser(
+        "dedup",
+        help="Backfill story-cluster keys over the existing store",
+    )
+    dd_p.add_argument(
+        "--apply", action="store_true",
+        help="Write the assigned story keys. Without this the command only "
+             "prints the grouping it would apply.",
+    )
+
     serve_p = sub.add_parser("serve", help="Start the HTTP API (FastAPI/uvicorn)")
     serve_p.add_argument("--host", default="127.0.0.1",
                          help="Bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
@@ -384,6 +457,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "top": cmd_top,
         "generate": cmd_generate,
         "publish-telegram": cmd_publish_telegram,
+        "dedup": cmd_dedup,
         "serve": cmd_serve,
     }[args.cmd](args)
 

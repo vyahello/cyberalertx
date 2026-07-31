@@ -10,10 +10,13 @@ import { QuickFacts } from "./QuickFacts";
 import { References } from "./References";
 import { RelativeTime } from "./RelativeTime";
 import { ShareBar } from "@/components/share/ShareBar";
+import { BackgroundContext } from "./BackgroundContext";
+import { SelfCheck } from "./SelfCheck";
+import { StoryCoverage } from "./StoryCoverage";
 import { ThreatBadge } from "./ThreatBadge";
 import { ThreatSnapshot } from "./ThreatSnapshot";
 import { strings } from "@/lib/i18n";
-import { contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
+import { HTML_LANG, contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
 
 interface Props {
   post: LocalizedThreatPost;
@@ -50,7 +53,7 @@ export function ThreatDetail({ post, lang }: Props) {
   }
 
   return (
-    <article lang={lang} className="mx-auto max-w-6xl px-5 sm:px-8 py-8 sm:py-12">
+    <article lang={HTML_LANG[lang]} className="mx-auto max-w-6xl px-5 sm:px-8 py-8 sm:py-12">
       {/* Back link — small, no chrome, lives in its own row above the title.
           Treated like a breadcrumb rather than a button to avoid competing
           with the hero. */}
@@ -101,6 +104,19 @@ export function ThreatDetail({ post, lang }: Props) {
             score={post.source_credibility_score}
           />
         </div>
+
+        {/* Without this, the severity badge is an assertion the reader has
+            no way to weigh — "Critical" according to whom, on what basis?
+            One plain sentence naming the deciding factor turns the badge
+            from a label into a judgement they can agree or disagree with. */}
+        {c.severity_reason?.trim() && (
+          <p className="mt-4 text-sm text-text-secondary leading-relaxed measure">
+            <span className="font-medium text-text-primary">
+              {s.detail_severity_reason(s.level[post.threat_level])}:
+            </span>{" "}
+            {c.severity_reason}
+          </p>
+        )}
       </header>
 
       {/* Threat snapshot — the above-the-fold intelligence block. Sits
@@ -108,6 +124,17 @@ export function ThreatDetail({ post, lang }: Props) {
           The reader sees "who's affected" and "what can happen" before
           scrolling into the editorial summary. */}
       <ThreatSnapshot post={post} lang={lang} className="mb-8 sm:mb-10" />
+
+      {/* "Am I affected?" sits above the narrative on purpose. It's the
+          question the reader came for, and someone whose answer is "no"
+          should be able to leave right here instead of reading an analysis
+          that was never about them. */}
+      <SelfCheck
+        checks={c.am_i_affected}
+        recovery={c.if_already_affected}
+        lang={lang}
+        className="mb-8 sm:mb-10"
+      />
 
       {/* Two-column grid from lg+: narrative left, sticky action panel right.
           Below lg the action panel slots inline after the narrative — see
@@ -229,6 +256,19 @@ export function ThreatDetail({ post, lang }: Props) {
               pages; cards never carry references. */}
           <References refs={c.references} lang={lang} />
 
+          {/* Every outlet that covered this story — the visible payoff of
+              collapsing duplicates into one post. */}
+          <StoryCoverage
+            coverage={post.story_coverage}
+            lang={lang}
+            currentSource={post.source}
+            currentUrl={post.source_url}
+          />
+
+          {/* Category-level orientation, last in the narrative so a reader
+              who already knows the attack class never wades through it. */}
+          <BackgroundContext context={post.detail_context?.[lang]} lang={lang} />
+
           {/* Internal feedback loop — collects a coarse quality signal
               for prompt/ranking tuning. Lightweight: 5 chips, one click,
               no public counter. Placed below "Read on source" so it
@@ -240,7 +280,9 @@ export function ThreatDetail({ post, lang }: Props) {
             sticky 56px header + breathing room. Not rendered on mobile
             (the inline copy above takes over). */}
         <aside className="hidden lg:block">
-          <div className="sticky top-20">
+          {/* Same reachability cap as the feed's filter rail — a long
+              action list must not strand its own last item below the fold. */}
+          <div className="sticky top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain no-scrollbar">
             <div className="surface-card p-5">
               {/* The sidebar's What to do / What to avoid subheadings already
                   identify the panel. An outer "Take action" header would be

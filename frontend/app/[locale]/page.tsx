@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { HomeShell } from "@/components/layout/HomeShell";
+import { FeedJsonLd } from "@/components/seo/JsonLd";
 import { fetchPosts } from "@/lib/api";
 import { SUPPORTED_LOCALES, isLocale } from "@/lib/types";
 
@@ -32,5 +33,12 @@ export default async function LocaleHomePage({
   // The empty-state copy ("Threat feed is updating") covers the
   // first-run / no-warm-cache case gracefully.
   const posts = await fetchPosts(locale, 20, { cachedOnly: true });
-  return <HomeShell lang={locale} initialPosts={posts} />;
+  return (
+    <>
+      {/* Describes the feed as an ordered list of stories so a crawler or
+          assistant reads it as a threat index, not one long page. */}
+      <FeedJsonLd posts={posts} lang={locale} />
+      <HomeShell lang={locale} initialPosts={posts} />
+    </>
+  );
 }

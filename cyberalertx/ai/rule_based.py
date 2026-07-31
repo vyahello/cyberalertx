@@ -1146,6 +1146,293 @@ _BYLINE_RE = re.compile(
 )
 
 
+# Plain-language lead, keyed by (category, urgency_bucket) — the same grid
+# shape as `_WHY_IT_MATTERS_*`.
+#
+# Why this table has to exist: `plain_summary` is the line that opens the
+# feed card, the detail page and the entire Telegram post. The AI path fills
+# it, but roughly a quarter of renders fall back to here, and this renderer
+# used to leave it empty — so on those posts every one of those surfaces led
+# with the editorial summary instead, which is written for a technical
+# reader. The product's whole promise is the plain-language line.
+#
+# `{platform}` interpolates the first affected platform when we have one.
+# Every variant is written to read correctly with the generic fallback too,
+# so nothing here depends on platform extraction succeeding. These make no
+# claim beyond what the pipeline already derived (category, urgency,
+# platform) — there is no incident-specific assertion to get wrong.
+_PLAIN_SUMMARY_EN: Mapping[tuple[str, str], Sequence[str]] = {
+    ("phishing", "urgent"): [
+        "Fake messages are going around right now trying to steal logins. Don't sign in from a link.",
+        "Scam messages are circulating that copy a real company's login page. Type the address yourself.",
+    ],
+    ("phishing", "soon"): [
+        "There's a new scam message doing the rounds. Worth knowing what it looks like before it reaches you.",
+    ],
+    ("phishing", "fyi"): [
+        "A scam technique worth recognizing the next time something in your inbox feels off.",
+    ],
+    ("ransomware", "urgent"): [
+        "A group is actively locking up victims' files and demanding payment. Check that your backups work.",
+    ],
+    ("ransomware", "soon"): [
+        "Attackers are locking people out of their own files for money. A working backup is the defense.",
+    ],
+    ("ransomware", "fyi"): [
+        "Background on a group that locks victims out of their files and demands payment.",
+    ],
+    ("vulnerability", "urgent"): [
+        "There's a security hole in {platform} that attackers are already using. Update it today.",
+        "{platform} has a flaw attackers are exploiting right now. Install the update as soon as you can.",
+    ],
+    ("vulnerability", "soon"): [
+        "There's a security bug in {platform}. The maker has a fix — install it when you next get the chance.",
+    ],
+    ("vulnerability", "fyi"): [
+        "A security bug was found in {platform} and fixed. Nothing to do if your updates are automatic.",
+    ],
+    ("exploit", "urgent"): [
+        "Attackers are actively breaking into {platform} using a known flaw. Update now if you run it.",
+    ],
+    ("exploit", "soon"): [
+        "There's a working attack against {platform} in circulation. Update it soon.",
+    ],
+    ("exploit", "fyi"): [
+        "Researchers published a working attack against {platform}. Fixed versions are available.",
+    ],
+    ("zero-day", "urgent"): [
+        "Attackers found a hole in {platform} before the maker did, and they're using it. Watch for the update.",
+    ],
+    ("zero-day", "soon"): [
+        "A previously unknown flaw in {platform} is being used in attacks. A fix is on the way.",
+    ],
+    ("zero-day", "fyi"): [
+        "A previously unknown flaw in {platform} came to light. Keep automatic updates on.",
+    ],
+    ("breach", "urgent"): [
+        "A company was broken into and customer data was taken. Change your password there and anywhere you reused it.",
+    ],
+    ("breach", "soon"): [
+        "A company's systems were broken into. If you have an account there, change the password.",
+    ],
+    ("breach", "fyi"): [
+        "A company reported a break-in. Worth checking whether you have an account there.",
+    ],
+    ("data leak", "urgent"): [
+        "Personal data has been exposed publicly. Change any password that appears in it.",
+    ],
+    ("data leak", "soon"): [
+        "A batch of personal data was left exposed. Worth changing the password on the affected service.",
+    ],
+    ("data leak", "fyi"): [
+        "Some personal data was left exposed and has since been secured.",
+    ],
+    ("malware", "urgent"): [
+        "Harmful software is spreading right now, usually through downloads and attachments. Don't install anything unexpected.",
+    ],
+    ("malware", "soon"): [
+        "Harmful software is going around. Stick to official app stores and the maker's own website.",
+    ],
+    ("malware", "fyi"): [
+        "Researchers described a piece of harmful software and how it reaches people.",
+    ],
+    ("spyware", "urgent"): [
+        "Software that secretly watches what you do is being installed on people's devices. Update yours today.",
+    ],
+    ("spyware", "soon"): [
+        "There's software going around that quietly monitors people's devices. Keep updates on.",
+    ],
+    ("spyware", "fyi"): [
+        "Background on software that secretly monitors devices and how it gets installed.",
+    ],
+    ("scam", "urgent"): [
+        "An active scam is taking people's money right now. Don't act on urgent payment requests you didn't expect.",
+    ],
+    ("scam", "soon"): [
+        "A scam is circulating. Slow down on any unexpected message that pushes you to pay or hurry.",
+    ],
+    ("scam", "fyi"): [
+        "A scam pattern worth recognizing the next time an unexpected request arrives.",
+    ],
+    ("botnet", "urgent"): [
+        "Attackers are taking over internet-connected devices and using them for attacks. Change default passwords.",
+    ],
+    ("botnet", "soon"): [
+        "Home devices are being taken over and used for attacks. Change any default password and update the firmware.",
+    ],
+    ("botnet", "fyi"): [
+        "Background on a network of hijacked devices being used to attack others.",
+    ],
+    ("social engineering", "urgent"): [
+        "People are being talked into handing over access, often by phone. Verify any urgent request another way.",
+    ],
+    ("social engineering", "soon"): [
+        "Attackers are talking their way past security by pretending to be someone you trust. Verify separately.",
+    ],
+    ("social engineering", "fyi"): [
+        "A manipulation tactic worth knowing about for the next urgent-sounding request.",
+    ],
+    ("default", "urgent"): [
+        "There's an active security problem affecting {platform}. Install any available update today.",
+    ],
+    ("default", "soon"): [
+        "A security issue was found in {platform}. Install the update when you get the chance.",
+    ],
+    ("default", "fyi"): [
+        "A security story worth knowing about. Nothing you need to do right now.",
+    ],
+}
+
+_PLAIN_SUMMARY_UK: Mapping[tuple[str, str], Sequence[str]] = {
+    ("phishing", "urgent"): [
+        "Зараз розсилають підроблені повідомлення, щоб викрасти паролі. Не входьте в акаунт за посиланням.",
+        "Ходять шахрайські листи, які копіюють справжню сторінку входу. Набирайте адресу сайту вручну.",
+    ],
+    ("phishing", "soon"): [
+        "Ходить нова шахрайська розсилка. Варто знати, як вона виглядає, до того як прийде вам.",
+    ],
+    ("phishing", "fyi"): [
+        "Шахрайський прийом, який варто впізнати, коли лист у пошті здасться дивним.",
+    ],
+    ("ransomware", "urgent"): [
+        "Група активно шифрує файли жертв і вимагає гроші. Перевірте, чи працюють ваші резервні копії.",
+    ],
+    ("ransomware", "soon"): [
+        "Зловмисники блокують людям доступ до власних файлів заради викупу. Робоча резервна копія — головний захист.",
+    ],
+    ("ransomware", "fyi"): [
+        "Контекст про групу, яка шифрує файли жертв і вимагає викуп.",
+    ],
+    ("vulnerability", "urgent"): [
+        "У {platform} є діра в безпеці, яку вже використовують. Оновіть сьогодні.",
+        "У {platform} знайшли помилку, якою зараз користуються зловмисники. Встановіть оновлення якнайшвидше.",
+    ],
+    ("vulnerability", "soon"): [
+        "У {platform} є помилка в безпеці. Виробник випустив виправлення — встановіть при нагоді.",
+    ],
+    ("vulnerability", "fyi"): [
+        "У {platform} знайшли й виправили помилку. Якщо оновлення автоматичні — робити нічого не треба.",
+    ],
+    ("exploit", "urgent"): [
+        "Зловмисники активно зламують {platform} через відому помилку. Оновіть, якщо користуєтесь.",
+    ],
+    ("exploit", "soon"): [
+        "У мережі є робоча атака на {platform}. Оновіть найближчим часом.",
+    ],
+    ("exploit", "fyi"): [
+        "Дослідники оприлюднили робочу атаку на {platform}. Виправлені версії вже доступні.",
+    ],
+    ("zero-day", "urgent"): [
+        "Зловмисники знайшли діру в {platform} раніше за виробника і вже її використовують. Чекайте на оновлення.",
+    ],
+    ("zero-day", "soon"): [
+        "Раніше невідому помилку в {platform} використовують в атаках. Виправлення готують.",
+    ],
+    ("zero-day", "fyi"): [
+        "Стало відомо про раніше невідому помилку в {platform}. Тримайте автоматичні оновлення увімкненими.",
+    ],
+    ("breach", "urgent"): [
+        "Компанію зламали і викрали дані клієнтів. Змініть там пароль і всюди, де ви його повторювали.",
+    ],
+    ("breach", "soon"): [
+        "Систему компанії зламали. Якщо у вас там акаунт — змініть пароль.",
+    ],
+    ("breach", "fyi"): [
+        "Компанія повідомила про злам. Варто перевірити, чи є у вас там акаунт.",
+    ],
+    ("data leak", "urgent"): [
+        "Персональні дані опинилися у відкритому доступі. Змініть будь-який пароль, що там є.",
+    ],
+    ("data leak", "soon"): [
+        "Набір персональних даних залишався відкритим. Варто змінити пароль на цьому сервісі.",
+    ],
+    ("data leak", "fyi"): [
+        "Частина персональних даних була відкритою, зараз доступ закрито.",
+    ],
+    ("malware", "urgent"): [
+        "Зараз поширюється шкідлива програма — переважно через завантаження і вкладення. Не встановлюйте нічого несподіваного.",
+    ],
+    ("malware", "soon"): [
+        "Ходить шкідлива програма. Встановлюйте застосунки лише з офіційних магазинів і сайту виробника.",
+    ],
+    ("malware", "fyi"): [
+        "Дослідники описали шкідливу програму і те, як вона потрапляє до людей.",
+    ],
+    ("spyware", "urgent"): [
+        "На пристрої встановлюють програму, яка таємно стежить за діями. Оновіть свій сьогодні.",
+    ],
+    ("spyware", "soon"): [
+        "Ходить програма, яка непомітно стежить за пристроєм. Тримайте оновлення увімкненими.",
+    ],
+    ("spyware", "fyi"): [
+        "Контекст про програми, які таємно стежать за пристроями, і як вони туди потрапляють.",
+    ],
+    ("scam", "urgent"): [
+        "Просто зараз працює шахрайська схема, що виманює гроші. Не реагуйте на несподівані термінові вимоги оплати.",
+    ],
+    ("scam", "soon"): [
+        "Ходить шахрайська схема. Не поспішайте з будь-яким несподіваним повідомленням, що вимагає заплатити.",
+    ],
+    ("scam", "fyi"): [
+        "Шахрайський сценарій, який варто впізнати наступного разу.",
+    ],
+    ("botnet", "urgent"): [
+        "Зловмисники захоплюють пристрої з інтернетом і використовують їх для атак. Змініть стандартні паролі.",
+    ],
+    ("botnet", "soon"): [
+        "Домашні пристрої захоплюють і використовують для атак. Змініть стандартний пароль і оновіть прошивку.",
+    ],
+    ("botnet", "fyi"): [
+        "Контекст про мережу захоплених пристроїв, яку використовують для атак на інших.",
+    ],
+    ("social engineering", "urgent"): [
+        "Людей умовляють віддати доступ, часто телефоном. Перевіряйте будь-яку термінову вимогу іншим каналом.",
+    ],
+    ("social engineering", "soon"): [
+        "Зловмисники обходять захист, вдаючи людину, якій ви довіряєте. Передзвоніть і перевірте окремо.",
+    ],
+    ("social engineering", "fyi"): [
+        "Прийом маніпуляції, про який варто знати перед наступною «терміновою» вимогою.",
+    ],
+    ("default", "urgent"): [
+        "Є активна проблема безпеки, що стосується {platform}. Встановіть доступне оновлення сьогодні.",
+    ],
+    ("default", "soon"): [
+        "У {platform} знайшли проблему безпеки. Встановіть оновлення при нагоді.",
+    ],
+    ("default", "fyi"): [
+        "Новина про безпеку, про яку варто знати. Робити зараз нічого не потрібно.",
+    ],
+}
+
+# Generic stand-in when the item has no extracted platform. Keeps every
+# `{platform}` variant grammatical instead of leaving a hole in the sentence.
+_GENERIC_PLATFORM = {"en": "the affected software", "ua": "цій програмі"}
+
+
+def _select_plain_summary(item: NewsItem, bucket: str, language: str) -> str:
+    """Everyday-language one-liner for the rule-based path.
+
+    Same resolution order as `_select_why_it_matters`: exact
+    (category, bucket), then (default, bucket), then (default, "fyi") —
+    so every item resolves to a real sentence and none of the callers has
+    to handle an empty string.
+    """
+    table = _PLAIN_SUMMARY_UK if language == "ua" else _PLAIN_SUMMARY_EN
+    variants = (
+        table.get((item.category, bucket))
+        or table.get(("default", bucket))
+        or table[("default", "fyi")]
+    )
+    chosen = variants[_variant_index(item.fingerprint, len(variants))]
+    platform = (
+        item.affected_platforms[0]
+        if item.affected_platforms
+        else _GENERIC_PLATFORM["ua" if language == "ua" else "en"]
+    )
+    return chosen.replace("{platform}", platform)
+
+
 def _urgency_bucket(item: NewsItem) -> str:
     """Map (actionability_level, threat_score) to one of: urgent | soon | fyi."""
     if item.actionability_level == "urgent_action":
@@ -1278,6 +1565,12 @@ class RuleBasedGenerator:
         return ThreatPost(
             title=self._title(item),
             short_summary=self._summary(item, lang),
+            # The everyday-language lead. This path used to leave it empty,
+            # which meant the ~27% of posts that land here opened the card,
+            # the detail page and the Telegram message with the editorial
+            # summary — written for a technical reader — instead of the
+            # plain line the product promises.
+            plain_summary=_select_plain_summary(item, bucket, lang),
             threat_level=self._threat_level(item),
             why_it_matters=self._why_it_matters(item, bucket, overrides, why_table),
             affected_users=self._affected_users(item, audience_table, phrases),

@@ -29,11 +29,13 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..ai.detail_context import detail_context_for
 from ..ai.generator import ContentGenerator, build_default_generator
 from ..ai.models import ThreatPost
 from ..config import DATA_DIR, SETTINGS
 from ..models import NewsItem
 from ..observability import get_quality_metrics, get_source_health
+from ..pipeline.dedup import collapse_duplicates
 from ..pipeline.signals import extract_signals, potential_impact, who_should_care
 from ..storage.json_store import JsonNewsStore
 
@@ -151,7 +153,26 @@ class _PostService:
         "reading_time_seconds",
         # New in v0.4 — extended detail-page content.
         "detail_body", "references",
+        # New in v0.5 — the reader-facing self-check, recovery steps, and
+        # the plain-language reason behind the severity badge.
+        "am_i_affected", "if_already_affected", "severity_reason",
     )
+
+    def has_cached_render(self, item: NewsItem, locale: str | None) -> bool:
+        """True when this item already has a persisted AI render.
+
+        Used as the `prefer` signal for duplicate collapsing: when several
+        articles cover one story, show the one we can actually render rather
+        than the one that merely scores best on paper.
+        """
+        cache = getattr(self._generator, "_cache", None)
+        if cache is None:
+            return True
+        if locale is not None:
+            return cache.get(item.fingerprint, locale) is not None
+        source_lang = item.language if item.language in ("en", "ua") else "en"
+        required = ("ua",) if source_lang == "ua" else ("en", "ua")
+        return all(cache.get(item.fingerprint, loc) is not None for loc in required)
 
     def render_if_cached(
         self, item: NewsItem, *, required_locale: str | None = None,
@@ -307,6 +328,20 @@ class _PostService:
             "ua": potential_impact(signals, language="ua"),
         }
 
+        # Category-level background, hand-written and never LLM-generated.
+        # This is the layer that carries plain-language explanation for the
+        # ~27% of posts that fall back to the rule-based renderer (see
+        # `ai_fallback_count` in data/quality_metrics.json), whose
+        # item-specific copy is a one-line template and whose `detail_body`
+        # is always empty. Because it's keyed on category rather than the
+        # incident, it's honest on every post: it explains how this FAMILY
+        # of attack works, never claims incident-specific facts we don't
+        # have, and reads the same in both locales.
+        detail_context = {
+            "en": detail_context_for(item.category, "en"),
+            "ua": detail_context_for(item.category, "ua"),
+        }
+
         return {
             "id": item.fingerprint,
             "source": item.source,
@@ -345,7 +380,35 @@ class _PostService:
             # for single-source items. The frontend surfaces this as
             # "Also reported by …" to anchor reader trust.
             "corroborating_sources": list(item.corroborating_sources),
+            # Per-category background paragraphs, keyed by locale. Detail
+            # page only — cards never show them.
+            "detail_context": detail_context,
         }
+
+
+def _merge_story_sources(
+    payload: dict[str, Any], sources: list[str] | None,
+) -> None:
+    """Fold cluster-derived corroboration into a rendered payload, in place.
+
+    `corroborating_sources` was previously filled by the credibility
+    analyzer's title-similarity heuristic, which only ever saw one fetch
+    batch. Story clustering is strictly better evidence — those sources
+    published the same story, we verified it — so cluster results are listed
+    first, with anything the heuristic found appended if it isn't already
+    there.
+
+    `story_source_count` counts the outlets covering the story INCLUDING the
+    one we're showing, which is the number the UI puts on a "3 sources"
+    badge.
+    """
+    existing = list(payload.get("corroborating_sources") or [])
+    merged = list(sources or [])
+    for name in existing:
+        if name not in merged and name != payload.get("source"):
+            merged.append(name)
+    payload["corroborating_sources"] = merged
+    payload["story_source_count"] = len(merged) + 1
 
 
 def _localized_content_dict(post: ThreatPost) -> dict[str, Any]:
@@ -469,11 +532,30 @@ def build_app(
             ),
         }
 
+    def _dedupe_stories(
+        items: list[NewsItem], language: str | None,
+    ) -> tuple[list[NewsItem], dict[str, list[str]]]:
+        """Collapse multi-source coverage down to one item per story.
+
+        The pipeline already tags items with a `story_key` at ingest, but we
+        re-derive the grouping here for two reasons: items stored before
+        clustering existed carry no key (they degrade to one-story-each), and
+        this is the layer that knows which article we can actually render in
+        the requested locale — so the survivor is chosen with that in mind.
+
+        Returns the survivors plus, per surviving fingerprint, the other
+        sources that covered the same story.
+        """
+        return collapse_duplicates(
+            items, prefer=lambda i: svc.has_cached_render(i, language),
+        )
+
     def _render_many(
         items: list[NewsItem], *,
         cached_only: bool = False,
         language: str | None = None,
         limit: int | None = None,
+        extra_sources: dict[str, list[str]] | None = None,
     ) -> list[dict[str, Any]]:
         """Render a batch.
 
@@ -504,6 +586,13 @@ def build_app(
                         continue
                 else:
                     payload = svc.render(item)
+                # Note `is not None`, not truthiness: a batch where nothing
+                # merged still needs every item stamped with
+                # `story_source_count = 1`, or the field is absent exactly
+                # when the feed happens to hold no duplicates and the
+                # frontend can't tell "single source" from "old API shape".
+                if extra_sources is not None:
+                    _merge_story_sources(payload, extra_sources.get(item.fingerprint))
                 rendered.append(payload)
             except Exception as exc:
                 # One bad item must not break the response. Log it and
@@ -572,6 +661,10 @@ def build_app(
         # users expect "newest at the top" and any reorder for variety
         # breaks that mental model.
         items.sort(key=lambda i: i.published_at, reverse=True)
+        # One card per story. When BleepingComputer, The Hacker News and CISA
+        # all cover the same zero-day, the reader gets a single post that says
+        # three sources reported it — not three near-identical cards.
+        items, story_sources = _dedupe_stories(items, language)
         # Walk the full filtered store, collecting up to `limit` items that
         # actually satisfy `cached_only` for the requested locale. NOT a
         # `items[:limit]` slice — that would let a freshly-ingested item
@@ -582,6 +675,7 @@ def build_app(
         # from going half-empty between fires.
         rendered = _render_many(
             items, cached_only=cached_only, language=language, limit=limit,
+            extra_sources=story_sources,
         )
         # Post-render filter: when `?language=X` is set, drop items that
         # ended up without a rendered translation in X. This catches the
@@ -638,8 +732,12 @@ def build_app(
         # Render a generous candidate pool, then sort the rendered shape
         # by the same key the frontend uses. `cached_only=True` means
         # items without AI renders never appear in trending.
+        items, story_sources = _dedupe_stories(items, language)
         candidates = items[: max(limit * 3, 30)]
-        rendered = _render_many(candidates, cached_only=True, language=language)
+        rendered = _render_many(
+            candidates, cached_only=True, language=language,
+            extra_sources=story_sources,
+        )
         if language:
             rendered = [
                 r for r in rendered
@@ -667,11 +765,46 @@ def build_app(
 
     @app.get("/posts/{post_id}", tags=["posts"])
     def get_post(post_id: str) -> dict[str, Any]:
-        """Single post by fingerprint id — for /threat/[id] routes later."""
-        for item in svc.list_items():
-            if item.fingerprint == post_id:
-                return svc.render(item)
-        raise HTTPException(status_code=404, detail="post not found")
+        """Single post by fingerprint id — backs the /threat/[id] route.
+
+        Unlike the feed, this never collapses: a deep link to a specific
+        article must keep resolving even when that article is later coverage
+        of a story we show under a different id. Instead we attach the rest
+        of the cluster as `story_coverage` so the detail page can offer every
+        outlet's original reporting — the payoff of having recognized the
+        duplicate in the first place.
+        """
+        all_items = svc.list_items()
+        target = next((i for i in all_items if i.fingerprint == post_id), None)
+        if target is None:
+            raise HTTPException(status_code=404, detail="post not found")
+
+        payload = svc.render(target)
+
+        # Sibling articles = same story, different article. Items without a
+        # story key have no siblings by definition.
+        siblings = [
+            i for i in all_items
+            if target.story_key
+            and i.story_key == target.story_key
+            and i.fingerprint != target.fingerprint
+        ]
+        _merge_story_sources(
+            payload,
+            list(dict.fromkeys(
+                i.source for i in siblings if i.source != target.source
+            )),
+        )
+        payload["story_coverage"] = [
+            {
+                "source": i.source,
+                "url": i.url,
+                "title": i.title,
+                "published_at": i.published_at.astimezone(timezone.utc).isoformat(),
+            }
+            for i in sorted(siblings, key=lambda x: x.published_at, reverse=True)
+        ]
+        return payload
 
     # ----- observability ------------------------------------------------
     # These routes give a developer JSON visibility into pipeline health

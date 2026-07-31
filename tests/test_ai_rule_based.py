@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cyberalertx.ai.rule_based import RuleBasedGenerator
 from cyberalertx.models import NewsItem
 
@@ -125,3 +127,74 @@ def test_fingerprint_is_preserved():
     item = _item()
     post = RuleBasedGenerator().generate(item)
     assert post.source_fingerprint == item.fingerprint
+
+
+# ---------------- plain-language lead (v0.5) -------------------------------
+
+def _plain_item(category: str, actionability: str, platforms=None,
+                url: str = "https://e.test/plain") -> NewsItem:
+    return NewsItem(
+        title="Some security story",
+        source="BleepingComputer",
+        url=url,
+        published_at=datetime(2026, 7, 30, tzinfo=timezone.utc),
+        raw_content="body text",
+        category=category,
+        actionability_level=actionability,
+        affected_platforms=list(platforms or []),
+        language="en",
+    )
+
+
+@pytest.mark.parametrize("locale", ["en", "ua"])
+@pytest.mark.parametrize(
+    ("category", "actionability"),
+    [
+        ("vulnerability", "urgent_action"),
+        ("phishing", "recommended_action"),
+        ("ransomware", "informational"),
+        ("breach", "urgent_action"),
+        ("other", "informational"),
+    ],
+)
+def test_rule_based_always_produces_a_plain_summary(category, actionability, locale):
+    """`plain_summary` opens the card, the detail page and the whole Telegram
+    post. This path used to leave it empty, so ~27% of posts led with the
+    editorial summary — written for a technical reader — instead."""
+    post = RuleBasedGenerator().generate(
+        _plain_item(category, actionability), language=locale,
+    )
+    assert post.plain_summary.strip(), "every rule-based post needs a plain lead"
+    # It must be a real sentence, not a template with an unfilled slot.
+    assert "{platform}" not in post.plain_summary
+
+
+def test_plain_summary_names_the_platform_when_we_have_one():
+    post = RuleBasedGenerator().generate(
+        _plain_item("vulnerability", "urgent_action", ["Chrome"]), language="en",
+    )
+    assert "Chrome" in post.plain_summary
+
+
+def test_plain_summary_stays_grammatical_without_a_platform():
+    """No platform extracted must not leave a hole in the sentence."""
+    post = RuleBasedGenerator().generate(
+        _plain_item("vulnerability", "urgent_action", []), language="en",
+    )
+    assert "{platform}" not in post.plain_summary
+    assert "the affected software" in post.plain_summary
+
+
+def test_plain_summary_is_deterministic_per_item():
+    """Same item, same output — the cache and the tests both rely on it."""
+    item = _plain_item("phishing", "urgent_action")
+    a = RuleBasedGenerator().generate(item, language="en").plain_summary
+    b = RuleBasedGenerator().generate(item, language="en").plain_summary
+    assert a == b
+
+
+def test_ukrainian_plain_summary_is_cyrillic():
+    post = RuleBasedGenerator().generate(
+        _plain_item("ransomware", "urgent_action"), language="ua",
+    )
+    assert any("Ѐ" <= ch <= "ӿ" for ch in post.plain_summary)

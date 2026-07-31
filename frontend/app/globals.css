@@ -19,7 +19,8 @@
     --brand-border:       #2A2F38;
     --brand-text:         #E6E8EC;
     --brand-text-secondary:#9CA3AF;
-    --brand-text-tertiary:#6B7280;
+    /* AA-compliant tertiary — see the note in tailwind.config.ts. */
+    --brand-text-tertiary:#868E9C;
     /* Calm cyan that *rhymes* with the brand glyph's #00E5FF alert ping
        without burning eyes when applied to whole UI surfaces (buttons,
        links, filter chips, focus rings). Pure #00E5FF only survives at the
@@ -87,8 +88,12 @@
   *:focus {
     outline: none;
   }
+  /* No `rounded-*` here. `border-radius` applies to the ELEMENT, not to the
+     ring, so adding it visibly squares off every pill and circular control
+     the moment it takes focus. Each component keeps its own radius and the
+     ring follows it. */
   *:focus-visible {
-    @apply ring-2 ring-accent-ring ring-offset-2 ring-offset-bg-base rounded-sm;
+    @apply ring-2 ring-accent-ring ring-offset-2 ring-offset-bg-base;
   }
 
   /* Subtle scrollbar that matches the surface — visible enough to be useful,

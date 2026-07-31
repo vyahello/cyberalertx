@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { ArrowUpRight, Clock } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Clock } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { strings } from "@/lib/i18n";
-import { contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
+import { HTML_LANG, contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
 import { ActionabilityBadge } from "./ActionabilityBadge";
 import { AudienceChip } from "./AudienceChip";
 import { CategoryIconChip } from "./CategoryIconChip";
-import { CorroborationLine } from "./CorroborationLine";
 import { CredibilityBadge } from "./CredibilityBadge";
-import { QuickFacts } from "./QuickFacts";
 import { RelativeTime } from "./RelativeTime";
 import { SignalIndicators } from "./SignalIndicators";
 import { ThreatBadge } from "./ThreatBadge";
@@ -25,27 +23,29 @@ interface Props {
 /**
  * Compact feed card — tuned for thumb-scrolling on mobile.
  *
- * What's IN the card:
- *   1. Threat-level + actionability badges          ← "should I care?"
+ * What's IN the card, in reading order:
+ *   1. Category chip + threat level (+ urgency only when there IS urgency)
+ *      and the timestamp                            ← "should I care?"
  *   2. AudienceChip ("Microsoft 365 users")          ← "is this about ME?"
- *   3. Title — entire card links to /[locale]/threat/[id]
- *   4. CredibilityBadge + (subtle) corroboration    ← "who's saying this?"
- *   5. Short summary (one tight editorial brief)
- *   6. SignalIndicators (max 3 chips)               ← "what does it DO?"
- *   7. Quick facts (chips)
+ *   3. Title, clamped to 3 lines — the whole card links to the detail page
+ *   4. Plain-language lead, clamped                  ← "what happened?"
+ *   5. Footer: source credibility, source count, ≤2 signal chips
+ *                                                    ← "who says so?"
  *
- * What's NOT in the card (moved to detail page exclusively):
- *   * Why-it-matters paragraph
- *   * Affected users list
- *   * What to do / what not to do action panel
+ * What's NOT in the card (detail page only):
+ *   * Why-it-matters paragraph, affected-users list, action panel
+ *   * Quick facts — a spec sheet belongs where the reader has committed
+ *   * Reading time — it measured the card's own text, so it said the same
+ *     thing on every card and changed nobody's decision to tap
  *
- * Rationale: in the feed, a reader scans. They commit to a card by
- * tapping it. The detail page is where actionable content lives. Mixing
- * both layers in the card made every entry 600px tall — bad UX on a
- * phone, and made the feed feel like a wall of repeat content.
+ * Rationale: in the feed, a reader scans and commits by tapping. Every
+ * object competing above the headline delays that decision. The clamps
+ * matter for the same reason — uniform card height gives the column a
+ * rhythm to scan down, where variable height makes the eye re-anchor on
+ * each entry.
  *
  * The `compact` prop is preserved for the Trending strip variant that
- * needs an even tighter card (no summary, no signals).
+ * needs an even tighter card.
  */
 export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
   const s = strings(lang);
@@ -64,10 +64,11 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
   // has one, falling back to the editorial summary for older cached posts
   // that predate `plain_summary`.
   const lead = content.plain_summary?.trim() || content.short_summary?.trim() || "";
-  const quickFacts = content.quick_facts ?? [];
-  const readingTime = Number.isFinite(content.reading_time_seconds)
-    ? content.reading_time_seconds
-    : 25;
+  // How many outlets covered this story, counting the one we're showing.
+  // Falls back to the corroboration list for API responses that predate
+  // `story_source_count`.
+  const sourceCount =
+    post.story_source_count ?? (post.corroborating_sources?.length ?? 0) + 1;
 
   // Entrance stagger capped tight — beyond ~250ms the tail of the feed
   // reads as "content arriving late" rather than as choreography.
@@ -78,27 +79,32 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
       href={`/${lang}/threat/${post.id}`}
       prefetch={false}
       aria-label={content.title}
-      className="block group"
+      // The focus ring lives on the anchor — the actual focusable element —
+      // with a matching radius. Previously the <article> also drew one, so
+      // a keyboard user got two nested rings on every card.
+      className="block group rounded-lg"
     >
       <article
-        lang={lang}
+        lang={HTML_LANG[lang]}
         className={cn(
           "surface-card surface-card-hover relative",
           "p-5 sm:p-6 animate-fade-up",
-          "group-focus-visible:ring-2 group-focus-visible:ring-accent-ring",
         )}
         style={{ animationDelay: delay }}
       >
-        {/* Subtle "open detail" affordance — visible on hover/focus. */}
+        {/* Subtle "open detail" affordance. Hover can never fire on touch,
+            so it's hidden below sm entirely rather than reserving space for
+            an affordance a thumb will never trigger. */}
         <ArrowUpRight
-          className="absolute top-4 right-4 w-4 h-4 text-text-tertiary
-                     opacity-0 group-hover:opacity-100 group-hover:text-text-secondary
-                     transition-opacity duration-150"
+          className="hidden sm:block absolute top-4 right-4 w-4 h-4 text-text-tertiary
+                     opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100
+                     group-hover:text-text-secondary
+                     transition-opacity duration-150 pointer-events-none"
           aria-hidden
           strokeWidth={2}
         />
 
-        <header className="flex flex-wrap items-center gap-x-2 gap-y-2 mb-3 pr-6">
+        <header className="flex flex-wrap items-center gap-x-2 gap-y-2 mb-3 pr-0 sm:pr-6">
           {/* Category icon — visual anchor for thumb-scrolling. Sits
               first in the header so the eye latches onto the chip before
               reading the threat-level badge. Hidden on the compact
@@ -107,15 +113,23 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
             <CategoryIconChip category={post.category} lang={lang} />
           )}
           <ThreatBadge level={post.threat_level} lang={lang} />
-          <ActionabilityBadge level={post.actionability_level} lang={lang} />
+          {/* Only when there's actually something to do. "Informational"
+              was rendering a badge on most cards to say "no action" —
+              weight spent on the absence of news. On a Critical + urgent
+              card this and ThreatBadge also emit identical colour tokens,
+              so suppressing the common case removes a duplicated red
+              smear as well as a redundant word. */}
+          {post.actionability_level !== "informational" && (
+            <ActionabilityBadge level={post.actionability_level} lang={lang} />
+          )}
           <div className="ml-auto flex items-center gap-3 text-xs text-text-tertiary">
-            <span className="inline-flex items-center gap-1">
-              <Clock className="w-3 h-3" />
+            {/* Reading time is gone from the card. It measured the card's
+                own text, so it always said the same thing, and "20 sec"
+                never changed anyone's decision to tap. */}
+            <time dateTime={post.published_at} className="inline-flex items-center gap-1">
+              <Clock className="w-3 h-3 text-text-quaternary" aria-hidden />
               <RelativeTime iso={post.published_at} lang={lang} />
-            </span>
-            <span aria-label={s.card_reading_time(readingTime)}>
-              {s.card_reading_time(readingTime)}
-            </span>
+            </time>
           </div>
         </header>
 
@@ -125,43 +139,41 @@ export function ThreatCard({ post, lang, index = 0, compact = false }: Props) {
             (older API shapes / sparse signals). */}
         <AudienceChip post={post} lang={lang} className="mb-2.5" />
 
-        <h2 className="text-lg sm:text-xl font-semibold text-text-primary leading-snug mb-2 break-words">
+        {/* Clamped so card height stays roughly uniform down the feed.
+            Unclamped, height tracked whatever length the model happened to
+            write and the column lost its rhythm. */}
+        <h2 className="text-lg sm:text-xl font-semibold text-text-primary leading-snug mb-2 break-words line-clamp-3">
           {title}
         </h2>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-4">
+        {lead && (
+          <p className="lead-text measure mb-3 line-clamp-2 sm:line-clamp-3">
+            {lead}
+          </p>
+        )}
+
+        {/* Footer: who says so, how many outlets, and at most two signal
+            chips. Quick facts moved to the detail page — a card carrying
+            audience chips, signal chips AND fact chips was asking the
+            reader to parse three chip vocabularies before the headline. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <CredibilityBadge
             tier={post.source_tier}
             source={post.source}
             lang={lang}
             score={post.source_credibility_score}
           />
-          {/* Trust anchor — "Also reported by …" appears inline next to
-              the source when at least one trusted peer covers the story.
-              Compact: same line as credibility when there's room, wraps
-              below on narrow viewports. */}
-          <CorroborationLine
-            sources={post.corroborating_sources}
-            lang={lang}
-            withIcon={false}
-          />
+          {/* Multi-source coverage, compressed to a count. The full list of
+              outlets lives on the detail page; here it only needs to say
+              "more than one newsroom confirmed this". */}
+          {sourceCount > 1 && (
+            <span className="inline-flex items-center gap-1 text-xs text-text-tertiary">
+              <CheckCircle2 className="w-3.5 h-3.5 text-trust-trusted-fg/80" aria-hidden />
+              {s.story_sources_count(sourceCount)}
+            </span>
+          )}
+          <SignalIndicators signals={post.signals} lang={lang} max={2} />
         </div>
-
-        {lead && (
-          <p className="lead-text measure mb-3">
-            {lead}
-          </p>
-        )}
-
-        {/* Signal indicators — at most 3 icon-chips describing what the
-            threat actually does to the reader. The only colored chip is
-            `active_exploitation`; everything else is monochromatic so
-            the card never reads as a panic dashboard. */}
-        <SignalIndicators signals={post.signals} lang={lang} max={3} className="mb-4" />
-
-        {!compact && quickFacts.length > 0 && (
-          <QuickFacts facts={quickFacts} />
-        )}
       </article>
     </Link>
   );

@@ -132,6 +132,10 @@ class PgNewsStore(NewsRepository):
                 "actionability_level": excluded.actionability_level,
                 "source_tier": excluded.source_tier,
                 "fetched_at": excluded.fetched_at,
+                # Clustering is re-derived from the whole recent store each
+                # cycle, so the freshest assignment is the correct one.
+                "story_key": excluded.story_key,
+                "duplicate_of": excluded.duplicate_of,
             }
             stmt = stmt.on_conflict_do_update(
                 index_elements=["fingerprint"],

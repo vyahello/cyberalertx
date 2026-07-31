@@ -22,7 +22,7 @@ from typing import Any
 
 from ..config import DATA_DIR
 from .config import LEVEL_WEIGHT, TelegramSettings, build_telegram_settings
-from .format import quality_problem, render_message
+from .format import deep_link, notify, quality_problem, render_message
 from .ledger import PublishLedger
 from .telegram import TelegramError, TelegramPublisher
 
@@ -142,18 +142,40 @@ def publish_once(
             i for i in items
             if (getattr(i, "source_tier", "unverified") in settings.require_tiers)
         ]
+        # Drop later coverage of stories we already have. Without this the
+        # channel posts the same zero-day once per outlet that reported it.
+        items = [i for i in items if not getattr(i, "duplicate_of", "")]
         # Newest first — channels should lead with the freshest threat.
         items.sort(key=lambda i: i.published_at, reverse=True)
+
+        # Which stories have already gone out, per locale. The ledger records
+        # fingerprints, but the thing a subscriber experiences as a duplicate
+        # is the STORY. Mapping one to the other here means that even if two
+        # articles slipped through un-clustered at ingest — or were ingested
+        # before clustering existed — the second one is still not broadcast.
+        published_stories: dict[str, set[str]] = {}
+        for locale in channels:
+            keys = set()
+            for i in service.list_items():
+                key = getattr(i, "story_key", "")
+                if key and ledger.is_published(i.fingerprint, locale):
+                    keys.add(key)
+            published_stories[locale] = keys
 
         for locale, chat_id in channels.items():
             gate = _LOCALE_LANGUAGE_GATE.get(locale, frozenset({locale}))
             sent_here = 0
+            seen_stories = published_stories.get(locale, set())
             for item in items:
                 if sent_here >= per_channel_limit:
                     break
                 if (getattr(item, "language", "en") or "en") not in gate:
                     continue
                 if ledger.is_published(item.fingerprint, locale):
+                    result.skipped_already += 1
+                    continue
+                story_key = getattr(item, "story_key", "")
+                if story_key and story_key in seen_stories:
                     result.skipped_already += 1
                     continue
                 try:
@@ -206,7 +228,19 @@ def publish_once(
                 # above (owns_publisher) or passed in — never None here.
                 assert publisher is not None
                 try:
-                    message_id = publisher.send_message(chat_id, message)
+                    message_id = publisher.send_message(
+                        chat_id,
+                        message,
+                        # Pin the preview to our own page. The body linkifies
+                        # CVE ids first, so Telegram would otherwise build the
+                        # card from nvd.nist.gov.
+                        preview_url=deep_link(
+                            settings.public_base_url, locale, item.fingerprint,
+                        ),
+                        # Routine advisories arrive silently; only Critical
+                        # or urgent-action posts are worth a notification.
+                        disable_notification=not notify(payload),
+                    )
                 except TelegramError as exc:
                     result.errors += 1
                     # A channel-level failure (bad chat id, bot not admin, bad
@@ -233,10 +267,14 @@ def publish_once(
                     channel=chat_id,
                     message_id=message_id,
                 )
+                if story_key:
+                    seen_stories.add(story_key)
                 result.sent += 1
                 result.by_channel[locale] = result.by_channel.get(locale, 0) + 1
                 sent_here += 1
-                if settings.send_delay_seconds > 0:
+                # Pace between sends, but never after the last one — that
+                # delay buys nothing and just extends the run.
+                if settings.send_delay_seconds > 0 and sent_here < per_channel_limit:
                     time.sleep(settings.send_delay_seconds)
     finally:
         if owns_publisher and publisher is not None:

@@ -42,6 +42,12 @@ news_items = Table(
     Column("source_tier", String(32), nullable=False, server_default="unverified"),
     Column("source_credibility_score", Float, nullable=False, server_default=text("0.0")),
     Column("corroborating_sources", ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")),
+    # Story clustering — see pipeline/dedup.py. `story_key` groups every
+    # article covering one story; `duplicate_of` names the canonical article
+    # ("" when this row IS the canonical one). Both default to empty so rows
+    # written before migration 004 read back as "own story".
+    Column("story_key", String(32), nullable=False, server_default=""),
+    Column("duplicate_of", String(64), nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
 )

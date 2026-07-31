@@ -147,11 +147,14 @@ def test_render_message_structure_and_link() -> None:
     assert "🔴" in msg
     assert "<b>RCE in Foo</b>" in msg
     assert "Patch now." in msg
-    # Plain-language brief: ONE concrete action (the first `what_to_do`),
-    # prefixed with a check mark — not a list of quick-fact bullets.
-    assert "✅ Install the vendor patch and reboot." in msg
-    assert "Audit exposed hosts." not in msg  # only the first action shows
-    assert "•" not in msg                     # no quick-fact bullets anymore
+    # Actions render as a labeled section with up to two bullets. Two, not
+    # one: a single-action format kept dropping the step that made the first
+    # one take effect ("install the patch" without "then reboot").
+    assert "✅ <b>What to do</b>" in msg
+    assert "• Install the vendor patch and reboot." in msg
+    assert "• Audit exposed hosts." in msg
+    # Quick facts still stay out of the message — they're a spec sheet, and
+    # the channel's job is "what happened, what do I do".
     assert deep_link("https://cyberalertx.com", "en", item.fingerprint) in msg
     assert ">Read more</a>" in msg
 
@@ -508,3 +511,136 @@ def test_publish_once_continues_past_item_level_error(tmp_path: Path) -> None:
     assert pub.attempts == 3
     assert result.errors == 3
     assert result.sent == 0
+
+
+# ------------------- message design (v0.5) --------------------------------
+
+def test_notification_is_reserved_for_critical_and_urgent() -> None:
+    """A channel that buzzes for every routine advisory gets muted, and a
+    muted channel can't deliver the alert that mattered."""
+    from cyberalertx.publish.format import notify
+
+    item = _item("n")
+    assert notify(_payload(item, "en", level="Critical")) is True
+    assert notify(_payload(item, "en", level="Medium",
+                           actionability="urgent_action")) is True
+    assert notify(_payload(item, "en", level="High")) is False
+    assert notify(_payload(item, "en", level="Low")) is False
+
+
+def test_message_leads_with_self_check_then_actions() -> None:
+    item = _item("sc")
+    payload = _payload(item, "en", title="Chrome bug", summary="Update Chrome.",
+                       actions=["Update Chrome from the menu."])
+    payload["translations"]["en"]["am_i_affected"] = [
+        "Open Chrome menu > Help > About. Below 126 is affected.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "🔎 <b>Check if this affects you</b>" in msg
+    # "does this affect me" must come before "what to do" — a reader whose
+    # answer is "no" should stop reading there.
+    assert msg.index("🔎") < msg.index("✅")
+
+
+def test_message_names_the_other_outlets_that_reported_it() -> None:
+    """The visible payoff of collapsing duplicates: instead of three posts
+    the subscriber gets one that says three outlets confirmed it."""
+    item = _item("corr")
+    payload = _payload(item, "en", title="SharePoint RCE", summary="Patch now.")
+    payload["corroborating_sources"] = ["The Hacker News", "CISA Alerts"]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "Also reported by The Hacker News, CISA Alerts" in msg
+
+
+def test_hashtags_are_curated_not_sprayed() -> None:
+    item = _item("tags")
+    payload = _payload(item, "en", actionability="urgent_action")
+    payload["category"] = "ransomware"
+    payload["affected_platforms"] = ["Windows", "Active Directory"]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "#ransomware" in msg
+    assert "#Windows" in msg
+    assert "#ActiveDirectory" in msg
+    assert msg.count("#") <= 4
+
+
+def test_ukrainian_message_uses_ukrainian_furniture() -> None:
+    item = _item("ua1", language="ua")
+    payload = _payload(item, "ua", title="Загроза", summary="Оновіть систему.",
+                       actions=["Встановіть оновлення."])
+    msg = render_message(payload, locale="ua", base_url="https://cyberalertx.com")
+    assert "Що робити" in msg
+    assert "Читати більше" in msg
+
+
+def test_quality_gate_checks_the_field_the_message_actually_leads_with() -> None:
+    """render_message leads with plain_summary; the gate used to inspect
+    short_summary only, so an English plain-language line shipped to the
+    Ukrainian channel."""
+    item = _item("q", language="ua")
+    payload = _payload(
+        item, "ua",
+        title="Критична вразливість у Chrome",
+        summary="Оновіть браузер якнайшвидше.",
+        plain="Update your browser right now, this is being exploited.",
+    )
+    assert quality_problem(payload, locale="ua") is not None
+
+
+def test_quality_gate_rejects_stray_foreign_script() -> None:
+    # A real cached post carried "攻擊穿過автентифікацію" — the Cyrillic-vs-
+    # Latin ratio check scores CJK as neither, so it slipped through.
+    item = _item("cjk", language="ua")
+    payload = _payload(
+        item, "ua",
+        title="Обхід автентифікації",
+        summary="攻擊穿過автентифікацію дозволяє обійти вхід.",
+    )
+    assert quality_problem(payload, locale="ua") is not None
+
+
+def test_quality_gate_passes_a_clean_ukrainian_payload() -> None:
+    item = _item("ok", language="ua")
+    payload = _payload(
+        item, "ua",
+        title="Критична вразливість у Chrome",
+        summary="Оновіть браузер якнайшвидше.",
+        plain="Оновіть браузер зараз — цю дірку вже використовують.",
+        actions=["Оновіть Chrome через меню довідки."],
+    )
+    assert quality_problem(payload, locale="ua") is None
+
+
+def test_send_pins_the_preview_to_our_own_page() -> None:
+    """The body linkifies CVE ids before our read-more link, so without an
+    explicit preview url Telegram builds the card from nvd.nist.gov."""
+    item = _item("prev")
+    payload = _payload(item, "en", level="Critical", title="CVE-2026-1 in Foo",
+                       summary="Patch now.")
+    captured: dict[str, Any] = {}
+
+    class _CapturingPublisher:
+        def send_message(self, chat_id: str, text: str, **kw: Any) -> int:
+            captured.update(kw)
+            captured["chat_id"] = chat_id
+            return 1
+
+        def close(self) -> None:
+            pass
+
+    ledger = PublishLedger(Path("/tmp") / "cax-test-preview.jsonl")
+    ledger._path.unlink(missing_ok=True)  # noqa: SLF001
+    ledger = PublishLedger(ledger._path)  # noqa: SLF001
+
+    publish_once(
+        settings=_settings(channels={"en": "@cax_en"}),
+        service=_FakeService([item], {(item.fingerprint, "en"): payload}),
+        ledger=ledger,
+        publisher=_CapturingPublisher(),
+    )
+
+    assert captured["preview_url"] == deep_link(
+        "https://cyberalertx.com", "en", item.fingerprint,
+    )
+    # Critical → the phone should buzz.
+    assert captured["disable_notification"] is False

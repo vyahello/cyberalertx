@@ -65,6 +65,16 @@ class NewsItem:
     # so the reader sees independent confirmation at a glance. Stays empty
     # for items in single-source coverage.
     corroborating_sources: list[str] = field(default_factory=list)
+    # --- story clustering (added in v0.5) ---
+    # Id shared by every article covering the same underlying story. Assigned
+    # by `pipeline.dedup`; see that module for the matching rules. Empty on
+    # items ingested before clustering existed — readers of this field must
+    # treat "" as "this item is its own story".
+    story_key: str = ""
+    # Fingerprint of the canonical article for this story, or "" when THIS
+    # item is the canonical one. Non-empty means "a duplicate — don't render,
+    # don't publish, don't spend AI tokens on it".
+    duplicate_of: str = ""
 
     @property
     def fingerprint(self) -> str:
@@ -97,6 +107,8 @@ class NewsItem:
             "source_tier": self.source_tier,
             "source_credibility_score": round(float(self.source_credibility_score), 3),
             "corroborating_sources": list(self.corroborating_sources),
+            "story_key": self.story_key,
+            "duplicate_of": self.duplicate_of,
         }
 
     def to_storage_dict(self) -> Dict[str, Any]:
@@ -145,6 +157,8 @@ class NewsItem:
             source_tier=data.get("source_tier", "unverified"),
             source_credibility_score=float(data.get("source_credibility_score", 0.0)),
             corroborating_sources=list(data.get("corroborating_sources", [])),
+            story_key=data.get("story_key", "") or "",
+            duplicate_of=data.get("duplicate_of", "") or "",
         )
 
 

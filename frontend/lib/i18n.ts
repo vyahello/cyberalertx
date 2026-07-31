@@ -141,6 +141,26 @@ type StringTable = {
   // Detail-page extras
   references_heading: string;
   detail_analysis_heading: string;
+  // Reader-facing content added in v0.5 — the three questions a
+  // non-expert actually opens a post to answer.
+  detail_am_i_affected: string;
+  detail_am_i_affected_hint: string;
+  detail_if_already_affected: string;
+  detail_severity_reason: (level: string) => string;
+  // Story clustering — multi-source coverage surfaced as a trust signal.
+  story_sources_count: (n: number) => string;
+  story_coverage_heading: string;
+  story_coverage_caption: string;
+  // Per-category background (detail_context)
+  context_how_it_works: string;
+  context_who_is_affected: string;
+  context_attacker_motivation: string;
+  context_realistic_impact: string;
+  context_section_heading: string;
+  // Subscribe / follow
+  subscribe_heading: string;
+  subscribe_telegram: string;
+  subscribe_rss: string;
 };
 
 /**
@@ -369,6 +389,23 @@ const EN: StringTable = {
     "This story is not yet available in your selected language.",
   references_heading: "References",
   detail_analysis_heading: "Analysis",
+  detail_am_i_affected: "Am I affected?",
+  detail_am_i_affected_hint: "Check these yourself — it takes under a minute.",
+  detail_if_already_affected: "If you're already affected",
+  detail_severity_reason: (level) => `Why this is rated ${level}`,
+  story_sources_count: (n) =>
+    n === 2 ? "2 sources" : `${n} sources`,
+  story_coverage_heading: "Original reporting",
+  story_coverage_caption:
+    "The outlets that covered this story. We merged them into one brief.",
+  context_section_heading: "Background",
+  context_how_it_works: "How this kind of attack works",
+  context_who_is_affected: "Who is usually affected",
+  context_attacker_motivation: "Why attackers do this",
+  context_realistic_impact: "What actually happens",
+  subscribe_heading: "Get these as they happen",
+  subscribe_telegram: "Telegram channel",
+  subscribe_rss: "RSS feed",
 };
 
 const UK: StringTable = {
@@ -524,6 +561,23 @@ const UK: StringTable = {
     "Цей матеріал ще не доступний обраною мовою.",
   references_heading: "Посилання",
   detail_analysis_heading: "Аналіз",
+  detail_am_i_affected: "Чи стосується це мене?",
+  detail_am_i_affected_hint: "Перевірте самі — це займе менше хвилини.",
+  detail_if_already_affected: "Якщо вас це вже зачепило",
+  detail_severity_reason: (level) => `Чому рівень «${level}»`,
+  story_sources_count: (n) =>
+    n === 2 ? "2 джерела" : n < 5 ? `${n} джерела` : `${n} джерел`,
+  story_coverage_heading: "Першоджерела",
+  story_coverage_caption:
+    "Видання, які написали про цю подію. Ми зібрали їх в один матеріал.",
+  context_section_heading: "Контекст",
+  context_how_it_works: "Як працює такий тип атаки",
+  context_who_is_affected: "Кого це зазвичай стосується",
+  context_attacker_motivation: "Навіщо це зловмисникам",
+  context_realistic_impact: "Що відбувається насправді",
+  subscribe_heading: "Отримувати одразу",
+  subscribe_telegram: "Канал у Telegram",
+  subscribe_rss: "RSS-стрічка",
 };
 
 const TABLES: Record<Locale, StringTable> = { en: EN, ua: UK };

@@ -94,6 +94,19 @@ class ThreatPost:
     # ----- new in v0.4 (additive — defaults preserve cache compat) -----
     detail_body: str = ""
     references: List[Reference] = field(default_factory=list)
+    # ----- new in v0.5: the three questions a non-expert opens a post to
+    # answer. Previously the reader learned that a flaw exists and that
+    # "Linux server administrators" are affected, but never how to check
+    # their own machine, what to do if they'd already been hit, or why the
+    # severity badge says what it says. All defaulted, so every cached post
+    # written before these existed still loads.
+    #
+    # `am_i_affected` — 2-3 self-checks the reader runs themselves.
+    am_i_affected: List[str] = field(default_factory=list)
+    # `if_already_affected` — recovery steps for "I already clicked it".
+    if_already_affected: List[str] = field(default_factory=list)
+    # `severity_reason` — one plain sentence explaining the threat level.
+    severity_reason: str = ""
     # Provenance — handy for debugging, telemetry, and cache invalidation.
     language: str = "en"
     source_fingerprint: str = ""
@@ -118,6 +131,9 @@ class ThreatPost:
             reading_time_seconds=int(data.get("reading_time_seconds", 25)),
             plain_summary=str(data.get("plain_summary", "")),
             detail_body=str(data.get("detail_body", "")),
+            am_i_affected=list(data.get("am_i_affected", [])),
+            if_already_affected=list(data.get("if_already_affected", [])),
+            severity_reason=str(data.get("severity_reason", "")),
             references=[
                 Reference.from_dict(r) if isinstance(r, dict) else r
                 for r in (data.get("references") or [])
@@ -156,6 +172,12 @@ class ThreatPostResponse(BaseModel):
     reading_time_seconds: int
     detail_body: str = ""
     references: List[ReferenceResponse] = Field(default_factory=list)
+    # Reader-1 fields (see the two-reader framing in templates.py). Optional
+    # so a response from an older prompt still validates instead of failing
+    # the whole render.
+    am_i_affected: List[str] = Field(default_factory=list)
+    if_already_affected: List[str] = Field(default_factory=list)
+    severity_reason: str = ""
 
 
 __all__ = [

@@ -5,8 +5,10 @@ import "../globals.css";
 import { Header } from "@/components/layout/Header";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { UmamiAnalytics } from "@/components/analytics/UmamiAnalytics";
+import { SiteJsonLd } from "@/components/seo/JsonLd";
 import { strings } from "@/lib/i18n";
-import { SUPPORTED_LOCALES, isLocale } from "@/lib/types";
+import { SITE_URL, localeAlternates } from "@/lib/site";
+import { HTML_LANG, SUPPORTED_LOCALES, isLocale } from "@/lib/types";
 
 /**
  * Type stack:
@@ -97,9 +99,22 @@ export async function generateMetadata({
   // absolute ones for social-media crawlers (LinkedIn, Twitter, Facebook,
   // Slack unfurls all need absolute https URLs). In dev this falls back to
   // localhost; override with NEXT_PUBLIC_SITE_URL when deploying.
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
-  ),
+  metadataBase: new URL(SITE_URL),
+  // Canonical + hreflang. Without the canonical, every query-string variant
+  // of the feed competes with itself in the index; without the language
+  // alternates, the EN and UA pages look like duplicate content instead of
+  // translations, and neither gets served to the right audience.
+  alternates: {
+    canonical: `${SITE_URL}/${locale}`,
+    ...localeAlternates(),
+    types: {
+      // Feed-reader autodiscovery: browsers and readers look for this to
+      // offer "subscribe" without the user hunting for a URL.
+      "application/rss+xml": [
+        { url: `${SITE_URL}/${locale}/feed.xml`, title: `CyberAlertX (${locale.toUpperCase()})` },
+      ],
+    },
+  },
   // Brand identity: Aperture glyph (radar rings + cyan alert ping).
   // currentColor-driven SVGs power the browser-tab favicon; Apple touch
   // icon is a navy-on-cyan variant. PNG fallbacks ship for every spot a
@@ -186,11 +201,14 @@ export default async function LocaleRootLayout({
 
   return (
     <html
-      lang={locale}
+      lang={HTML_LANG[locale]}
       className={`${sans.variable} ${display.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">
+        {/* Site identity for search engines and AI assistants. Server-
+            rendered <script type="application/ld+json">, no client cost. */}
+        <SiteJsonLd lang={locale} />
         {/* Keyboard-user escape hatch — first tab stop on every page.
             Visually hidden until focused, then surfaces as a floating
             accent chip above the sticky header. */}
@@ -206,7 +224,7 @@ export default async function LocaleRootLayout({
         <div id="main-content" className="flex-1">
           {children}
         </div>
-        <SiteFooter />
+        <SiteFooter lang={locale} />
         <UmamiAnalytics />
       </body>
     </html>

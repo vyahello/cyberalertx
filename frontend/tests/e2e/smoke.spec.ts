@@ -96,12 +96,17 @@ test.describe("smoke @smoke", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 
-  test("html lang attribute matches URL locale", async ({ page }) => {
+  test("html lang carries the language subtag, not the URL segment", async ({ page }) => {
     await page.goto("/en");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
 
+    // The route is /ua because that's how the audience refers to itself,
+    // but `ua` is a COUNTRY code. Ukrainian's language subtag is `uk`, and
+    // that is what belongs in the lang attribute — otherwise a screen
+    // reader can't identify the language and reads Ukrainian text with an
+    // English pronunciation engine.
     await page.goto("/ua");
-    await expect(page.locator("html")).toHaveAttribute("lang", "ua");
+    await expect(page.locator("html")).toHaveAttribute("lang", "uk");
   });
 
   test("page has main, header banner, and footer landmarks", async ({ page }) => {

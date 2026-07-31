@@ -263,6 +263,16 @@ class ContentGenerator:
             emotional_weight=max(0.0, min(1.0, float(response.emotional_weight))),
             reading_time_seconds=max(10, min(120, int(response.reading_time_seconds))),
             detail_body=(response.detail_body or "").strip(),
+            # Reader-1 fields. Capped like the action lists above — the
+            # prompt asks for 2-3 and 0-3 respectively, these are the safety
+            # net for occasional over-production.
+            am_i_affected=[
+                s.strip() for s in (response.am_i_affected or []) if s.strip()
+            ][:3],
+            if_already_affected=[
+                s.strip() for s in (response.if_already_affected or []) if s.strip()
+            ][:3],
+            severity_reason=(response.severity_reason or "").strip(),
             references=refs,
             language=language,
             source_fingerprint=item.fingerprint,

@@ -29,6 +29,24 @@ export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "ua"] as const;
 
 export const DEFAULT_LOCALE: Locale = "en";
 
+/**
+ * Locale → BCP-47 language subtag for the `lang` attribute.
+ *
+ * Our URL segment for Ukrainian is `ua`, which is a *country* code. The
+ * language subtag is `uk`. Emitting `lang="ua"` means assistive technology
+ * cannot identify the language: a screen reader falls back to the page
+ * default and reads Ukrainian text with an English pronunciation engine —
+ * on the locale this product exists to serve.
+ *
+ * The URL stays `/ua` (that's the audience's own shorthand and changing it
+ * would break every existing link); only the markup attribute is corrected.
+ * The OG tags already do this properly with `uk_UA`.
+ */
+export const HTML_LANG: Record<Locale, string> = {
+  en: "en",
+  ua: "uk",
+};
+
 export type Category =
   | "phishing"
   | "ransomware"
@@ -90,6 +108,28 @@ export interface LocalizedContent {
   detail_body?: string;
   /** External references — CVEs, advisories, vendor blogs, CERT bulletins. */
   references?: ThreatReference[];
+  /** 2-3 checks the reader runs THEMSELVES to find out whether this touches
+   *  them ("Open Chrome menu > Help > About. Below 126 is affected."). This
+   *  is the question a non-expert opens the page to answer. */
+  am_i_affected?: string[];
+  /** Recovery steps for someone past the point of prevention — they already
+   *  clicked the link or installed the package. */
+  if_already_affected?: string[];
+  /** One plain sentence explaining why the severity badge says what it
+   *  says. Without it the badge is an unexplained assertion. */
+  severity_reason?: string;
+}
+
+/** Hand-written, per-category background. Never LLM-generated, so it's safe
+ *  on every post — it explains how this FAMILY of attack works and never
+ *  claims incident-specific facts. Carries the explanatory weight for the
+ *  ~27% of posts whose item-specific copy came from the rule-based
+ *  fallback. Detail page only. */
+export interface DetailContext {
+  how_it_works?: string;
+  who_is_affected?: string;
+  attacker_motivation?: string;
+  realistic_impact?: string;
 }
 
 /** Threat signal bundle (intelligence-layer enrichment, computed at render
@@ -154,6 +194,25 @@ export interface LocalizedThreatPost {
   /** Names of OTHER trusted sources reporting the same story.
    *  Empty for single-source items. */
   corroborating_sources?: string[];
+  /** How many outlets covered this story, counting the one being shown.
+   *  1 means single-source. Produced by the backend's story clustering
+   *  (see `cyberalertx/pipeline/dedup.py`), which collapses the same news
+   *  from different outlets into one post instead of several. */
+  story_source_count?: number;
+  /** The other articles in this story's cluster — original reporting from
+   *  each outlet that covered it. Detail pages only; the feed never
+   *  carries this. */
+  story_coverage?: StoryCoverage[];
+  /** Per-category background paragraphs, keyed by locale. */
+  detail_context?: Partial<Record<Locale, DetailContext>>;
+}
+
+/** One outlet's original article about a story we've collapsed. */
+export interface StoryCoverage {
+  source: string;
+  url: string;
+  title: string;
+  published_at: string;
 }
 
 /** Filter state. All arrays act as "any of" filters. */

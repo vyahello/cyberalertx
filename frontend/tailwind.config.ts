@@ -40,7 +40,17 @@ const config: Config = {
         text: {
           primary: "#E6E8EC",
           secondary: "#9CA3AF",
-          tertiary: "#6B7280",
+          // Lifted from #6B7280, which measured 3.91:1 on the page, 3.61:1
+          // on cards and 3.22:1 on elevated surfaces — all below the 4.5:1
+          // AA floor, and it carries real content at 11-12px: every section
+          // label, timestamp, filter legend and the feed counter. This value
+          // measures 5.73 / 5.29 / 4.72:1 and still reads a clear rung below
+          // `secondary` (7.45:1), so the hierarchy survives.
+          tertiary: "#868E9C",
+          // The old value, kept for decoration only — icons and rules that
+          // are `aria-hidden` and carry no information on their own, where
+          // contrast minimums don't apply.
+          quaternary: "#6B7280",
         },
         // ---------------- Brand accent ----------------
         // Calm cyan that rhymes with the brand glyph's #00E5FF alert ping

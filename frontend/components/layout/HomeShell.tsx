@@ -136,7 +136,13 @@ export function HomeShell({ lang, initialPosts }: Props) {
 
           <div className="grid gap-8 lg:gap-10 lg:grid-cols-[260px_minmax(0,1fr)]">
             <aside className="hidden lg:block">
-              <div className="sticky top-20">
+              {/* A sticky element taller than the viewport pins its top and
+                  puts its bottom permanently out of reach — on a 1280x720
+                  laptop the last filter group simply cannot be scrolled to.
+                  Capping the height and letting the rail scroll internally
+                  fixes that; `overscroll-contain` stops the page from
+                  scrolling once the rail hits its end. */}
+              <div className="sticky top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain no-scrollbar">
                 <FilterPanel
                   state={filters}
                   onChange={setFilters}
