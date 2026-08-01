@@ -195,3 +195,35 @@ def test_missing_fields_normalize_to_empty_lists() -> None:
     assert out["what_to_do"] == []
     assert out["quick_facts"] == []
     assert out["severity_reason"] == ""
+
+
+def test_any_verb_of_not_saying_about_our_sourcing_is_weak() -> None:
+    """The verb list was enumerated and the model reached for one that
+    wasn't on it.
+
+    "Цілями стали сотні компаній одразу, але наслідки для конкретних жертв
+    джерело не описує" survived a full re-render because «описує» was
+    missing from the list. The SUBJECT is what makes this a defect — it
+    rates our sourcing rather than the threat — so the subject is matched
+    and the verb is left open.
+    """
+    for text in (
+        "Цілями стали сотні компаній, але наслідки для жертв джерело не описує.",
+        "Середній рівень, бо деталей про жертви джерело не наводить.",
+        "Стаття не містить технічних деталей, тож оцінка приблизна.",
+        "Публікація не розкриває масштабу.",
+    ):
+        assert is_weak_severity_reason(text, "ua"), text
+
+
+def test_widened_rule_still_keeps_real_explanations() -> None:
+    for text in (
+        "Перехоплення сесії абонента — серйозна шкода, але виконати атаку може "
+        "лише той, хто вже має доступ до мережі оператора.",
+        "Медичні платіжні дані 1,26 млн людей уже в руках зловмисників.",
+        "Шкідливий код виконується з правами користувача, але зачіпає лише тих, "
+        "хто ставить пакети з AUR.",
+        "Крадіжка криптовалюти незворотна, а скрипт роздавався через рекламну "
+        "платформу багатьом сайтам.",
+    ):
+        assert not is_weak_severity_reason(text, "ua"), text

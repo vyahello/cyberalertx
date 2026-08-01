@@ -250,8 +250,16 @@ _DECISION_RELEVANT_ABSENCE: tuple[re.Pattern[str], ...] = tuple(
 
 _WEAK_SEVERITY_UA: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
-        r"джерело\s+не\s+(?:наводить|подає|повідомля|розкрива|назива)",
-        r"(?:стаття|публікація|допис)\s+не\s+(?:наводить|подає|містить|назива)",
+        # Any verb of not-saying with OUR SOURCING as the subject. The verb
+        # list used to be enumerated and the model simply reached for one
+        # that wasn't on it — "наслідки для конкретних жертв джерело не
+        # описує" survived a full re-render because "описує" was missing.
+        # The subject is what makes this a defect, not the verb, so match on
+        # the subject and let the verb be anything.
+        r"(?:джерело|стаття|публікація|допис|матеріал|замітка)\s+не\s+\w+",
+        # Same thing with the subject trailing, which Ukrainian allows
+        # freely: "деталей про жертв джерело не наводить".
+        r"\bне\s+\w+(?:є|ють|ла|ло|ли|ить|ать)\s+(?:джерело|стаття|публікація)\b",
         r"деталей\s+[^.]{0,40}не\s+(?:наводить|подано|вказано|розкрито)",
         r"(?:прямої\s+)?ді[йї]\s+не\s+потрібно",
         r"(?:звичайному\s+)?користувачеві\s+[^.]{0,30}не\s+потрібно",
