@@ -213,3 +213,58 @@ def test_calque_pass_leaves_correct_ukrainian_alone() -> None:
         "Мережевий захист не допоміг проти цієї атаки.",
     ):
         assert normalize_ukrainian_calques(text) == text
+
+
+# --------------------- untranslated jargon in the plain lead ---------------
+
+def _ua_response(**over):
+    from cyberalertx.ai.models import ThreatPostResponse
+    base = dict(
+        title="Вразливість у TeamCity",
+        short_summary="JetBrains повідомляє про обхід автентифікації у TeamCity.",
+        plain_summary="Оновіть TeamCity — без пароля можна виконати команди на сервері.",
+        threat_level="High",
+        why_it_matters="Сервер збірки дає доступ до коду і ключів розгортання.",
+        affected_users=["Адміни TeamCity"],
+        what_to_do=["Оновіть TeamCity до 2025.11.4."],
+        what_not_to_do=[],
+        quick_facts=["Обхід автентифікації", "Виправлено у 2025.11.4"],
+        emotional_weight=0.6,
+        reading_time_seconds=25,
+    )
+    base.update(over)
+    return ThreatPostResponse(**base)
+
+
+def test_untranslated_jargon_in_plain_summary_is_rejected() -> None:
+    """`plain_summary` opens the Telegram post, the card and the detail page.
+    Its contract bans jargon; nothing enforced that until now."""
+    from cyberalertx.ai.validation import ValidationFailure, validate_journalist_response
+
+    resp = _ua_response(
+        plain_summary="Через path traversal зловмисник читає файли на сервері.",
+    )
+    with pytest.raises(ValidationFailure, match="untranslated technical term"):
+        validate_journalist_response(resp, language="ua")
+
+
+def test_jargon_in_the_title_does_not_reject_the_post() -> None:
+    """Deliberate scoping. Measured over the live UA cache: 21 posts carry one
+    of these terms in the TITLE, where it is often the clearest available
+    word, while none carry one in `plain_summary`. Gating the title would
+    reject 20+ posts whose lead is exactly the copy we want — and a rejection
+    costs the whole post, falling back to the weaker rule_based render.
+    """
+    from cyberalertx.ai.validation import validate_journalist_response
+
+    resp = _ua_response(
+        title="Out-of-bounds запис у бібліотеці libiec61850",
+        plain_summary="Оновіть обладнання — помилка зупиняє енергетичні пристрої.",
+    )
+    validate_journalist_response(resp, language="ua")  # must not raise
+
+
+def test_clean_ua_plain_summary_passes() -> None:
+    from cyberalertx.ai.validation import validate_journalist_response
+
+    validate_journalist_response(_ua_response(), language="ua")

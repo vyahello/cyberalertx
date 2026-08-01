@@ -79,7 +79,7 @@ def test_truncate_passes_short_body_through_unchanged():
 
 
 def test_truncate_caps_long_body_below_limit_plus_marker():
-    body = ("Lorem ipsum dolor sit amet. " * 200)  # ~5400 chars
+    body = "Lorem ipsum dolor sit amet. " * (_RAW_CONTENT_MAX_CHARS // 20)
     out = _truncate_source_body(body)
     assert "[…truncated]" in out
     # Final length cannot exceed the limit + the marker (~20 chars buffer).
@@ -87,13 +87,15 @@ def test_truncate_caps_long_body_below_limit_plus_marker():
 
 
 def test_truncate_prefers_paragraph_break_when_available():
-    # Paragraph break sits at char 1050 — inside the last 30% of the
-    # 1200-char cap, so the function prefers it over a hard cut.
-    lede = "A" * 1050
-    paragraph_break = "\n\n"
-    tail = "B" * 1500
-    body = f"{lede}{paragraph_break}{tail}"
-    out = _truncate_source_body(body)
+    # Sizes are derived from the cap, not hardcoded: the constant moved from
+    # 1200 to 3000 once we measured that the only bodies it ever cut were
+    # CISA advisories, whose CVSS vectors and version strings live in the
+    # back half. A fixture pinned to the old number silently stopped
+    # exercising truncation at all.
+    cap = _RAW_CONTENT_MAX_CHARS
+    lede = "A" * int(cap * 0.875)      # inside the last 30% of the cap
+    tail = "B" * (cap + 500)           # guarantees we are over the limit
+    out = _truncate_source_body(f"{lede}\n\n{tail}")
     # Cut should land on the paragraph break, dropping all the B's.
     assert "B" not in out
     assert out.endswith("[…truncated]")
@@ -101,16 +103,18 @@ def test_truncate_prefers_paragraph_break_when_available():
 
 def test_truncate_falls_back_to_sentence_when_no_paragraph_break():
     # One running paragraph (no `\n\n`) with a sentence end near the cap,
-    # then trailing boilerplate well past the cap.
-    body = "X" * 1100 + ". " + "Y" * 2000 + ". Trailing tail boilerplate."
+    # then trailing boilerplate well past the cap. Cap-relative for the same
+    # reason as the paragraph case above.
+    cap = _RAW_CONTENT_MAX_CHARS
+    body = ("X" * int(cap * 0.92)) + ". " + ("Y" * (cap + 800)) + ". Trailing tail boilerplate."
     out = _truncate_source_body(body)
     assert "Trailing tail" not in out
     assert "[…truncated]" in out
 
 
 def test_truncate_hard_cuts_when_no_natural_break_in_window():
-    # Worst case: a 5000-char wall of a single token with no punctuation.
-    body = "X" * 5000
+    # Worst case: a wall of a single token with no punctuation anywhere.
+    body = "X" * (_RAW_CONTENT_MAX_CHARS * 2)
     out = _truncate_source_body(body)
     assert out.endswith("[…truncated]")
     assert len(out) <= _RAW_CONTENT_MAX_CHARS + 25

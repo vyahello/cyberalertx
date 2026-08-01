@@ -139,6 +139,18 @@ _AI_CLICHES_UK = (
     "як штучний інтелект",
     "я не можу",
 )
+
+# Reader-2 vocabulary that must never survive into `plain_summary`. That
+# field's contract already bans jargon; this enforces it in code. `title` is
+# deliberately NOT checked — see the gate in `validate_journalist_response`
+# for the measurement behind that choice.
+_UA_UNTRANSLATED_TERMS: tuple[str, ...] = (
+    "out-of-bounds", "path traversal", "race condition", "command injection",
+    "credential stuffing", "privilege escalation", "buffer overflow",
+    "self-hosted", "self-managed", "on-prem", "on-premises",
+    "pre-auth", "headless", "quishing", "malvertising",
+    "machine keys", "process ghosting", "slopsquatting",
+)
 # Russism stems are tracked separately in ai/uk_glossary.py so the same
 # vocabulary feeds the glossary normalizer AND the response validator.
 
@@ -416,6 +428,27 @@ def validate_journalist_response(
         offender = has_russism(blob)
         if offender is not None:
             raise ValidationFailure(f"Russism stem in UA output: {offender!r}")
+
+    # --- untranslated jargon in the plain-language lead -------------------
+    # `plain_summary` opens the Telegram post, the feed card and the detail
+    # page, and its contract bans jargon — but nothing enforced that, so a
+    # Ukrainian lead could still read "…через path traversal".
+    #
+    # Scoped to `plain_summary` ONLY, and that scoping is the whole design.
+    # Measured over the 188-post live UA cache: 0 posts carry one of these in
+    # `plain_summary`, while 21 carry one in the TITLE, where a term like
+    # "on-prem" or "quishing" is often the clearest available word. Gating
+    # the title too would reject 20+ posts whose lead is exactly the copy we
+    # want, and a rejection costs the whole post — it falls back to
+    # rule_based, which is markedly worse.
+    if language == "ua":
+        plain = _stripped(getattr(response, "plain_summary", "")).lower()
+        untranslated = _contains_any(plain, _UA_UNTRANSLATED_TERMS)
+        if untranslated is not None:
+            raise ValidationFailure(
+                f"untranslated technical term in UA plain_summary: "
+                f"{untranslated!r}"
+            )
 
     # --- foreign-script characters (defensive) -------------------------
     # Real failure mode: AI sometimes hallucinates a CJK / Arabic / other

@@ -58,16 +58,28 @@ class PromptTemplate:
 
 # -------- Source-body truncation -----------------------------------------
 #
-# Hard cap on `item.raw_content` chars sent to the LLM. RSS bodies routinely
-# pack the news in the lede (first ~200-400 words) and then trail off into
-# "Related articles", boilerplate footers, comment threads. The model
-# wastes input tokens reading that. 1200 chars ≈ 200-250 words ≈ enough
-# context for any cybersec brief.
+# Hard cap on `item.raw_content` chars sent to the LLM.
 #
-# Tokens saved: typical RSS body is 3-5K chars (~600-1000 input tokens at
-# 4 chars/token); we cut to ~300 input tokens. ~50% user-prompt reduction
-# per item with no observable signal loss in spot-checks.
-_RAW_CONTENT_MAX_CHARS = 1200
+# Measured over the live store (data/items.json, 177 items): the feeds we
+# ingest ship a teaser, not an article — median body is 395 chars for The
+# Hacker News, 188 for BleepingComputer, 175 for Securelist, 268 for dev.ua.
+# Only 46 items exceed 1200 chars and ALL 46 are CISA Alerts, whose ~2900-char
+# structured advisories carry the CVSS vectors, the affected version strings
+# and the full CVE list in the back half. The old 1200 cap cut exactly the
+# part a brief needs to be specific, and only for the one source that ships
+# full text.
+#
+# 3000 matches the ceiling `normalize.clean_article_body` already applies, so
+# this stops being a second, tighter cut and becomes what it claims to be: a
+# guard against a future source with unbounded bodies. Costs more input
+# tokens on the ~29% of items that are CISA advisories and nothing on the
+# rest, because nothing else comes close to the cap.
+#
+# NOTE: this is not the main constraint on factual density. `sources/rss.py`
+# stores `entry.summary` as the article body and never follows the link, so
+# most items reach the model with under 400 chars regardless of this number.
+# Fixing that is an ingestion change, not a prompt change.
+_RAW_CONTENT_MAX_CHARS = 3000
 
 
 def _truncate_source_body(text: str, limit: int = _RAW_CONTENT_MAX_CHARS) -> str:
@@ -236,10 +248,46 @@ short_summary — THE FEED LINE. 1-2 sentences MAX. 120-220 chars. Lead
 with attribution + the threat in one breath. Do NOT restate the title.
 
 plain_summary — THE PLAIN-LANGUAGE LEAD, written for a NON-TECHNICAL
-reader. ONE sentence, ≤22 words, everyday words. Say what happened and
-what it means for that person in concrete terms. NO jargon, NO CVE IDs,
-NO vendor/product acronyms, NO attribution clause. Imagine explaining it
-to a relative who isn't in tech — lead with the action when there is one.
+reader. ONE sentence, 14-24 words, everyday words. Say what happened and
+what it means for that person. Imagine explaining it to a relative who
+isn't in tech.
+
+MANDATORY ANCHOR. The sentence must carry at least ONE concrete anchor,
+or it is empty:
+  * a product, service or device the reader recognises (Chrome, iPhone,
+    Telegram, Windows, a MikroTik router);
+  * a company, country or crew involved (Amgen, KT, Russian hackers, Cl0p);
+  * a number: how many people, how much money, which version, what date;
+  * a named consequence attached to a named thing ("charged money to the
+    card", "encrypted files on office machines");
+  * an action the reader can take right now ("Update Chrome").
+Take the anchor from the title or from short_summary: if a name is there,
+it belongs here too. Never invent an anchor the source does not state.
+
+A product or company name is NOT jargon — it is the thing the reader
+opened the story for. Jargon is CVE ids, CVSS scores and attack-class
+acronyms (RCE, LPE, SSRF, XSS, DoS); don't print those here, spell out
+what they do. Instead of "RCE in vCenter" write "a VMware vCenter server
+can be taken over without a password".
+
+Do not open with an unnamed agent: "hackers", "attackers", "scammers",
+"researchers", "a company", "someone", "a program". If the source names
+who did it, name them. If it doesn't, name the victim or the product.
+
+Do not spend the whole sentence on who is NOT affected. Say what happened
+first; the boundary belongs in am_i_affected.
+
+NO source-attribution clause ("BleepingComputer reports") — that belongs
+to short_summary. This does not stop you naming the attacker.
+
+  BAD : "One person managed to attack hundreds of companies just by typing
+         a few commands to a bot in a messenger." (no name at all)
+  GOOD: "A Chinese hacker pointed the DeepSeek AI at hundreds of companies
+         with a few Telegram commands, then it attacked on its own."
+  BAD : "A Korean telecom operator was hit with a big fine for failing to
+         protect its customers' data."
+  GOOD: "South Korea fined the mobile operator KT $39 million over a leak
+         of subscriber data."
   GOOD: "Update your iPhone now — a booby-trapped text message can take
          over your phone without you tapping anything."
   BAD : "A zero-click RCE in CoreText enables unauthenticated remote
@@ -253,8 +301,16 @@ help defenders prioritize — otherwise delete it.
 Analysis MUST add value beyond the headline + summary. Skip restatement
 of the vulnerability description. Focus on:
   * operational implications (where in deployment is the risk highest)
-  * uncertainty (what isn't yet known — CVE pending, IOCs missing,
-    exploitation status unclear, patch ETA)
+  * uncertainty, but ONLY where the missing thing is a state of the world
+    and its absence changes what someone does: no exploitation observed
+    yet, no public PoC, no patch shipped, vendor will not fix, harm
+    threatened but not yet delivered. Put the consequence in the same
+    sentence ("no public PoC yet, so the window before mass scanning is
+    days, not hours"). NEVER make the article, the publication or the
+    source the subject of a sentence: "The article does not name the CVE,
+    affected versions or IOCs" and "The publication is short and gives no
+    technical substance" are banned. A reader cannot act on another
+    reporter's word count.
   * patching urgency (is the fix already in distros? proof-of-concept
     public? mass scanning observed?)
   * what the response signal tells us (e.g., "major distros shipping
@@ -344,6 +400,28 @@ can recall or look at — that is the difference:
   BAD : "There is no technical check for your device."
         (names nothing — return an empty list instead)
 
+Also banned here: reporting what the SOURCE did not publish. A missing
+victim count or an unassigned CVE describes our sourcing, not a test the
+reader can run. Return an empty list instead.
+  BAD : "Amgen has not said how many people were affected, so there is no
+         final list yet."
+  BAD : "The report describes trends, not one vulnerability. It names no
+         specific product versions."
+
+Never write a check whose answer you supply in the same breath — there is
+nothing left for the reader to do.
+  BAD : "Nothing gets installed, so it will not appear in your app list."
+
+When the reader IS exposed but the fix belongs to someone else, do not
+write that they can do nothing. Write the one thing they CAN observe or
+ask — the symptom they would notice, or the exact question to put to the
+party who controls the fix.
+  GOOD: "Ask your carrier's support whether they installed the January
+         fixes."
+  GOOD: "Dropped calls and sudden loss of signal are the only symptoms you
+         would see yourself."
+  BAD : "You are an ordinary subscriber: there is nothing you can do."
+
 if_already_affected — 0-3 recovery steps for someone who ALREADY clicked
 the link, installed the package, or ran the file. Each ≤16 words, ordered
 most urgent first. Empty list when the threat has no "too late" path
@@ -357,27 +435,41 @@ this rates the threat_level you assigned. Name the factor that decided it,
 drawn from the same three the rating uses: REACH, HARM, LIKELIHOOD. No
 jargon.
 
-Three things this sentence must never do:
+DO NOT OPEN WITH THE LEVEL WORD. The page prints "Why this is rated
+Medium" immediately above this sentence and Telegram prints the severity
+dot, so "Medium because…" makes the reader read the label twice. Open with
+the deciding fact.
+
+Four things this sentence must never do:
   * Justify the rating by what the SOURCE did not report. Our sourcing is
     not a property of the threat. "…and the source gives no detail about
     the victims" explains nothing to a reader.
   * Justify the rating by the reader having no task. Severity is not
-    actionability — see the threat_level contract. "Medium because an
-    ordinary user needs to take no direct action" is banned outright.
+    actionability — see the threat_level contract. "An ordinary user needs
+    to take no direct action" and "the carrier has to fix it, not you" are
+    both banned.
+  * Justify the rating by the genre of the article. "This is a trend
+    report" rates our reading list, not the danger. Say what about those
+    trends bounds the risk.
   * Restate the label. "Critical due to the severity of the flaw" is a
     circle.
 Leave the field EMPTY rather than write one of those.
 
-  GOOD: "Critical because attackers are already using it, no password is
-         needed, and every unpatched server is reachable from the internet."
-  GOOD: "High because 1.26 million people's medical billing records are
-         already in the attackers' hands."
+  GOOD: "Attackers are already using it, no password is needed, and every
+         unpatched server is reachable from the internet."
+  GOOD: "1.26 million people's medical billing records are already in the
+         attackers' hands."
+  GOOD: "Session hijacking is serious harm, but only someone already
+         inside the carrier's network can pull it off."
   BAD : "Critical due to the severity of the vulnerability." (circular)
   BAD : "Medium because an ordinary user needs no direct action, and the
          source does not name the victims." (rates our sourcing and the
          reader's to-do list, not the threat)
+  BAD : "Low because this is a trend report with no specific
+         vulnerability." (rates the genre of the article, not the danger)
 
-what_to_do — EXACTLY 3 bullets. Each ≤18 WORDS. ONE clause per bullet —
+what_to_do — 1-3 bullets; three is a ceiling, not a quota. Each ≤18 WORDS.
+ONE clause per bullet —
 no semicolons, no em-dash joins, no parentheticals, no "and/or", no
 nested options. Verb first. Ordered most urgent first.
 
@@ -423,16 +515,27 @@ named CVE, affected version, exploitation status, patch status, scope.
 NO generic explanations. NO sentences. NO "this is dangerous because".
 Noun phrases or terse statements only.
 
-A FACT IS SOMETHING THAT IS TRUE, NOT SOMETHING THAT IS UNKNOWN. Do not
-list what the article failed to report. Banned: "IOCs not published",
-"Threat actor not named", "Technical details not disclosed", "Scope of
-the leak not specified". Two or three real facts beat five padded with
-absences.
+A FACT IS SOMETHING THAT IS TRUE, NOT SOMETHING THAT IS UNKNOWN.
 
-ONE EXCEPTION, because it changes what a defender does: the absence of
-exploitation, of a public exploit, or of a patch. "No public PoC observed",
-"Patch not yet released", "No mass scanning seen" and "Data not leaked yet,
-only threatened" all move a decision and are welcome.
+THE TEST, and it is the only one: would the reader do something different
+if this absence flipped to a presence? If yes, it is intelligence. If the
+only thing that would change is the article getting longer, delete it.
+
+The test bans every absence whose subject is the reporting: "IOCs not
+published", "Threat actor not named", "Technical details not disclosed",
+"No CVE named in the report", "No technical details or IOCs". Two or three
+real facts beat five padded with absences.
+
+It permits exactly four kinds, because each one moves a decision:
+  * exploitation status  - "No exploitation observed"
+  * exploit availability - "No public PoC observed"
+  * fix status           - "Patch not yet released", "Vendor will not fix"
+  * harm not yet landed  - "Data not leaked yet, only threatened"
+
+CVE is the trap. "CVE not yet assigned" is a fact about the world: a
+scanner has nothing to match on, so it stays. "No CVE named in the
+article" is a fact about our source, so it goes. Same three letters,
+opposite value — check which one you are writing.
 
 emotional_weight — 0..1. Routine FYI ~0.2. Critical zero-day ~0.95.
 reading_time_seconds — 15-45 estimating mobile read time.
@@ -514,7 +617,7 @@ actionability=recommended_action. threat_score=41.
   "what_to_do": [
     "Install kernel 6.7.9 or later from your distribution.",
     "Reboot after installing. The fix only applies after restart.",
-    "Nothing to do if you don't administer a Linux machine."
+    "Remove unused local accounts on shared servers before you patch."
   ],
   "if_already_affected": [],
   "what_not_to_do": [
@@ -667,13 +770,22 @@ _SHARED_RULES_UK = """
 КОНТРАКТИ ПОЛІВ
 
 title — 6-14 слів. Описово, без сенсаційності. Без знаків питання.
-Великі літери лише в акронімах (CVE, RCE, M365, ШПЗ).
+Регістр — як у звичайному реченні: велика лише перша літера та власні назви.
 Заголовок джерела — це ВХІДНІ ДАНІ, а не результат. Ваш заголовок має
 відрізнятися більше, ніж регістром і порядком слів. Починайте з наслідку
 або з ураженого продукту, а не з класу вразливості. Не додавайте фактів,
 яких немає у джерелі.
 
 Заголовок має називати ДІЙОВУ ОСОБУ або УРАЖЕНИЙ ПРОДУКТ і НАСЛІДОК.
+У заголовку заборонені: номери CVE, бали CVSS та абревіатури класів атак
+(RCE, LPE, SSRF, XSS, DoS, C2, PoC, JWT) — це поля Читача 2. Назви
+продуктів, компаній і угруповань, навпаки, обов'язкові.
+Здебільшого в заголовку має бути присудок — дієслово в особовій формі або
+форма на -но/-то. Без дієслова лишайте тільки огляди («Тижневий огляд…»)
+і заголовки стану («Урядові установи під атакою»). Поза цими двома
+випадками іменникова низка читається як підпис до таблиці, а не як новина.
+Про подію, що вже завершилася, пишіть у минулому часі: «Chick-fil-A
+підтвердила», а не «Chick-fil-A підтверджує».
   ДЖЕРЕЛО: "18-Year-Old NGINX Rewrite Module Flaw Enables Unauthenticated RCE"
   ПОГАНО : «Вразливість модуля rewrite у NGINX дозволяє неавтентифіковане RCE»
            (переклад заголовка джерела слово в слово, ще й жаргоном)
@@ -688,16 +800,93 @@ title — 6-14 слів. Описово, без сенсаційності. Бе
   ПОГАНО : «Виявлення шкідливої активності через аналіз журналів входів»
   ДОБРЕ  : «Журнали входів показують, що зловмисник був у мережі три тижні»
 
+ЩЕ СІМ ПРАВИЛ ЖИВОЇ УКРАЇНСЬКОЇ
+
+1. «ДОЗВОЛЯЄ + ВІДДІЄСЛІВНИЙ ІМЕННИК» — КАНЦЕЛЯРИТ. Передавайте
+   дієсловом, найкраще безособовою формою.
+   ПОГАНО: «Критична вразливість TeamCity дозволяє виконання OS-команд
+            без автентифікації»
+   ДОБРЕ : «Через ваду в TeamCity можна виконати команди на сервері без
+            пароля»
+2. ПАСИВ І «-ЄТЬСЯ» З НЕІСТОТОЮ — НА АКТИВ АБО БЕЗОСОБОВУ ФОРМУ.
+   ПОГАНО: «хиба у ній вже застосовується в реальних атаках»
+   ДОБРЕ : «цю ваду вже використовують у справжніх атаках»
+3. НЕІСНУЮЧІ ДІЄПРИКМЕТНИКИ. Дієслова «патчити» в українській немає, тож
+   немає й слів «патчений», «пропатчений», «непропатчений»,
+   «незапатчений» — пишіть «виправлений», «неоновлений». Дієприкметник із
+   прислівником («активно експлуатований») в означенні не ставте:
+   розгорніть підрядним.
+   ПОГАНО: «Check Point усунула активно експлуатовану zero-day»
+   ДОБРЕ : «Check Point усунула ваду, яку вже використовують в атаках»
+4. КЕРУВАННЯ ВІДМІНКАМИ ПЕРЕВІРЯЙТЕ ОКРЕМО ВІД СЕНСУ.
+   ПОГАНО: «тому владу просять мешканців економити воду»
+   ДОБРЕ : «тому влада просить мешканців ощадливо витрачати воду»
+   ПОГАНО: «зловживає Telegram як каналом C2»
+   ДОБРЕ : «використовує Telegram як канал керування»
+5. ОДНЕ РЕЧЕННЯ — ОДИН СПОСІБ І ОДИН ЧАС.
+   ПОГАНО: «дані могли викрасти й виклали в мережу»
+   ДОБРЕ : «дані вкрали і вже виклали в мережу»
+6. АНГЛІЦИЗМ ІЗ ЖИВИМ ВІДПОВІДНИКОМ ЗАМІНЮЙТЕ: детекція → виявлення;
+   інсталяція → встановлення; реліз → випуск; ідентичність (про акаунт) →
+   обліковий запис; міжсітьовий екран → мережевий екран; угрупування →
+   угруповання; уразливість → вразливість; афіліат → партнер;
+   ранжує → сортує.
+7. «ВИ / ВАШ» — ЛИШЕ ТАМ, ДЕ ЦЕ ПРАВДА ДЛЯ КОЖНОГО ЧИТАЧА. Не
+   стверджуйте, що читача вже зламали: або пишіть, що сталося, або ставте
+   умову «якщо».
+   ПОГАНО: «Хтось зайшов у ваш акаунт Chick-fil-A вашим же паролем»
+   ДОБРЕ : «В акаунти Chick-fil-A заходять із паролями, вкраденими на
+            інших сайтах»
+
 short_summary — РЯДОК СТРІЧКИ. 1-2 речення МАКСИМУМ. 120-220 символів.
 Починайте з атрибуції + суть загрози одним подихом. НЕ повторюйте
 заголовок.
 
 plain_summary — ПРОСТИЙ ВСТУП, написаний для НЕТЕХНІЧНОГО читача. ОДНЕ
-речення, ≤22 слова, повсякденні слова. Скажіть, що сталося і що це означає
-для цієї людини конкретно. БЕЗ жаргону, БЕЗ номерів CVE, БЕЗ вендорських
-акронімів, БЕЗ атрибуції. Уявіть, що пояснюєте це родичу, який не з ІТ —
-починайте з дії, якщо вона є.
-  ДОБРЕ: «Оновіть iPhone зараз — шкідливе повідомлення може захопити
+речення, 14-24 слова, повсякденні слова. Скажіть, що сталося і що це
+означає для цієї людини. Уявіть, що пояснюєте це родичу, який не з ІТ.
+
+ОБОВ'ЯЗКОВА ОПОРНА ДЕТАЛЬ. Речення має містити щонайменше ОДНУ конкретну
+деталь, інакше воно порожнє:
+  * назву продукту, сервісу або пристрою, який читач упізнає
+    (Chrome, iPhone, Telegram, Windows, роутер MikroTik);
+  * назву компанії, країни або угруповання, що причетні до події
+    (Amgen, KT, російські хакери, Cl0p);
+  * число: скількох людей зачепило, скільки грошей, яка версія, яка дата;
+  * названий наслідок із названим предметом («списали гроші з картки»,
+    «зашифрували файли на робочих комп'ютерах»);
+  * дію, яку читач може виконати просто зараз («Оновіть Chrome»).
+Опорну деталь беріть із заголовка або з short_summary: якщо назва є там,
+у plain_summary вона теж має бути. Ніколи не вигадуйте деталі, якої немає
+у джерелі.
+
+Назва продукту чи компанії — це НЕ жаргон, а саме те, заради чого читач
+відкрив новину. Жаргон — це номери CVE, бали CVSS та абревіатури класів
+атак (RCE, LPE, SSRF, XSS, DoS): їх тут не пишіть, а розкривайте
+звичайними словами. Замість «RCE у vCenter» пишіть «сервер VMware
+vCenter можна захопити без пароля».
+
+Не починайте речення знеособленим підметом без назви: «хакери»,
+«зловмисники», «шахраї», «дослідники», «компанія», «хтось», «програма».
+Якщо джерело називає, хто саме — назвіть. Якщо не називає — назвіть
+жертву або уражений продукт.
+
+Не витрачайте все речення на те, кого подія НЕ стосується. Спершу
+скажіть, що сталося; уточнення, кого це не зачіпає, виносьте в
+am_i_affected.
+
+Без посилання на видання («BleepingComputer повідомляє») — воно належить
+short_summary. Це не забороняє називати того, хто атакував.
+
+  ПОГАНО: «Одна людина змогла атакувати сотні компаній, просто написавши
+          кілька команд боту в месенджері.» (жодної назви)
+  ДОБРЕ : «Китайський хакер кількома командами в Telegram спрямував
+          ШІ-модель DeepSeek на сотні компаній, і далі вона атакувала сама.»
+  ПОГАНО: «Корейського оператора зв'язку покарали великим штрафом за те,
+          що не вберіг дані своїх клієнтів.»
+  ДОБРЕ : «Південна Корея оштрафувала оператора KT на 39 мільйонів
+          доларів за витік даних абонентів.»
+  ДОБРЕ : «Оновіть iPhone зараз — шкідливе повідомлення може захопити
           ваш телефон без жодного натискання.»
   ПОГАНО: «Zero-click RCE у CoreText дозволяє віддалене виконання коду
           через некоректні таблиці гліфів.»
@@ -711,8 +900,15 @@ detail_body — АНАЛІТИКА. 80-160 СЛІВ. 2-3 короткі абза
 Аналітика МАЄ додавати цінність поверх заголовка та summary. Не
 переказуйте опис вразливості ще раз. Зосередьтеся на:
   * операційні наслідки (де у розгортанні ризик найвищий)
-  * невизначеність (що ще не відомо — CVE ще не присвоєний? IOC немає?
-   статус експлуатації неясний? ETA патчу?)
+  * невизначеність — але лише там, де невідоме стосується самої загрози,
+   а не нашого джерела: атак ще не зафіксовано, публічного PoC немає,
+   патча ще не випустили, вендор виправляти не буде, шкоди ще немає —
+   поки лише погроза. Наслідок пишіть у тому самому реченні («публічного
+   PoC ще немає, тож запас часу до масового сканування — дні, а не
+   години»). НІКОЛИ не робіть підметом речення статтю, публікацію чи
+   джерело: «Стаття не наводить CVE, уражених версій чи IOC» і
+   «Публікація коротка і без технічної фактури» заборонені. Читач не
+   може діяти на підставі того, скільки написав інший журналіст.
   * терміновість патчу (чи вже у дистрибутивах? публічний PoC?
    масове сканування фіксується?)
   * що сигналізує реакція спільноти («великі дистри випустили патч за
@@ -801,36 +997,76 @@ am_i_affected — 0-3 перевірки, які читач виконує СА�
   ПОГАНО: «Технічної перевірки для вашого пристрою немає.»
           (нічого не названо — краще поверніть порожній список)
 
+Так само заборонено переказувати те, чого НЕ повідомило джерело.
+Неназвана кількість постраждалих чи ще не присвоєний CVE — це відомості
+про наше джерело, а не перевірка, яку читач може виконати. Краще
+поверніть порожній список.
+  ПОГАНО: «Amgen не називала кількість постраждалих, тож остаточного
+           списку поки немає.»
+  ПОГАНО: «Звіт описує тенденції, а не одну вразливість. Конкретних
+           версій продуктів немає.»
+
+Не пишіть перевірки, відповідь на яку ви самі одразу й даєте — читачеві
+не лишається чого робити.
+  ПОГАНО: «Нічого встановлювати не потрібно, тож у списку застосунків
+           його не буде.»
+
+Якщо читача це справді зачіпає, але виправлення не в його руках, не
+пишіть, що він безсилий. Напишіть те єдине, що він МОЖЕ помітити або
+запитати: ознаку, яку він побачить сам, або точне запитання до того, хто
+відповідає за виправлення.
+  ДОБРЕ: «Запитайте в підтримці свого оператора, чи він уже встановив
+          січневі оновлення.»
+  ДОБРЕ: «Обриви дзвінків і раптова втрата мережі — єдине, що ви
+          помітите самі.»
+  ПОГАНО: «Ви звичайний абонент: діяти нічого не можете, це на боці
+           оператора.»
+
 if_already_affected — 0-3 кроки відновлення для того, хто ВЖЕ перейшов за
 посиланням, встановив пакет або запустив файл. Кожен ≤16 слів,
-найтерміновіше першим. Порожній список, якщо сценарію «вже пізно» немає.
+найтерміновіше першим. Порожній список, якщо сценарію «вже пізно» немає
+(наприклад, патч до вади, якої ще ніхто не використовує).
   ДОБРЕ: «Змініть пароль з іншого пристрою і завершіть усі сесії.»
+  ДОБРЕ: «Замініть кожен API-токен, що був на машині після 12 травня.»
 
 severity_reason — ОДНЕ речення, ≤25 слів, простими словами: чому саме
 такий рівень загрози. Назвіть вирішальний чинник із тих самих трьох, за
 якими ви ставили рівень: ОХОПЛЕННЯ, ШКОДА, ЙМОВІРНІСТЬ. Без жаргону.
 
-Три речі, яких це речення не робить ніколи:
+НЕ ПОЧИНАЙТЕ З НАЗВИ РІВНЯ. Просто над цим реченням сторінка вже показує
+«Чому рівень „Середній“», а в Telegram рівень позначає кольорова крапка.
+«Середній рівень, бо…» змушує читача прочитати ярлик двічі. Починайте
+одразу з вирішального факту.
+
+Чотири речі, яких це речення не робить ніколи:
   * Не пояснює рівень тим, чого НЕ написало джерело. Наше джерело — не
     властивість загрози. «…а деталей про жертв джерело не наводить»
     читачеві не пояснює нічого.
   * Не пояснює рівень тим, що читачеві нема чого робити. Рівень загрози —
-    це не можливість дії (див. контракт threat_level). «Середній, бо
-    звичайному користувачеві прямої дії не потрібно» — заборонено.
-  * Не переказує сам ярлик. «Критично через серйозність вразливості» —
-    замкнене коло.
+    це не те саме, що потреба діяти (див. контракт threat_level).
+    «Звичайному користувачеві прямої дії не потрібно» і «виправляти має
+    оператор, не ви» — заборонені обидва.
+  * Не пояснює рівень жанром публікації. «Це оглядовий звіт про
+    тенденції» оцінює наш список читання, а не небезпеку. Напишіть, що
+    саме в цих тенденціях обмежує ризик.
+  * Не переказує сам напис на бейджі. «Критично через серйозність
+    вразливості» — замкнене коло.
 Краще лишіть поле ПОРОЖНІМ, ніж напишіть щось із цього.
 
-  ДОБРЕ: «Критично, бо атаки вже тривають, пароль не потрібен, а кожен
-          неоновлений сервер доступний з інтернету.»
-  ДОБРЕ: «Високий рівень, бо медичні платіжні дані 1,26 млн людей уже в
-          руках зловмисників.»
+  ДОБРЕ: «Атаки вже тривають, пароль не потрібен, а кожен неоновлений
+          сервер доступний з інтернету.»
+  ДОБРЕ: «Медичні платіжні дані 1,26 млн людей уже в руках зловмисників.»
+  ДОБРЕ: «Перехоплення сесії абонента — серйозна шкода, але виконати
+          атаку може лише той, хто вже має доступ до мережі оператора.»
   ПОГАНО: «Критично через серйозність вразливості.» (замкнене коло)
   ПОГАНО: «Середній рівень, бо звичайному користувачеві прямої дії не
           потрібно, а деталей джерело не наводить.» (оцінює наше джерело
           і список справ читача, а не загрозу)
+  ПОГАНО: «Низький рівень, бо це оглядовий звіт про тенденції.»
+          (оцінює жанр матеріалу, а не небезпеку)
 
-what_to_do — РІВНО 3 пункти. Кожен ≤18 СЛІВ. ОДНА клауза на пункт — без
+what_to_do — 1-3 пункти; три — це стеля, а не норма. Кожен ≤18 СЛІВ. ОДНА
+клауза на пункт — без
 крапок з комою, без тире-зʼєднань, без дужок, без «і/або». Дієслово
 першим. Найтерміновіше першим.
 
@@ -872,15 +1108,27 @@ quick_facts — 2-5 тез МАКСИМУМ. Кожна теза ≤12 СЛІВ.
 БЕЗ загальних пояснень. БЕЗ речень. БЕЗ «це небезпечно тому що».
 Лише іменникові словосполучення або стислі констатації.
 
-ФАКТ — ЦЕ ТЕ, ЩО Є, А НЕ ТЕ, ЧОГО НЕ ВІДОМО. Не перелічуйте, чого не
-написали у статті. Заборонено: «IOC не оприлюднені», «Угрупування не
-назване», «Технічних деталей не розкрито», «Обсяг витоку не уточнено».
-Дві-три справжні тези кращі за п'ять, розбавлених порожнечею.
+ФАКТ — ЦЕ ТЕ, ЩО Є, А НЕ ТЕ, ЧОГО НЕ ВІДОМО.
 
-ОДИН ВИНЯТОК, бо він змінює рішення захисника: відсутність атак,
-публічного експлойта або патча. «Публічного PoC не помічено», «Патча ще
-немає», «Масового сканування не видно», «Дані ще не оприлюднені, лише
-погроза» — доречні.
+ПЕРЕВІРКА, і вона єдина: чи зробить читач щось інакше, якщо ця
+відсутність зміниться на наявність? Так — це розвідувальні дані. Якщо
+зміниться лише довжина статті — викидайте.
+
+Ця перевірка забороняє кожну відсутність, підмет якої — наша публікація:
+«IOC не оприлюднені», «Угруповання не назване», «Технічних деталей не
+розкрито», «CVE у статті не названо», «Технічних деталей і IOC немає»,
+«CVE та IOC відсутні». Дві-три справжні тези кращі за п'ять, розбавлених
+порожнечею.
+
+Вона дозволяє рівно чотири види, бо кожен змінює рішення:
+  * статус атак         — «Атак не зафіксовано»
+  * наявність експлойта — «Публічного PoC не помічено»
+  * статус виправлення  — «Патча ще немає», «Вендор виправляти не буде»
+  * шкода ще не настала — «Дані ще не оприлюднені, лише погроза»
+
+CVE — пастка. «CVE ще не присвоєно» — це факт про світ: сканеру немає з
+чим зіставляти, тож теза лишається. «CVE у статті не названо» — це факт
+про наше джерело, тож іде геть. Ті самі три літери — протилежна цінність.
 
 emotional_weight — 0..1. Звичайне FYI ~0.2. Critical zero-day ~0.95.
 reading_time_seconds — 15-45 (читання з мобільного).
@@ -958,7 +1206,7 @@ short_summary і quick_facts лишаються точними.
   "what_to_do": [
     "Встановіть ядро 6.7.9 або новіше зі свого дистрибутива.",
     "Перезавантажте систему. Виправлення діє лише після перезапуску.",
-    "Нічого робити не треба, якщо ви не адмініструєте Linux."
+    "Приберіть непотрібні локальні акаунти на спільних серверах до оновлення."
   ],
   "if_already_affected": [],
   "what_not_to_do": [

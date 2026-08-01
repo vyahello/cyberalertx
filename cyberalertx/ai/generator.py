@@ -171,6 +171,38 @@ class ContentGenerator:
         from .editorial import refine_response
         refine_response(response, language)
 
+        # Null bullets are dropped HERE, before validation, so the existing
+        # "empty what_to_do list" gate below still holds the floor: a response
+        # that is nothing but filler falls back to rule_based instead of being
+        # cached with no actions at all. Ordering matters and is the whole
+        # point — `_post_from_response` runs after the validator,
+        # `ThreatPost.what_to_do` has no minimum length, and the result is
+        # written to a cache keyed by `(fingerprint, locale)` with no prompt
+        # version in it. Anything that slips through is permanent.
+        #
+        # Same predicates the render layer uses, so a fresh render and a
+        # cached one are judged identically. `refine_response` covers most of
+        # this already; `if_already_affected` is only covered here, and
+        # keeping the block adjacent to the validator is what makes the
+        # ordering guarantee readable.
+        from .hygiene import is_null_action, is_null_check
+        response.what_to_do = [
+            s for s in response.what_to_do
+            if s.strip() and not is_null_action(s, language)
+        ]
+        response.what_not_to_do = [
+            s for s in response.what_not_to_do
+            if s.strip() and not is_null_action(s, language)
+        ]
+        response.am_i_affected = [
+            s for s in (response.am_i_affected or [])
+            if s.strip() and not is_null_check(s, language)
+        ]
+        response.if_already_affected = [
+            s for s in (response.if_already_affected or [])
+            if s.strip() and not is_null_action(s, language)
+        ]
+
         # Semantic validation. Pydantic already caught structural issues
         # (wrong types, missing required fields). Here we check that the
         # AI produced human-quality content: non-empty fields, no AI
