@@ -265,20 +265,17 @@ def cmd_generate(args: argparse.Namespace) -> int:
         )
         return 1
 
-    if refresh and cache is not None:
-        # Drop the keys we are about to re-render. Done AFTER --dry-run has
-        # already returned, so a dry run never mutates the cache, and done
-        # before the render loop so `generate()` inside `render()` sees a
-        # miss and actually calls the provider.
-        dropped = sum(
-            1 for item, locale in missing_pairs
-            if cache.delete(getattr(item, "fingerprint", ""), locale)
-        )
-        print(
-            f"[cyberalertx generate] --refresh: dropped {dropped} cached "
-            f"render(s); they will be regenerated under the current prompt.",
-            file=sys.stderr,
-        )
+    # Under `--refresh` the delete happens per item, immediately before that
+    # item is re-rendered — NOT in one sweep up front.
+    #
+    # The sweep is what you reach for first and it takes the site down. The
+    # API's generator has its provider force-nulled for cost safety, so a
+    # deleted-but-not-yet-rendered item yields None from `render_if_cached`
+    # and vanishes from the feed. Deleting all 376 pairs up front would empty
+    # the live feed and refill it over the hours the run takes. Per item, at
+    # most one post is missing at any moment, and a crash leaves the rest
+    # stale rather than gone.
+    refresh_dropped = 0
 
     # Drive only items that have at least one missing locale through
     # render(). render() iterates all required locales for the item, but
@@ -286,12 +283,30 @@ def cmd_generate(args: argparse.Namespace) -> int:
     # we never burn tokens on an already-rendered locale.
     rendered: list[dict[str, Any]] = []
     by_provenance: dict[str, int] = {}
-    for item in missing_items:
+    locales_by_item: dict[str, list[str]] = {}
+    for pending_item, pending_locale in missing_pairs:
+        fingerprint = getattr(pending_item, "fingerprint", "")
+        locales_by_item.setdefault(fingerprint, []).append(pending_locale)
+
+    for index, item in enumerate(missing_items, start=1):
+        if refresh and cache is not None:
+            for locale in locales_by_item.get(item.fingerprint, []):
+                if cache.delete(item.fingerprint, locale):
+                    refresh_dropped += 1
         try:
             payload = svc.render(item)
         except Exception as exc:
             print(f"  render failed for {item.fingerprint}: {exc}", file=sys.stderr)
             continue
+        if refresh:
+            # Progress matters here: a full refresh is a multi-hour run and
+            # an operator watching a silent terminal cannot tell it apart
+            # from a hang.
+            print(
+                f"  [{index}/{len(missing_items)}] {item.fingerprint} "
+                f"{payload.get('generated_by', '?')}",
+                file=sys.stderr,
+            )
         rendered.append(payload)
         prov = payload.get("generated_by", "?")
         by_provenance[prov] = by_provenance.get(prov, 0) + 1
@@ -316,6 +331,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print(
             "[cyberalertx generate] generated_by: " +
             ", ".join(f"{k}={v}" for k, v in sorted(by_provenance.items())),
+            file=sys.stderr,
+        )
+    if refresh:
+        print(
+            f"[cyberalertx generate] --refresh: replaced {refresh_dropped} "
+            f"cached render(s) across {len(rendered)} item(s).",
             file=sys.stderr,
         )
     return 0
