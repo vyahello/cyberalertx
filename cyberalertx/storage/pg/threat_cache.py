@@ -93,6 +93,23 @@ class PgThreatPostStore:
         with get_engine().begin() as conn:
             conn.execute(stmt)
 
+    def delete(self, fingerprint: str, locale: str) -> bool:
+        """Forget one render. Returns True if a row was actually removed.
+
+        Required for `generate --refresh` to work at all under the dual-write
+        backend: the wrapper reads JSON first and falls back to PG on a miss,
+        so deleting only the JSON entry would have the next read resurrect
+        the stale post from here and the refresh would silently no-op.
+        """
+        with get_engine().begin() as conn:
+            result = conn.execute(
+                threat_posts.delete().where(
+                    threat_posts.c.fingerprint == fingerprint,
+                    threat_posts.c.locale == locale,
+                )
+            )
+        return bool(result.rowcount)
+
     def all(self) -> Iterable[ThreatPost]:
         with get_engine().connect() as conn:
             for row in conn.execute(select(threat_posts.c.payload)):

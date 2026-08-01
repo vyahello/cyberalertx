@@ -35,6 +35,7 @@ class ThreatPostStore(Protocol):
 
     def get(self, fingerprint: str, locale: str = "en") -> Optional[ThreatPost]: ...
     def set(self, fingerprint: str, locale: str, post: ThreatPost) -> None: ...
+    def delete(self, fingerprint: str, locale: str) -> bool: ...
     def all(self) -> Iterable[ThreatPost]: ...
     def __len__(self) -> int: ...
 
@@ -176,6 +177,32 @@ class DualWriteThreatPostCache:
                 fingerprint, locale, (time.monotonic() - t0) * 1000,
                 type(exc).__name__, exc,
             )
+
+    def delete(self, fingerprint: str, locale: str) -> bool:
+        """Forget one render in BOTH stores.
+
+        Unlike `set`, the PG half is not merely a shadow here. `get` reads
+        JSON first and falls back to PG on a miss, so a JSON-only delete
+        would have the very next read resurrect the stale post — and
+        `generate --refresh` would appear to work while changing nothing.
+
+        The PG failure is still non-fatal, because a stale row there is
+        recoverable (the next `set` overwrites it) and aborting the refresh
+        would be worse. But it is logged loudly, since until PG catches up
+        the fallback read can serve the old text.
+        """
+        removed = self._json.delete(fingerprint, locale)
+        try:
+            self._pg.delete(fingerprint, locale)
+        except Exception as exc:
+            self._secondary_failures += 1
+            logger.warning(
+                "dual-write: PG threat-post DELETE FAILED (%s/%s, %s: %s) — "
+                "JSON entry is gone but a fallback read may still serve the "
+                "stale post until it is re-rendered.",
+                fingerprint, locale, type(exc).__name__, exc,
+            )
+        return removed
 
     def all(self) -> Iterable[ThreatPost]:
         # Delegate to JSON — `all()` is used by ops tooling, not the

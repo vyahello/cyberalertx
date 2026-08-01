@@ -145,6 +145,7 @@ class _RecordingThreatStore:
     calls: list[str] = field(default_factory=list)
     raise_on_get: bool = False
     raise_on_set: bool = False
+    raise_on_delete: bool = False
 
     def get(self, fingerprint: str, locale: str = "en"):
         self.calls.append(f"get:{fingerprint}/{locale}")
@@ -157,6 +158,12 @@ class _RecordingThreatStore:
         if self.raise_on_set:
             raise RuntimeError("simulated PG outage on write")
         self.posts[(fingerprint, locale)] = post
+
+    def delete(self, fingerprint: str, locale: str) -> bool:
+        self.calls.append(f"delete:{fingerprint}/{locale}")
+        if self.raise_on_delete:
+            raise RuntimeError("simulated PG outage on delete")
+        return self.posts.pop((fingerprint, locale), None) is not None
 
     def all(self):
         return iter(self.posts.values())
@@ -235,3 +242,42 @@ def test_threat_shadow_stats_tracking():
     dual.set("fp1", "en", _post())
     dual.set("fp2", "en", _post())
     assert dual.shadow_stats == {"successes": 2, "failures": 0, "read_fallbacks": 0}
+
+
+# --------------------- delete (generate --refresh) -------------------------
+
+def test_threat_delete_removes_from_both_stores():
+    """PG is NOT a shadow for deletes.
+
+    `get` reads JSON first and falls back to PG on a miss, so a JSON-only
+    delete would have the very next read resurrect the stale post — and
+    `generate --refresh` would appear to work while changing nothing.
+    """
+    json_cache, pg = _RecordingThreatStore(), _RecordingThreatStore()
+    dual = DualWriteThreatPostCache(primary=json_cache, secondary=pg)
+    dual.set("fp1", "ua", _post("old"))
+
+    assert dual.delete("fp1", "ua") is True
+    assert json_cache.get("fp1", "ua") is None
+    assert pg.get("fp1", "ua") is None, "a stale PG row would resurrect the post"
+    assert dual.get("fp1", "ua") is None
+
+
+def test_threat_delete_survives_pg_failure():
+    """A PG delete failure is logged, not raised — aborting part-way through
+    a refresh leaves a worse mess than one stale fallback row."""
+    json_cache = _RecordingThreatStore()
+    pg = _RecordingThreatStore(raise_on_delete=True)
+    dual = DualWriteThreatPostCache(primary=json_cache, secondary=pg)
+    dual.set("fp2", "en", _post("old"))
+
+    assert dual.delete("fp2", "en") is True
+    assert json_cache.get("fp2", "en") is None
+    assert dual.shadow_stats["failures"] >= 1
+
+
+def test_threat_delete_reports_a_miss():
+    dual = DualWriteThreatPostCache(
+        primary=_RecordingThreatStore(), secondary=_RecordingThreatStore(),
+    )
+    assert dual.delete("nope", "ua") is False

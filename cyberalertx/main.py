@@ -254,6 +254,17 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print("[cyberalertx generate] nothing to do — every required key is cached.", file=sys.stderr)
         return 0
 
+    if refresh and cache is not None and not hasattr(cache, "delete"):
+        # Checked before anything is deleted or rendered. Every backend in
+        # tree implements `delete`, but a custom one might not, and failing
+        # here beats a traceback halfway through a 300-render run.
+        print(
+            f"[cyberalertx generate] --refresh unsupported: "
+            f"{type(cache).__name__} has no delete(). Aborting; nothing changed.",
+            file=sys.stderr,
+        )
+        return 1
+
     if refresh and cache is not None:
         # Drop the keys we are about to re-render. Done AFTER --dry-run has
         # already returned, so a dry run never mutates the cache, and done
