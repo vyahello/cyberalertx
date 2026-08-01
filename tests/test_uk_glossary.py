@@ -116,3 +116,100 @@ def test_glossary_and_stems_stay_in_sync():
             f"rejection stem {rejection!r} has no glossary entry — "
             "validator would reject without normalizer fixing the text"
         )
+
+
+# --------------------- script gate vs machine identifiers ------------------
+
+def test_package_names_do_not_read_as_untranslated_english() -> None:
+    """Identifiers carry no language signal, so they must not count as English.
+
+    A bullet naming the npm packages a reader has to remove is 79 Latin
+    letters against 7 Cyrillic. The raw ratio said "English" and the pre-send
+    gate blocked the most actionable advice in a supply-chain post from the
+    Ukrainian channel.
+    """
+    from cyberalertx.ai.validation import _wrong_script_for_language
+
+    assert _wrong_script_for_language(
+        "Видаліть @joyfill/layouts@0.1.2-2773.beta.0 та "
+        "@joyfill/components@4.0.0-rc24-2773-beta.4.",
+        "ua",
+    ) is False
+    assert _wrong_script_for_language(
+        "Оновіть Chrome до версії 126.0.6478 через меню Довідка.", "ua",
+    ) is False
+
+
+def test_real_untranslated_english_is_still_rejected() -> None:
+    """Stripping identifiers must not blunt the check it guards."""
+    from cyberalertx.ai.validation import _wrong_script_for_language
+
+    assert _wrong_script_for_language(
+        "Install the vendor patch and reboot the affected hosts now.", "ua",
+    ) is True
+    assert _wrong_script_for_language(
+        "Attackers are exploiting this flaw in the wild against servers.", "ua",
+    ) is True
+    assert _wrong_script_for_language(
+        "Оновіть Chrome негайно, зловмисники вже атакують.", "en",
+    ) is True
+
+
+# --------------------- calque / anglicism table ----------------------------
+
+def test_threat_actor_is_ugrupovannya_not_ugrupuvannya() -> None:
+    """«Угрупування» is the process noun — the ACT of grouping. A threat actor
+    is «угруповання». The wrong form was the majority form in the live cache
+    (36 of the 71 substitutions this table makes)."""
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
+
+    assert normalize_ukrainian_calques(
+        "Угрупування, що стоїть за атакою, не назване",
+    ) == "Угруповання, що стоїть за атакою, не назване"
+    assert normalize_ukrainian_calques(
+        "атаки цього угрупування тривають",
+    ) == "атаки цього угруповання тривають"
+
+
+def test_patch_participles_are_not_ukrainian_words() -> None:
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
+
+    assert "неоновлені" in normalize_ukrainian_calques("непропатчені сервери")
+    assert "виправлено" in normalize_ukrainian_calques("пропатчено вчора")
+
+
+def test_firewall_calque_is_repaired() -> None:
+    """«Міжсітьовий екран» is a half-translated «межсетевой экран»."""
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
+
+    assert normalize_ukrainian_calques(
+        "захищено міжсітьовим бар'єром",
+    ) == "захищено мережевим екраном"
+
+
+def test_vrazlyvist_is_the_shipped_form() -> None:
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
+
+    assert normalize_ukrainian_calques("Уразливість у ядрі") == "Вразливість у ядрі"
+    # Must NOT touch «ураження» / «уражати» — different stem entirely.
+    assert normalize_ukrainian_calques("ураження систем") == "ураження систем"
+    assert normalize_ukrainian_calques("уражені пристрої") == "уражені пристрої"
+
+
+def test_calque_pass_is_idempotent() -> None:
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
+
+    text = "Угрупування використало непропатчені сервери за міжсітьовим бар'єром"
+    once = normalize_ukrainian_calques(text)
+    assert normalize_ukrainian_calques(once) == once
+
+
+def test_calque_pass_leaves_correct_ukrainian_alone() -> None:
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
+
+    for text in (
+        "Оновіть Chrome через меню Довідка до версії 126.",
+        "Зловмисники викрали дані клієнтів компанії.",
+        "Мережевий захист не допоміг проти цієї атаки.",
+    ):
+        assert normalize_ukrainian_calques(text) == text

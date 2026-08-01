@@ -83,7 +83,6 @@ type StringTable = {
   detail_not_available_hint: string;
   detail_not_found_title: string;
   detail_not_found_hint: string;
-  detail_action_panel_title: string;
   // Share
   share_label: string;
   share_copy: string;
@@ -247,7 +246,7 @@ const EN: StringTable = {
   hero_subhead:
     "What matters in cybersecurity right now — explained clearly, ranked by real-world impact.",
   hero_cta: "View Live Threats",
-  hero_pulse_label: (n) => `${n} active threats now`,
+  hero_pulse_label: (n) => `${n} active threat${n === 1 ? "" : "s"} now`,
 
   section_trending: "Trending now",
   section_trending_caption: "Actively exploited or widely reported in the last 24h.",
@@ -272,7 +271,7 @@ const EN: StringTable = {
   card_what_to_do: "What to do",
   card_what_not_to_do: "What to avoid",
   card_affected_users: "Who's affected",
-  card_quick_facts: "Quick facts",
+  card_quick_facts: "Threat signals",
   card_reading_time: (s) => formatReadingTime(s, "en"),
   card_published_relative: (s) => formatPublished(s, "en"),
 
@@ -327,7 +326,6 @@ const EN: StringTable = {
   detail_not_found_title: "Threat not found",
   detail_not_found_hint:
     "This item may have been replaced, archived, or never existed.",
-  detail_action_panel_title: "Take action",
   share_label: "Share",
   share_copy: "Copy link",
   share_copied: "Copied",
@@ -414,17 +412,40 @@ const EN: StringTable = {
   subscribe_rss: "RSS feed",
 };
 
+/**
+ * Ukrainian has three plural forms. `n % 100` in 11-14 always takes the
+ * many-form; otherwise the last digit decides. Every counted UK string routes
+ * through this — before it existed, `filters_active(2)` rendered "2 фільтрів"
+ * and `story_sources_count(21)` rendered "21 джерел".
+ */
+function plural3(n: number, one: string, few: string, many: string): string {
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  switch (Math.abs(n) % 10) {
+    case 1:
+      return one;
+    case 2:
+    case 3:
+    case 4:
+      return few;
+    default:
+      return many;
+  }
+}
+
 const UK: StringTable = {
   brand: "CyberAlertX",
   tagline_short: "Розвідка загроз для кожного",
   skip_to_content: "Перейти до вмісту",
 
   hero_eyebrow: "Кіберобізнаність у реальному часі",
-  hero_headline: "Кіберзагрози. Перш ніж вони дістануться вас.",
+  // «Дістатися» governs «до» + genitive; "дістануться вас" is ungrammatical.
+  hero_headline: "Кіберзагрози. Перш ніж вони дісталися до вас.",
   hero_subhead:
     "Найважливіше у кібербезпеці прямо зараз — пояснено просто та відсортовано за реальним впливом.",
   hero_cta: "Переглянути загрози",
-  hero_pulse_label: (n) => `${n} активних загроз зараз`,
+  hero_pulse_label: (n) =>
+    `${n} ${plural3(n, "активна загроза", "активні загрози", "активних загроз")} зараз`,
 
   section_trending: "У тренді",
   section_trending_caption: "Активно експлуатуються або широко висвітлювалися за 24 год.",
@@ -441,20 +462,24 @@ const UK: StringTable = {
   filter_search_placeholder: "Шукати загрози…",
   filters_reset: "Скинути",
   filters_apply: "Застосувати",
-  filters_active: (n) => (n === 1 ? "1 фільтр" : `${n} фільтрів`),
+  filters_active: (n) => `${n} ${plural3(n, "фільтр", "фільтри", "фільтрів")}`,
   filters_button: "Фільтри",
 
   plain_meaning_label: "Що це означає для вас",
   card_why_it_matters: "Чому це важливо",
   card_what_to_do: "Що робити",
   card_what_not_to_do: "Чого не робити",
-  card_affected_users: "Кого це стосується",
-  card_quick_facts: "Коротко",
+  // Was byte-identical to `intel_who_should_care`, and both render on the
+  // same detail page a few hundred pixels apart.
+  card_affected_users: "Хто в зоні ризику",
+  // Was "Коротко", the same word as `detail_at_a_glance` on the same page.
+  // Its only consumer is the SignalIndicators strip in ThreatSnapshot.
+  card_quick_facts: "Ознаки загрози",
   card_reading_time: (s) => formatReadingTime(s, "ua"),
   card_published_relative: (s) => formatPublished(s, "ua"),
 
   level: {
-    Critical: "Критично",
+    Critical: "Критичний",
     High: "Високий",
     Medium: "Середній",
     Low: "Низький",
@@ -504,7 +529,6 @@ const UK: StringTable = {
   detail_not_found_title: "Загрозу не знайдено",
   detail_not_found_hint:
     "Можливо, її замінили, заархівували, або такої ніколи не існувало.",
-  detail_action_panel_title: "Що зробити",
   share_label: "Поділитися",
   share_copy: "Скопіювати посилання",
   share_copied: "Скопійовано",
@@ -572,13 +596,13 @@ const UK: StringTable = {
   detail_if_already_affected: "Якщо вас це вже зачепило",
   detail_severity_reason: (level) => `Чому рівень «${level}»`,
   story_sources_count: (n) =>
-    n === 2 ? "2 джерела" : n < 5 ? `${n} джерела` : `${n} джерел`,
+    `${n} ${plural3(n, "джерело", "джерела", "джерел")}`,
   story_coverage_heading: "Першоджерела",
   story_coverage_caption:
     "Видання, які написали про цю подію. Ми зібрали їх в один матеріал.",
   context_section_heading: "Контекст",
   context_how_it_works: "Як працює такий тип атаки",
-  context_who_is_affected: "Кого це зазвичай стосується",
+  context_who_is_affected: "Кого такі атаки зачіпають найчастіше",
   context_attacker_motivation: "Навіщо це зловмисникам",
   context_realistic_impact: "Що відбувається насправді",
   subscribe_heading: "Отримувати одразу",

@@ -223,6 +223,35 @@ _TARGET_LANGUAGE_MIN_RATIO: float = 0.30
 _TARGET_LANGUAGE_MIN_LETTERS: int = 4
 
 
+# Machine identifiers: package specs, versions, domains, file paths, CVE ids,
+# handles. These are Latin by necessity and carry no language signal — nobody
+# translates "@joyfill/components@4.0.0-rc24-2773-beta.4". Counting them as
+# evidence of English made the gate reject perfectly good Ukrainian whose only
+# sin was naming the packages a reader has to remove:
+#
+#   "Видаліть @joyfill/layouts@0.1.2-2773.beta.0 та
+#    @joyfill/components@4.0.0-rc24-2773-beta.4."
+#
+# — 79 Latin letters against 7 Cyrillic, so the ratio said "English" and the
+# most actionable bullet in a supply-chain post was blocked from the channel.
+# Stripping them first does not weaken the real check: an untranslated English
+# sentence still has plenty of ordinary words left once identifiers are gone.
+_IDENTIFIER_RE = re.compile(
+    r"""
+      [@/][^\s]+                      # @scope/pkg, /usr/bin/foo
+    | [A-Za-z][\w.+-]*@[\w.+-]+       # pkg@1.2.3
+    | \b[A-Za-z][\w-]*\.[A-Za-z]{2,}(?:/[^\s]*)?   # domains, files, URLs
+    | \b[A-Za-z][\w-]*\d[\w.+-]*      # tokens containing a digit (versions, CVE)
+    | \bhttps?://[^\s]+
+    """,
+    re.VERBOSE,
+)
+
+
+def _strip_identifiers(text: str) -> str:
+    return _IDENTIFIER_RE.sub(" ", text or "")
+
+
 def _letter_counts(text: str) -> tuple[int, int]:
     """Return (cyrillic_letters, latin_letters) in `text`. Counts code
     points by Unicode block; digits / punctuation / symbols are ignored."""
@@ -244,7 +273,7 @@ def _wrong_script_for_language(text: str, language: str) -> bool:
     UA headlines (Cyrillic ≥ 30% of letters is enough). We reject a fully-
     English title on a UA-target render — that's the bug we're patching.
     """
-    cyrillic, latin = _letter_counts(text)
+    cyrillic, latin = _letter_counts(_strip_identifiers(text))
     total = cyrillic + latin
     if total < _TARGET_LANGUAGE_MIN_LETTERS:
         return False

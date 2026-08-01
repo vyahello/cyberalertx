@@ -136,6 +136,28 @@ export function ThreatDetail({ post, lang }: Props) {
         className="mb-8 sm:mb-10"
       />
 
+      {/* Who's affected — moved up from below the analysis. `am_i_affected`
+          is empty on the overwhelming majority of cached posts, so SelfCheck
+          correctly renders nothing there and the reader's first question went
+          unanswered until five blocks later. `affected_users` is populated on
+          every post with concrete labels, so it belongs in the slot SelfCheck
+          vacates. List, not paragraph — easier to scan, and the shape matches
+          the data we have. */}
+      {c.affected_users.length > 0 && (
+        <div className="surface-card p-5 sm:p-6 mb-8 sm:mb-10">
+          <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2 inline-flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5" /> {s.card_affected_users}
+          </h2>
+          <ul className="space-y-1.5">
+            {c.affected_users.map((u) => (
+              <li key={u} className="text-sm text-text-primary leading-relaxed">
+                {u}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Two-column grid from lg+: narrative left, sticky action panel right.
           Below lg the action panel slots inline after the narrative — see
           the second ActionPanel render below. */}
@@ -195,23 +217,6 @@ export function ThreatDetail({ post, lang }: Props) {
               <div className="measure">
                 <DetailBody body={c.detail_body} />
               </div>
-            </div>
-          )}
-
-          {/* Who's affected — list, not paragraph. Easier to scan, and the
-              shape matches the data we have. */}
-          {c.affected_users.length > 0 && (
-            <div>
-              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2 inline-flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5" /> {s.card_affected_users}
-              </h2>
-              <ul className="space-y-1.5">
-                {c.affected_users.map((u) => (
-                  <li key={u} className="text-sm text-text-primary leading-relaxed">
-                    {u}
-                  </li>
-                ))}
-              </ul>
             </div>
           )}
 

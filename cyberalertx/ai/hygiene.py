@@ -41,6 +41,11 @@ WHAT IT REMOVES
      the threat — by what the source omitted, or by the reader not needing
      to act. Those describe our sourcing, not the danger.
 
+  4. The level restatement at the head of a severity rationale. The page
+     prints "Чому рівень «Середній»" immediately above the sentence, so
+     "Середній рівень, бо…" makes the reader read the label twice — and on
+     3 of the 16 cached posts the restated level contradicts the badge.
+
 WHAT IT DELIBERATELY DOES NOT REMOVE
 
   Exclusions that name something concrete. "Якщо ви ніколи не запускали yay
@@ -56,6 +61,8 @@ from __future__ import annotations
 
 import re
 from typing import Any, Mapping, Sequence
+
+from .uk_glossary import normalize_ukrainian_calque_fields
 
 # ===========================================================================
 # Null ACTION bullets — for `what_to_do` / `what_not_to_do`.
@@ -125,6 +132,18 @@ _NULL_CHECK_UA: tuple[re.Pattern[str], ...] = tuple(
         r"(?:діяти\s+)?нічого\s+не\s+можете",
         r"не\s+можете\s+нічого\s+(?:зробити|вдіяти|перевірити)",
         r"це\s+на\s+боці\s+(?:оператора|вендора|провайдера|постачальника|розробника)",
+        # A "check" whose entire content is what the SOURCE withheld. Kept
+        # separate from _ABSENCE_FACT_UA (which guards quick_facts): under a
+        # heading that promises the reader a test, a gap in our sourcing
+        # answers nothing. "Amgen не називала кількість постраждалих, тож
+        # остаточного списку поки немає" is a fact about the article.
+        r"(?:деталей|деталі|версій|індикатор\w*|списку|переліку|конкретики"
+        r"|подробиць)[^.]{0,45}\bнема[єе]\b",
+        r"\bне\s+(?:назвал\w+|назива\w+|навод\w+|розкрив\w*|уточнив\w*"
+        r"|оприлюднил\w*)\b[^.]{0,70}\b(?:нема[єе]|поки)\b",
+        # A check whose result is stated up front, so running it is pointless.
+        r"нічого\s+(?:встановлювати|завантажувати|шукати|вводити)\s+не\s+"
+        r"(?:треба|потрібно)",
     )
 )
 
@@ -148,11 +167,24 @@ _ABSENCE_FACT_UA: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"\bне\s+(?:назван|оприлюднен|вказан|розкрит|уточнен|наведен|повідомлен|опублікован)",
         r"\bнема[єе]\s+(?:даних|деталей|інформації|подробиць)",
-        r"\bдеталі[^.]{0,20}не\s+",
         r"\bневідом(?:о|і|а)\b",
         r"\bджерело\s+не\s+",
         r"\bстаття\s+не\s+",
         r"\bпублікація\s+не\s+",
+        # Bibliographic subject + bare absence. The subject must be a NAMING
+        # artifact — never a world-state. That distinction is what keeps
+        # "Даних про експлуатацію в атаках немає" (exploitation status) and
+        # "Патч відсутній на момент атак" (fix status) alive while removing
+        # "IOC та CVE відсутні" and "Технічних деталей і IOC немає".
+        r"\b(?:CVE|IOC|індикатор\w*|деталі|деталей|подробиц\w+|атрибуці\w+"
+        r"|перелік|переліку|список|списку|специфікаці\w+)\b"
+        r"[^.]{0,45}\b(?:нема[єе]|відсутн\w+)\b",
+        # Finite past tense of not-saying: the stem list above only covers
+        # participles, so "Компанія не назвала кількість постраждалих" and
+        # "Кількість постраждалих Amgen не назвала" both slipped through.
+        r"\bне\s+назвал\w+\b",
+        r"\bне\s+деталізован\w*\b",
+        r"\bатрибуці\w+[^.]{0,40}\bне\s+(?:назван|оголошен|встановлен|розкрит)",
     )
 )
 
@@ -199,6 +231,13 @@ _DECISION_RELEVANT_ABSENCE: tuple[re.Pattern[str], ...] = tuple(
         r"(?:дані|витік|витоку|інформаці\w*)\s+ще\s+не\b",
         r"ще\s+не\s+(?:оприлюднен|опублікован|злит|викладен)\w*",
         r"\bnot\s+yet\s+(?:leaked|published|released|posted)\b",
+        # World-state absences that the bibliographic patterns below would
+        # otherwise reach. "CVE відсутній, це не вразливість" is a verdict on
+        # the item, not a gap in our sourcing; "Відсутня автентифікація
+        # критичної функції" (CWE-306) is the vulnerability itself.
+        r"це\s+не\s+вразливість",
+        r"\bне\s+(?:зафіксован|виявлен|підтвердж|спостеріга|заявлен)",
+        r"^\s*відсутн",
     )
 )
 
@@ -231,6 +270,50 @@ _WEAK_SEVERITY_EN: tuple[re.Pattern[str], ...] = tuple(
         r"\bdue\s+to\s+(?:the\s+)?(?:severity|seriousness|critical(?:ity)?)\b",
     )
 )
+
+# `severity_reason` opens by restating the level in all 16 of the cached
+# posts that carry it, and the UI prints the level directly above the
+# sentence ("Чому рівень «Середній»: Середній рівень, бо…"). Worse, 3 of the
+# 16 name a DIFFERENT level than `threat_level` — e0cbfbb17f2a64cb is rated
+# Low and its sentence opens "Середній рівень, бо…". Stripping the opener
+# removes the repetition and the contradiction in one pass, and — unlike
+# blanking the field — keeps the otherwise-good explanations.
+_LEVEL_PREFIX = re.compile(
+    r"^\s*(?:критичн\w*|висок\w*|середн\w*|низьк\w*|critical|high|medium|low)"
+    r"(?:\s+(?:рівень|ризик|severity|risk))?"
+    r"(?:\s+(?:для\s+більшості\s+читачів|for\s+most\s+readers))?"
+    r"\s*[,:—-]?\s*(?:бо|тому\s+що|через\s+те[,]?\s*що|because|since)\s+",
+    re.IGNORECASE,
+)
+
+# The reader-has-no-task clause in its trailing form. `_WEAK_SEVERITY_UA`
+# blanks a rationale that is ONLY this; here the clause is a tail on an
+# otherwise-real explanation ("…, а виправляти має оператор, не ви"), so we
+# amputate rather than discard.
+_TRAILING_NO_TASK = re.compile(
+    r"\s*[,;]\s*(?:а|і|та)\s+[^,;.]{0,60}?"
+    r"(?:виправ\w+\s+(?:має|повинен|мусить)|це\s+на\s+боці|ставить)\s+"
+    r"(?:оператор|вендор|провайдер|постачальник|розробник)\w*"
+    r"(?:\s*,\s*не\s+ви)?(?=[.\s]*$)",
+    re.IGNORECASE,
+)
+
+
+def normalize_severity_reason(text: str) -> str:
+    """Strip the level restatement the UI already prints, and any trailing
+    reader-has-no-task clause. Returns "" only for empty input."""
+    stripped = " ".join(text.split())
+    if not stripped:
+        return ""
+    stripped = _TRAILING_NO_TASK.sub("", stripped).strip()
+    match = _LEVEL_PREFIX.match(stripped)
+    if match is not None:
+        stripped = stripped[match.end():].strip()
+    if not stripped:
+        return ""
+    if not stripped.endswith((".", "!", "?")):
+        stripped += "."
+    return stripped[0].upper() + stripped[1:]
 
 
 def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
@@ -330,6 +413,12 @@ def clean_localized_content(
     cleaned["what_not_to_do"] = _clean_list(
         content.get("what_not_to_do"), language, is_null_action,
     )
+    # Same speech act as what_to_do — the heading promises a step. Nothing in
+    # the current cache trips this; it is here so the field cannot become the
+    # next place the padding lands.
+    cleaned["if_already_affected"] = _clean_list(
+        content.get("if_already_affected"), language, is_null_action,
+    )
     cleaned["quick_facts"] = _clean_list(
         content.get("quick_facts"), language, is_absence_fact,
     )
@@ -341,7 +430,25 @@ def clean_localized_content(
         # misleading one.
         cleaned["severity_reason"] = ""
     else:
-        cleaned["severity_reason"] = severity
+        cleaned["severity_reason"] = normalize_severity_reason(severity)
+
+    # --- Ukrainian calque repair -----------------------------------------
+    # The overwhelming majority of cached UA posts were written from an
+    # English source article, and the generation-time guard
+    # (uk_glossary.GLOSSARY) only ever policed russisms — nothing caught
+    # "непропатчені сервери" or "міжсітьовий екран". Runs LAST so it also
+    # reaches `severity_reason`, which the branch above rewrites from the
+    # original mapping. Substitution, not deletion: the table is restricted
+    # to swaps that keep gender and declension, so agreement cannot break.
+    if language == "ua":
+        for field in (
+            "title", "plain_summary", "short_summary", "why_it_matters",
+            "severity_reason", "detail_body",
+            "am_i_affected", "what_to_do", "what_not_to_do",
+            "if_already_affected", "quick_facts", "affected_users",
+        ):
+            if field in cleaned:
+                cleaned[field] = normalize_ukrainian_calque_fields(cleaned[field])
 
     return cleaned
 
@@ -352,4 +459,5 @@ __all__ = [
     "is_null_action",
     "is_null_check",
     "is_weak_severity_reason",
+    "normalize_severity_reason",
 ]

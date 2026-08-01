@@ -159,9 +159,16 @@ def test_render_message_structure_and_link() -> None:
     assert ">Read more</a>" in msg
 
 
-def test_render_message_prefers_plain_summary() -> None:
-    """The everyday-language `plain_summary` leads when present; the editorial
-    `short_summary` is the fallback for older cached posts without one."""
+def test_plain_summary_leads_then_the_specifics_follow() -> None:
+    """Plain language leads, and the technical line follows when it adds facts.
+
+    The message used to render `plain_summary` alone. But that field's
+    contract forbids CVE ids, vendor acronyms and attribution, so it names no
+    product and no number on the overwhelming majority of cached posts — a
+    subscriber read "хакери зламують сервери через популярну програмну
+    складову" while the cache already held the named library. Both lines ship
+    now: the everyday sentence first, the specifics second.
+    """
     item = _item("plain")
     payload = _payload(
         item, "en",
@@ -170,9 +177,25 @@ def test_render_message_prefers_plain_summary() -> None:
         plain="A booby-trapped text can take over your iPhone — update now.",
     )
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "A booby-trapped text can take over your iPhone — update now." in msg
-    # The jargon-y editorial summary is NOT shown when a plain lead exists.
-    assert "zero-click CoreText flaw" not in msg
+    plain_at = msg.index("A booby-trapped text can take over your iPhone")
+    detail_at = msg.index("CoreText")
+    assert plain_at < detail_at, "the everyday sentence must come first"
+    assert "CVE-2026-1" in msg
+
+
+def test_second_paragraph_is_dropped_when_it_adds_nothing() -> None:
+    """A `short_summary` that names no product, actor or number the plain lead
+    lacks is a restatement, and restating the lead in different words wastes
+    the reader's attention."""
+    item = _item("dup")
+    payload = _payload(
+        item, "en",
+        title="Router bug",
+        summary="Attackers can take over the device remotely.",
+        plain="Attackers can take over the device remotely.",
+    )
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert msg.count("take over the device remotely") == 1
 
 
 def test_render_message_escapes_html() -> None:
@@ -217,14 +240,32 @@ def test_render_message_missing_translation_raises() -> None:
         render_message(payload, locale="ua", base_url="https://cyberalertx.com")
 
 
-def test_render_message_omits_source_attribution() -> None:
-    # The original source is deliberately NOT appended to the footer — it would
-    # read as if the 'Read more' link points at the source rather than our site.
+def test_source_is_named_once() -> None:
+    """The outlet is named, because nothing else in the message names it.
+
+    This used to be omitted on the reasoning that the AI summary already
+    carried the outlet. That holds for `short_summary`, but the message leads
+    with `plain_summary`, whose contract forbids an attribution clause, and
+    the link preview is pinned to our own deep link — so an unattributed
+    claim was reaching subscribers.
+    """
     item = _item("s")
     payload = _payload(item, "en", source="Krebs on Security")
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "Krebs on Security" not in msg
-    assert "· " not in msg
+    assert "Source: Krebs on Security" in msg
+
+
+def test_source_is_not_repeated_when_the_body_already_names_it() -> None:
+    item = _item("s2")
+    payload = _payload(
+        item, "en",
+        source="Krebs on Security",
+        summary="Krebs on Security reports a wave of SIM-swap fraud at three carriers.",
+        plain="Scammers are moving phone numbers to their own SIMs to steal login codes.",
+    )
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert msg.count("Krebs on Security") == 1
+    assert "Source: Krebs on Security" not in msg
 
 
 # --------------------- pre-send quality gate ------------------------------
@@ -522,10 +563,36 @@ def test_notification_is_reserved_for_critical_and_urgent() -> None:
 
     item = _item("n")
     assert notify(_payload(item, "en", level="Critical")) is True
+    # `urgent_action` on its own is NOT enough. That flag is a keyword score
+    # over the English source article, and a single "in the wild" clears the
+    # threshold — it pushed a Medium post whose first action read "Звичайним
+    # абонентам робити нічого не треба". A push that opens with "nothing to
+    # do" is how a channel gets muted. The severity has to agree.
     assert notify(_payload(item, "en", level="Medium",
+                           actionability="urgent_action")) is False
+    assert notify(_payload(item, "en", level="High",
                            actionability="urgent_action")) is True
     assert notify(_payload(item, "en", level="High")) is False
     assert notify(_payload(item, "en", level="Low")) is False
+
+
+def test_urgent_hashtag_never_disagrees_with_the_push() -> None:
+    """`#urgent` and the notification are driven by one decision.
+
+    Previously the tag came straight off `actionability_level` while the push
+    came off a different expression, so a silent Medium post could still carry
+    a tag telling readers to drop everything.
+    """
+    from cyberalertx.publish.format import _hashtags, notify
+
+    item = _item("u")
+    medium = _payload(item, "en", level="Medium", actionability="urgent_action")
+    assert notify(medium) is False
+    assert "#urgent" not in _hashtags(medium)
+
+    high = _payload(item, "en", level="High", actionability="urgent_action")
+    assert notify(high) is True
+    assert "#urgent" in _hashtags(high)
 
 
 def test_message_leads_with_self_check_then_actions() -> None:
@@ -644,3 +711,67 @@ def test_send_pins_the_preview_to_our_own_page() -> None:
     )
     # Critical → the phone should buzz.
     assert captured["disable_notification"] is False
+
+
+def test_message_renders_what_not_to_do() -> None:
+    """Anti-patterns reach subscribers.
+
+    `what_not_to_do` was populated on every cached post and rendered on none
+    of them, so the channel never carried the single most protective sentence
+    a breach post has ("Don't click links in emails about this leak").
+    """
+    item = _item("avoid")
+    payload = _payload(item, "en", title="Payroll breach", summary="Records taken.")
+    payload["translations"]["en"]["what_not_to_do"] = [
+        "Don't click links in emails about this breach.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "What not to do" in msg
+    assert "Don't click links in emails about this breach." in msg
+
+
+def test_audience_replaces_the_check_heading_when_there_is_no_check() -> None:
+    """Three outcomes, never a fourth.
+
+    When `am_i_affected` is empty — which it is on the overwhelming majority
+    of cached posts — the message shows who the story is about instead of
+    printing a heading that promises a check and then withholds one.
+    """
+    item = _item("aud")
+    payload = _payload(item, "en", title="Router bug", summary="Patch shipped.")
+    payload["translations"]["en"]["am_i_affected"] = []
+    payload["translations"]["en"]["affected_users"] = [
+        "TP-Link Archer owners", "Home broadband users",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "Who this affects" in msg
+    assert "TP-Link Archer owners" in msg
+    assert "Check if this affects you" not in msg
+
+
+def test_no_audience_and_no_check_prints_neither_heading() -> None:
+    item = _item("none")
+    payload = _payload(item, "en", title="Router bug", summary="Patch shipped.")
+    payload["translations"]["en"]["am_i_affected"] = []
+    payload["translations"]["en"]["affected_users"] = []
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "Who this affects" not in msg
+    assert "Check if this affects you" not in msg
+
+
+def test_three_actions_are_rendered_not_two() -> None:
+    """The third action used to be cut from every message ever sent, while the
+    message used ~9% of Telegram's 4096-char budget. On the 4G/5G post that
+    discarded the only step an ordinary subscriber could take."""
+    item = _item("three")
+    payload = _payload(
+        item, "en", title="Carrier flaws", summary="Core network bugs.",
+        actions=[
+            "Ask your 4G/5G core vendor whether these apply.",
+            "Turn on Wi-Fi Calling as a fallback during outages.",
+            "Enable carrier account PIN protection.",
+        ],
+    )
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    for action in payload["translations"]["en"]["what_to_do"]:
+        assert action in msg

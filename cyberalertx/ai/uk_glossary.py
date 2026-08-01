@@ -96,6 +96,57 @@ RUSSISM_STEMS: tuple[str, ...] = (
 )
 
 
+# ===========================================================================
+# Calque / anglicism table — English syntax and vocabulary wearing Ukrainian
+# letters. Orthogonal to GLOSSARY above: that one catches Russian, this one
+# catches machine-translated English, which is the dominant failure mode
+# because the overwhelming majority of live UA posts are written from an
+# English source article.
+#
+# ONLY morphologically safe stem swaps live here: the replacement must share
+# gender and declension class with the source, so every inflected form stays
+# grammatical. Defects that need the sentence rebuilt (нанизування іменників,
+# «дозволяє + віддієслівний іменник», пасив, порядок слів) are prompt rules,
+# not substitutions — see `_SHARED_RULES_UK` in templates.py.
+# ===========================================================================
+
+CALQUE_GLOSSARY: Mapping[str, str] = {
+    # Non-words: Ukrainian forms no participle from "патч".
+    "непропатчен": "неоновлен",
+    "незапатчен":  "неоновлен",
+    "пропатчен":   "виправлен",
+    "запатчен":    "виправлен",
+    "патчен":      "виправлен",
+    # Half-translated Russian «межсетевой экран».
+    "міжсітьов":   "мережев",
+    # Both are in SUM-11; the product ships one. Does NOT touch
+    # "уражати/ураження" — different stem, different first three letters.
+    "уразлив":     "вразлив",
+    # «Угрупування» is the process noun (the act of grouping); a threat actor
+    # is «угруповання». The wrong form is currently the majority form.
+    "угрупуван":   "угрупован",
+    # Anglicism with a living equivalent; same gender, same declension.
+    "афіліат":     "партнер",
+}
+
+_CALQUE_STEMS: tuple[tuple[str, str], ...] = tuple(
+    sorted(CALQUE_GLOSSARY.items(), key=lambda kv: -len(kv[0]))
+)
+
+# Collocations a single-word swap cannot reach. Applied BEFORE the stem pass
+# and keyed on the ORIGINAL wording, so a legitimate «мережевий захист»
+# (network protection in general) is never turned into «мережевий екран»
+# (firewall).
+CALQUE_PHRASES: Mapping[str, str] = {
+    "маловисокопривілейований користувач AD":
+        "звичайний обліковий запис Active Directory",
+    "міжсітьовим бар'єром": "мережевим екраном",
+    "міжсітьових бар'єрів": "мережевих екранів",
+    "міжсітьовим захистом": "мережевим екраном",
+    "міжсітьових захистів": "мережевих екранів",
+}
+
+
 _WORD_RE = re.compile(
     r"\b([" + r"А-Яа-яЁёЇїІіЄєҐґ" + r"]+)\b",
     flags=re.UNICODE,
@@ -144,6 +195,46 @@ def normalize_ukrainian_fields(values: object) -> object:
     return values
 
 
+def _normalize_calque_word(word: str) -> str:
+    """Longest-match-first stem swap for one Cyrillic word.
+
+    Same contract as `_normalize_one`: the suffix is preserved so every
+    inflected form survives, and the first letter's case is carried over.
+    """
+    lower = word.lower()
+    for stem, replacement in _CALQUE_STEMS:
+        if lower.startswith(stem):
+            tail = word[len(stem):]
+            if word[0].isupper():
+                replacement = replacement[0].upper() + replacement[1:]
+            return replacement + tail
+    return word
+
+
+def normalize_ukrainian_calques(text: str) -> str:
+    """Sweep `text` through the phrase table, then the calque stem table.
+
+    Idempotent, and safe to call on text that has already been through
+    `normalize_ukrainian` — the two tables share no stems.
+    """
+    if not text or not isinstance(text, str):
+        return text
+    for source, target in CALQUE_PHRASES.items():
+        text = text.replace(source, target)
+    return _WORD_RE.sub(lambda m: _normalize_calque_word(m.group(1)), text)
+
+
+def normalize_ukrainian_calque_fields(values: object) -> object:
+    """Recursive variant — walks dicts/lists, normalizes every string."""
+    if isinstance(values, str):
+        return normalize_ukrainian_calques(values)
+    if isinstance(values, list):
+        return [normalize_ukrainian_calque_fields(v) for v in values]
+    if isinstance(values, dict):
+        return {k: normalize_ukrainian_calque_fields(v) for k, v in values.items()}
+    return values
+
+
 def has_russism(text: str) -> str | None:
     """Return the first russism stem found in `text`, or None.
 
@@ -160,9 +251,13 @@ def has_russism(text: str) -> str | None:
 
 
 __all__ = [
+    "CALQUE_GLOSSARY",
+    "CALQUE_PHRASES",
     "GLOSSARY",
     "RUSSISM_STEMS",
     "normalize_ukrainian",
+    "normalize_ukrainian_calque_fields",
+    "normalize_ukrainian_calques",
     "normalize_ukrainian_fields",
     "has_russism",
 ]
