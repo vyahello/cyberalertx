@@ -191,14 +191,36 @@ def _contains_any(text_lower: str, phrases: tuple[str, ...]) -> str | None:
 # Unicode code-point ranges we allow in Ukrainian output:
 #   * basic Latin (ASCII letters, digits, punctuation)
 #   * Latin-1 Supplement / Extended (for occasional brand names)
+#   * the apostrophe modifiers Ukrainian orthography actually uses
 #   * Cyrillic block and Ukrainian-specific letters
 #   * General punctuation, currency, math symbols (em-dash, em-arrow, ≥, …)
 # Anything outside these is treated as a foreign-script hallucination.
+#
+# U+02BC is not an edge case: it is the apostrophe Ukrainian orthography
+# prescribes, in words as ordinary as п'ять, об'єкт, комп'ютер, здоров'я. It
+# sits in Spacing Modifier Letters (U+02B0-U+02FF), which fell in the gap
+# between the Latin-Extended and Combining ranges below — so a correctly
+# spelled Ukrainian post was rejected as a "foreign-script hallucination",
+# fell back to rule_based, and then got dropped from the response entirely by
+# the half-translated guard in api/app.py. The post simply vanished from the
+# Ukrainian feed. Caught during a full re-render, where it killed a post
+# within the first six items.
+#
+# Allowed narrowly — the apostrophe-shaped modifiers only, not the whole
+# block, which is otherwise IPA and has no business in a news brief.
+_UA_APOSTROPHE_MODIFIERS = frozenset({
+    0x02B9,  # ʹ modifier letter prime
+    0x02BB,  # ʻ modifier letter turned comma
+    0x02BC,  # ʼ modifier letter apostrophe — the orthographic one
+})
+
+
 def _is_allowed_in_ua(ch: str) -> bool:
     cp = ord(ch)
     return (
         cp < 0x0080                          # ASCII
         or 0x00A0 <= cp <= 0x024F            # Latin-1 + Extended-A/B
+        or cp in _UA_APOSTROPHE_MODIFIERS    # ʼ in п'ять, об'єкт, комп'ютер
         or 0x0300 <= cp <= 0x036F            # Combining diacritics
         or 0x0400 <= cp <= 0x04FF            # Cyrillic
         or 0x2000 <= cp <= 0x206F            # General Punctuation

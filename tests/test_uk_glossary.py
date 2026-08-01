@@ -268,3 +268,46 @@ def test_clean_ua_plain_summary_passes() -> None:
     from cyberalertx.ai.validation import validate_journalist_response
 
     validate_journalist_response(_ua_response(), language="ua")
+
+
+# --------------------- the Ukrainian apostrophe ----------------------------
+
+def test_orthographic_apostrophe_is_not_a_foreign_script() -> None:
+    """U+02BC is the apostrophe Ukrainian orthography prescribes.
+
+    It sits in Spacing Modifier Letters, which fell in the gap between the
+    allowed Latin-Extended and Combining ranges — so a correctly spelled
+    post was rejected as a hallucination, fell back to rule_based, and was
+    then dropped from the response entirely by the half-translated guard.
+    The post vanished from the Ukrainian feed. Caught during a full
+    re-render, where it killed a post inside the first six items.
+    """
+    from cyberalertx.ai.validation import _first_foreign_script_char
+
+    for word in ("пʼять", "обʼєкт", "компʼютер", "здоровʼя"):
+        assert _first_foreign_script_char(word) is None, word
+    # The other apostrophe spellings the model actually emits.
+    assert _first_foreign_script_char("п'ять") is None      # ASCII
+    assert _first_foreign_script_char("п’ять") is None  # right single quote
+
+
+def test_real_foreign_scripts_are_still_rejected() -> None:
+    """Widening for the apostrophe must not open the gate to hallucinations."""
+    from cyberalertx.ai.validation import _first_foreign_script_char
+
+    assert _first_foreign_script_char("від假") == "假"   # CJK
+    assert _first_foreign_script_char("атакаم") == "م"  # Arabic
+    assert _first_foreign_script_char("тест한".encode("utf-16", "surrogatepass")
+                                      .decode("utf-16")) is not None  # Hangul
+
+
+def test_apostrophe_survives_the_full_validator() -> None:
+    from cyberalertx.ai.validation import validate_journalist_response
+
+    validate_journalist_response(
+        _ua_response(
+            plain_summary="Оновіть компʼютер — вада дає доступ до ваших обʼєктів.",
+            why_it_matters="Зловмисник дістає здоровʼя системи і пʼять ключів.",
+        ),
+        language="ua",
+    )
