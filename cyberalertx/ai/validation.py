@@ -299,17 +299,55 @@ def _letter_counts(text: str) -> tuple[int, int]:
     return cyrillic, latin
 
 
+_CYRILLIC_WORD_RE = re.compile(r"[Ѐ-ӿ]+")
+_LATIN_WORD_RE = re.compile(r"[A-Za-zÀ-ɏ]+")
+
+
+def _word_counts(text: str) -> tuple[int, int]:
+    """Return (cyrillic_words, latin_words) in `text`.
+
+    Words, not letters. Language identity lives in function words and
+    inflection, not in how many characters a brand name happens to have —
+    "SmartConsole" is twelve letters and one token, and counting its letters
+    let three product names outvote four Ukrainian ones:
+
+        "CISA підтвердила атаки на Check Point SmartConsole і Microsoft
+         SharePoint"
+
+    45 Latin letters against 19 Cyrillic — 29.7%, just under the floor — so
+    a correct Ukrainian headline was rejected as untranslated, fell back to
+    rule_based, and the post was dropped from the Ukrainian feed. By token
+    it is 4 Cyrillic against 6 Latin, which passes comfortably.
+    """
+    return (
+        len(_CYRILLIC_WORD_RE.findall(text or "")),
+        len(_LATIN_WORD_RE.findall(text or "")),
+    )
+
+
 def _wrong_script_for_language(text: str, language: str) -> bool:
     """True iff `text` is clearly in the wrong script for `language`.
 
-    Decides by Cyrillic-vs-Latin letter ratio. We tolerate short / acronym-
-    only strings (returns False — no signal). We tolerate brand-name-heavy
-    UA headlines (Cyrillic ≥ 30% of letters is enough). We reject a fully-
-    English title on a UA-target render — that's the bug we're patching.
+    Decides by Cyrillic-vs-Latin WORD ratio, after machine identifiers are
+    stripped. We tolerate short / acronym-only strings (returns False — no
+    signal). We tolerate brand-name-heavy UA headlines. We reject a fully-
+    English title on a UA-target render — that's the bug this exists for.
+
+    Counting words rather than letters is what makes the brand tolerance
+    real: a headline naming three products used to lose on letter count to
+    its own four Ukrainian words. See `_word_counts`.
+
+    The letter count is still the gate for very short strings, where one
+    token either way swings a word ratio wildly.
     """
-    cyrillic, latin = _letter_counts(_strip_identifiers(text))
+    stripped = _strip_identifiers(text)
+    letters = sum(_letter_counts(stripped))
+    if letters < _TARGET_LANGUAGE_MIN_LETTERS:
+        return False
+
+    cyrillic, latin = _word_counts(stripped)
     total = cyrillic + latin
-    if total < _TARGET_LANGUAGE_MIN_LETTERS:
+    if total == 0:
         return False
     if language == "ua":
         return (cyrillic / total) < _TARGET_LANGUAGE_MIN_RATIO

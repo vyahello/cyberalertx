@@ -311,3 +311,35 @@ def test_apostrophe_survives_the_full_validator() -> None:
         ),
         language="ua",
     )
+
+
+def test_brand_heavy_ukrainian_headline_is_not_untranslated() -> None:
+    """Counted by letters, three product names outvoted four Ukrainian words.
+
+    "CISA підтвердила атаки на Check Point SmartConsole і Microsoft
+    SharePoint" is 45 Latin letters against 19 Cyrillic — 29.7%, just under
+    the 30% floor. The headline was rejected as untranslated, fell back to
+    rule_based, and the post was dropped from the Ukrainian feed. By token
+    it is 4 Cyrillic against 6 Latin and passes comfortably.
+    """
+    from cyberalertx.ai.validation import _wrong_script_for_language
+
+    for title in (
+        "CISA підтвердила атаки на Check Point SmartConsole і Microsoft SharePoint",
+        "JetBrains попереджає про критичний обхід автентифікації з RCE у TeamCity On-Premises",
+        "Broadcom закрив три критичні вразливості VMware",
+    ):
+        assert _wrong_script_for_language(title, "ua") is False, title
+
+
+def test_an_english_headline_full_of_brands_is_still_rejected() -> None:
+    """Widening for brand names must not admit an untranslated headline that
+    merely happens to name products."""
+    from cyberalertx.ai.validation import _wrong_script_for_language
+
+    assert _wrong_script_for_language(
+        "Microsoft SharePoint zero-day exploited in the wild, patch now", "ua",
+    ) is True
+    assert _wrong_script_for_language(
+        "Attackers are exploiting this flaw against unpatched servers.", "ua",
+    ) is True
