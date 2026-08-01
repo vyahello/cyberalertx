@@ -183,3 +183,58 @@ def test_generator_clamps_emotional_weight_out_of_range() -> None:
     post = gen.generate(_item())
     assert 0.0 <= post.emotional_weight <= 1.0
     assert post.reading_time_seconds <= 120
+
+
+# ---------- cache invalidation (`generate --refresh`) ----------
+
+def test_delete_removes_a_cached_render(tmp_path: Path) -> None:
+    """`ThreatPostCache.delete` is what makes a prompt change reachable.
+
+    The cache key is `(fingerprint, locale)` and carries no prompt version,
+    so improving a field contract never rewrites a post that already
+    exists. `generate --refresh` drops the keys it is about to re-render;
+    this is the primitive it stands on.
+    """
+    cache = ThreatPostCache(tmp_path / "posts.json")
+    provider = MockProvider()
+    gen = ContentGenerator(provider=provider, cache=cache)
+
+    gen.generate(_item())
+    assert cache.get(_item().fingerprint, "en") is not None
+
+    assert cache.delete(_item().fingerprint, "en") is True
+    assert cache.get(_item().fingerprint, "en") is None
+
+    # Deleting again reports that nothing was removed, so a caller can
+    # count what it actually invalidated.
+    assert cache.delete(_item().fingerprint, "en") is False
+
+
+def test_delete_is_scoped_to_one_locale(tmp_path: Path) -> None:
+    """Refreshing the UA render must not discard the EN one."""
+    cache = ThreatPostCache(tmp_path / "posts.json")
+    gen = ContentGenerator(provider=MockProvider(), cache=cache)
+
+    gen.generate(_item(), language="en")
+    gen.generate(_item(), language="ua")
+
+    cache.delete(_item().fingerprint, "ua")
+
+    assert cache.get(_item().fingerprint, "ua") is None
+    assert cache.get(_item().fingerprint, "en") is not None
+
+
+def test_provider_runs_again_after_delete(tmp_path: Path) -> None:
+    """The point of the whole exercise: after invalidation the provider is
+    called a second time, so the post is rebuilt under the current prompt."""
+    cache = ThreatPostCache(tmp_path / "posts.json")
+    provider = MockProvider()
+    gen = ContentGenerator(provider=provider, cache=cache)
+
+    gen.generate(_item())
+    gen.generate(_item())
+    assert len(provider.calls) == 1  # second call served from cache
+
+    cache.delete(_item().fingerprint, "en")
+    gen.generate(_item())
+    assert len(provider.calls) == 2
