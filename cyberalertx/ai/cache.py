@@ -143,6 +143,27 @@ class ThreatPostCache:
         self._flush()
         self._mtime_seen = self._current_mtime()
 
+    def delete(self, fingerprint: str, locale: str) -> bool:
+        """Forget one render. Returns True if an entry was actually removed.
+
+        The cache key is `(fingerprint, locale)` and carries no prompt
+        version, so an improved prompt never invalidates anything on its
+        own — a post generated under an old contract keeps its old text for
+        as long as the item is retained. This is the supported way to make
+        a contract change reach the back catalogue: `generate --refresh`
+        drops the keys it is about to re-render.
+
+        Deliberately not a bulk `clear()`. Re-rendering is the expensive
+        operation in this system, so the caller is made to name what it is
+        paying to redo.
+        """
+        self._maybe_reload()
+        if self._store.pop(_key(fingerprint, locale), None) is None:
+            return False
+        self._flush()
+        self._mtime_seen = self._current_mtime()
+        return True
+
     def all(self) -> Iterable[ThreatPost]:
         for raw in self._store.values():
             try:

@@ -204,13 +204,20 @@ def cmd_generate(args: argparse.Namespace) -> int:
     cache_hits = 0
     items_to_render: list[NewsItem] = []  # ordered, deduped, capped at target_new
 
+    refresh = bool(getattr(args, "refresh", False))
+
     for item in in_window:
         required = _required_locales_for(item, args.language)
         item_missing: list[str] = []
         for locale in required:
-            if cache is not None and cache.get(item.fingerprint, locale) is not None:
+            cached = cache is not None and cache.get(item.fingerprint, locale) is not None
+            if cached and not refresh:
                 cache_hits += 1
                 continue
+            # `--refresh`: treat a cached pair as missing so an improved
+            # prompt actually re-runs. The cache key has no prompt version
+            # in it, so without this a contract change can never reach a
+            # post that already exists.
             item_missing.append(locale)
         if not item_missing:
             continue
@@ -246,6 +253,21 @@ def cmd_generate(args: argparse.Namespace) -> int:
     if not missing_pairs:
         print("[cyberalertx generate] nothing to do — every required key is cached.", file=sys.stderr)
         return 0
+
+    if refresh and cache is not None:
+        # Drop the keys we are about to re-render. Done AFTER --dry-run has
+        # already returned, so a dry run never mutates the cache, and done
+        # before the render loop so `generate()` inside `render()` sees a
+        # miss and actually calls the provider.
+        dropped = sum(
+            1 for item, locale in missing_pairs
+            if cache.delete(getattr(item, "fingerprint", ""), locale)
+        )
+        print(
+            f"[cyberalertx generate] --refresh: dropped {dropped} cached "
+            f"render(s); they will be regenerated under the current prompt.",
+            file=sys.stderr,
+        )
 
     # Drive only items that have at least one missing locale through
     # render(). render() iterates all required locales for the item, but
@@ -411,6 +433,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--dry-run", action="store_true",
         help="Report what would be rendered without calling any API. "
              "Use this before every real run to confirm the token budget.",
+    )
+    gen_p.add_argument(
+        "--refresh", action="store_true",
+        help="Re-render pairs that are ALREADY cached, discarding the old "
+             "text. The cache key carries no prompt version, so this is the "
+             "only way a prompt/contract improvement reaches posts that "
+             "already exist. Costs a full render per pair — pair it with "
+             "--limit and run --dry-run first.",
     )
 
     tg_p = sub.add_parser(

@@ -390,7 +390,13 @@ const EN: StringTable = {
   references_heading: "References",
   detail_analysis_heading: "Analysis",
   detail_am_i_affected: "Am I affected?",
-  detail_am_i_affected_hint: "Check these yourself — it takes under a minute.",
+  // Describes what the checks actually guarantee rather than promising a
+  // duration. The old copy ("it takes under a minute") sat above whatever
+  // the model had written, including entries that were not checks at all —
+  // so the page promised a test and then withheld one. The render-time
+  // hygiene pass now drops those, and this line states the contract the
+  // survivors meet: each one ends at an answer.
+  detail_am_i_affected_hint: "Run these yourself — each one ends in a yes or no.",
   detail_if_already_affected: "If you're already affected",
   detail_severity_reason: (level) => `Why this is rated ${level}`,
   story_sources_count: (n) =>
@@ -562,7 +568,7 @@ const UK: StringTable = {
   references_heading: "Посилання",
   detail_analysis_heading: "Аналіз",
   detail_am_i_affected: "Чи стосується це мене?",
-  detail_am_i_affected_hint: "Перевірте самі — це займе менше хвилини.",
+  detail_am_i_affected_hint: "Перевірте самі — кожен пункт дає відповідь «так» або «ні».",
   detail_if_already_affected: "Якщо вас це вже зачепило",
   detail_severity_reason: (level) => `Чому рівень «${level}»`,
   story_sources_count: (n) =>

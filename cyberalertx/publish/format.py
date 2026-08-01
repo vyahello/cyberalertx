@@ -135,6 +135,13 @@ def quality_problem(payload: dict[str, Any], *, locale: str) -> str | None:
 _COPY: dict[str, dict[str, str]] = {
     "en": {
         "read_more": "Read more",
+        # Named payoffs for the link. The message already carries the
+        # summary, the checks and the actions, so a bare "Read more" asks
+        # for a tap without saying what is on the other side. Each of these
+        # is only used when the post actually has that content.
+        "more_analysis": "Read more — full analysis and the facts",
+        "more_severity": "Read more — why it's rated this way",
+        "more_sources": "Read more — the reporting behind this",
         "check": "Check if this affects you",
         "do": "What to do",
         "reported_by": "Also reported by",
@@ -142,12 +149,35 @@ _COPY: dict[str, dict[str, str]] = {
     },
     "ua": {
         "read_more": "Читати більше",
+        "more_analysis": "Читати більше — розбір і деталі",
+        "more_severity": "Читати більше — чому саме такий рівень",
+        "more_sources": "Читати більше — на чому це ґрунтується",
         "check": "Перевірте, чи це вас стосується",
         "do": "Що робити",
         "reported_by": "Також повідомили",
         "already": "Якщо вас це вже зачепило",
     },
 }
+
+
+def _read_more_label(
+    payload: dict[str, Any], content: dict[str, Any], copy: dict[str, str],
+) -> str:
+    """Pick the link label that names what the detail page actually adds.
+
+    Ordered by how much the extra content is worth to a reader who has just
+    finished the message: the analysis is the biggest payoff, then the
+    severity rationale, then the corroborating reporting. Falls back to a
+    plain "Read more" when the post has none of them, so the label never
+    promises something the page does not have.
+    """
+    if str(content.get("detail_body") or "").strip():
+        return copy.get("more_analysis", copy["read_more"])
+    if str(content.get("severity_reason") or "").strip():
+        return copy.get("more_severity", copy["read_more"])
+    if payload.get("corroborating_sources"):
+        return copy.get("more_sources", copy["read_more"])
+    return copy["read_more"]
 
 # Hashtags make a post findable inside Telegram's own search and let readers
 # follow one theme across the channel. Only a small curated set — a wall of
@@ -308,7 +338,10 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
     # original source here — it sits right after a link that points at our
     # site, which reads as if the link goes to the source. The AI summary
     # already names the outlet ("BleepingComputer повідомляє…").
-    lines.append(f'🔗 <a href="{_esc(link)}">{_text(copy["read_more"])}</a>')
+    lines.append(
+        f'🔗 <a href="{_esc(link)}">'
+        f'{_text(_read_more_label(payload, content, copy))}</a>'
+    )
 
     tags = _hashtags(payload)
     if tags:

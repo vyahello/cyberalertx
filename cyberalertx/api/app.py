@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..ai.detail_context import detail_context_for
 from ..ai.generator import ContentGenerator, build_default_generator
+from ..ai.hygiene import clean_localized_content
 from ..ai.models import ThreatPost
 from ..config import DATA_DIR, SETTINGS
 from ..models import NewsItem
@@ -303,7 +304,7 @@ class _PostService:
                 continue
             if primary_post is None:
                 primary_post = post
-            translations[lang] = _localized_content_dict(post)
+            translations[lang] = _localized_content_dict(post, lang)
 
         if primary_post is None:
             # Every render failed — surface a clear error rather than
@@ -411,17 +412,26 @@ def _merge_story_sources(
     payload["story_source_count"] = len(merged) + 1
 
 
-def _localized_content_dict(post: ThreatPost) -> dict[str, Any]:
+def _localized_content_dict(post: ThreatPost, locale: str = "en") -> dict[str, Any]:
     """Project a ThreatPost down to its localized text fields only.
+
+    Runs the deterministic content-hygiene pass on the way out. This is the
+    one place every render funnels through — the website and the Telegram
+    publisher both consume `_PostService.render()` — so filtering here is
+    what lets a contract fix reach posts that were cached before the fix
+    existed. The AI cache is keyed by `(fingerprint, locale)` with no prompt
+    version, so nothing else would ever repair them.
 
     Overrides `reading_time_seconds` with a value computed from the actual
     card-tier content. AI / rule_based historically returned 60-120s — that
     estimated a full detail-page read, but the card only surfaces title +
     summary + quick_facts (~30-60 words = 10-20s). The displayed number
     was confusing the reader ("a 2-minute read? this is one paragraph").
+    Computed AFTER hygiene, so the estimate reflects the text that ships.
     """
     full = post.to_dict()
     base = {k: full[k] for k in _PostService._LOCALIZED_FIELDS}
+    base = clean_localized_content(base, locale)
     base["reading_time_seconds"] = _compute_card_reading_time(base)
     return base
 

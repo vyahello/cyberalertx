@@ -273,11 +273,38 @@ blogs, CERT bulletins explicitly named or linked in the source article.
 Verbatim only — DO NOT fabricate. Type: "cve" | "advisory" | "vendor" |
 "cert" | "news". Empty list if the source has no named references.
 
-threat_level — Low | Medium | High | Critical. Calibrate from metadata:
-    urgent_action + threat_score >= 50 OR mass exploitation → Critical
-    urgent_action OR threat_score >= 50                     → High
-    recommended_action OR threat_score >= 30                → Medium
-    informational, no immediate exposure                    → Low
+threat_level — Low | Medium | High | Critical.
+
+This rates the THREAT. It does NOT rate the reader's to-do list. Severity
+and actionability are independent axes: a breach that exposes a million
+people's medical records is High even when there is nothing whatsoever for
+a reader to do about it. The metadata's `actionability` field answers "can
+the reader act?" — never let it decide this field.
+
+Judge on three factors and take the highest band that clearly applies:
+  * REACH      — how many people, accounts or systems are exposed
+  * HARM       — what the attacker ends up with: money, credentials,
+                 health or identity records, remote control, physical or
+                 operational safety
+  * LIKELIHOOD — is it being exploited right now, is exploitation trivial,
+                 has a patch shipped
+
+    Critical — exploitation is happening now AND harm is severe, or the
+               reach is mass and unauthenticated
+    High     — severe harm OR mass reach, and exploitation is practical
+    Medium   — real harm but bounded reach, or exploitation needs
+               conditions the attacker does not always get
+    Low      — narrow reach and limited harm, or research with no victim
+
+Use the metadata `threat_score` and `actionability` as evidence toward
+LIKELIHOOD only. Two calibration anchors, both real mistakes to avoid:
+  A breach of 1.26 million medical billing records, no reader action
+  possible, actionability=informational                          → High
+  A proof-of-concept file-transfer prototype that runs only when the
+  user opens it on both phones themselves                        → Low
+NEVER assign Low merely because actionability is "informational". Most
+breaches, botnets and ransomware thefts are informational to a reader and
+are not Low.
 
 why_it_matters — 1-2 sentences. ≤40 WORDS HARD LIMIT. Operational tone.
 State the concrete cascade for THIS incident ("attackers pivot from
@@ -289,16 +316,33 @@ affected_users — 3-6 compact labels. ≤6 WORDS EACH. Concrete:
 "Chrome users on Windows", "M365 admins", "Android sideloaders".
 NEVER "anyone", "all users", "general public".
 
-am_i_affected — 2-3 checks the reader runs THEMSELVES to find out whether
+am_i_affected — 0-3 checks the reader runs THEMSELVES to find out whether
 this touches them. Each ≤16 words, imperative, and each must end at a
-checkable answer. Name the exact menu path, screen, file or version
-string. This is NOT a description of who is affected — that's
-affected_users. Empty list only when no self-check is possible.
+checkable answer. Name the exact menu path, screen, file, command or
+version string. This is NOT a description of who is affected — that's
+affected_users.
+
+RETURN AN EMPTY LIST when the reader has nothing to inspect. That is a
+correct, expected answer and it is what the render layer is built for —
+the block disappears. NEVER fill the list with the news that no check
+exists. Every one of these is banned:
+  "This news is about an attack method. There is no check for your device."
+  "You are an ordinary subscriber: there is nothing you can do."
+  "This is handled on the operator's side."
+They sit under a heading that promises a check and then withhold one,
+which reads as a broken promise rather than as an answer.
+
+An exclusion IS a valid check when it names something concrete the reader
+can recall or look at — that is the difference:
   GOOD: "Open Chrome menu > Help > About Google Chrome. Below 126.0.6478
          means you are affected."
   GOOD: "Run 'uname -r'. Kernel 6.1 through 6.7 is affected."
+  GOOD: "If you have never run yay or paru, this does not affect you."
+         (names the exact commands, so the reader reaches a verdict)
   BAD : "Users of affected Chrome versions should verify their version."
         (describes, doesn't instruct, and names no version)
+  BAD : "There is no technical check for your device."
+        (names nothing — return an empty list instead)
 
 if_already_affected — 0-3 recovery steps for someone who ALREADY clicked
 the link, installed the package, or ran the file. Each ≤16 words, ordered
@@ -309,12 +353,29 @@ most urgent first. Empty list when the threat has no "too late" path
   GOOD: "Rotate any API token that was on the machine after 12 May."
 
 severity_reason — ONE sentence, ≤25 words, plain language, explaining why
-this rates the threat_level you assigned. Name the factor that decided
-it: how easy it is to exploit, whether attackers are already using it,
-and how many people it reaches. No jargon.
+this rates the threat_level you assigned. Name the factor that decided it,
+drawn from the same three the rating uses: REACH, HARM, LIKELIHOOD. No
+jargon.
+
+Three things this sentence must never do:
+  * Justify the rating by what the SOURCE did not report. Our sourcing is
+    not a property of the threat. "…and the source gives no detail about
+    the victims" explains nothing to a reader.
+  * Justify the rating by the reader having no task. Severity is not
+    actionability — see the threat_level contract. "Medium because an
+    ordinary user needs to take no direct action" is banned outright.
+  * Restate the label. "Critical due to the severity of the flaw" is a
+    circle.
+Leave the field EMPTY rather than write one of those.
+
   GOOD: "Critical because attackers are already using it, no password is
          needed, and every unpatched server is reachable from the internet."
+  GOOD: "High because 1.26 million people's medical billing records are
+         already in the attackers' hands."
   BAD : "Critical due to the severity of the vulnerability." (circular)
+  BAD : "Medium because an ordinary user needs no direct action, and the
+         source does not name the victims." (rates our sourcing and the
+         reader's to-do list, not the threat)
 
 what_to_do — EXACTLY 3 bullets. Each ≤18 WORDS. ONE clause per bullet —
 no semicolons, no em-dash joins, no parentheticals, no "and/or", no
@@ -334,9 +395,20 @@ A short imperative sentence that names nothing concrete still fails.
   BAD : "Consider implementing network segmentation and reviewing
          firewall rules around port 1217 if exposure exists."
 
-At least one bullet must be doable by Reader 1 — a non-technical person.
-When the threat only affects servers, that bullet says so plainly
-("Nothing to do if you don't run your own web server.").
+NO NULL BULLETS. Never spend a bullet telling the reader there is nothing
+to do. "Nothing to do if you don't run your own web server", "No action
+needed for ordinary subscribers", "This is handled on the operator's side"
+are all banned: they occupy a numbered slot, they answer nothing, and the
+feed shows only the first two bullets, so a null one buries a real step.
+
+When a threat genuinely gives an ordinary reader no task, do NOT pad. Give
+fewer bullets — two real actions beat three with a filler. If there is not
+one action any reader could take, return the actions that the people who
+CAN act should take, and let `affected_users` carry the scope. A list of
+one true action is a correct answer.
+
+Prefer at least one bullet a non-technical person can do, when such an
+action honestly exists. Do not manufacture one.
 When affected_platforms is set, at least one action names that platform.
 Bans: "stay vigilant", "be cautious", "maintain good cyber hygiene",
 "educate users", "review your security posture", "implement defense
@@ -346,10 +418,21 @@ what_not_to_do — 0-2 anti-patterns. Each ≤15 WORDS. Begin with "Don't"
 or "Do not". Skip the field entirely (empty list) if there's no specific
 anti-pattern worth naming — better than padding.
 
-quick_facts — 3-5 bullets MAX. Each bullet ≤12 WORDS. Concrete only:
+quick_facts — 2-5 bullets MAX. Each bullet ≤12 WORDS. Concrete only:
 named CVE, affected version, exploitation status, patch status, scope.
 NO generic explanations. NO sentences. NO "this is dangerous because".
 Noun phrases or terse statements only.
+
+A FACT IS SOMETHING THAT IS TRUE, NOT SOMETHING THAT IS UNKNOWN. Do not
+list what the article failed to report. Banned: "IOCs not published",
+"Threat actor not named", "Technical details not disclosed", "Scope of
+the leak not specified". Two or three real facts beat five padded with
+absences.
+
+ONE EXCEPTION, because it changes what a defender does: the absence of
+exploitation, of a public exploit, or of a patch. "No public PoC observed",
+"Patch not yet released", "No mass scanning seen" and "Data not leaked yet,
+only threatened" all move a decision and are welcome.
 
 emotional_weight — 0..1. Routine FYI ~0.2. Critical zero-day ~0.95.
 reading_time_seconds — 15-45 estimating mobile read time.
@@ -590,6 +673,21 @@ title — 6-14 слів. Описово, без сенсаційності. Бе
 або з ураженого продукту, а не з класу вразливості. Не додавайте фактів,
 яких немає у джерелі.
 
+Заголовок має називати ДІЙОВУ ОСОБУ або УРАЖЕНИЙ ПРОДУКТ і НАСЛІДОК.
+  ДЖЕРЕЛО: "18-Year-Old NGINX Rewrite Module Flaw Enables Unauthenticated RCE"
+  ПОГАНО : «Вразливість модуля rewrite у NGINX дозволяє неавтентифіковане RCE»
+           (переклад заголовка джерела слово в слово, ще й жаргоном)
+  ДОБРЕ  : «Сервери NGINX можна захопити одним підробленим запитом»
+
+Пишіть УКРАЇНСЬКИМ ладом, а не англійським. Українська воліє дієслово там,
+де англійська ставить віддієслівний іменник, і не нанизує іменники в
+ланцюг.
+  ПОГАНО : «Один хакер атакував сотні компаній командами до ШІ через Telegram»
+           («командами до ШІ» — калька, так не кажуть)
+  ДОБРЕ  : «Хакер керував атаками на сотні компаній через Telegram-бота з ШІ»
+  ПОГАНО : «Виявлення шкідливої активності через аналіз журналів входів»
+  ДОБРЕ  : «Журнали входів показують, що зловмисник був у мережі три тижні»
+
 short_summary — РЯДОК СТРІЧКИ. 1-2 речення МАКСИМУМ. 120-220 символів.
 Починайте з атрибуції + суть загрози одним подихом. НЕ повторюйте
 заголовок.
@@ -632,7 +730,40 @@ references — список `{type, label, url}` для CVE, рекоменда�
 дослівно — НЕ вигадуйте. Type: "cve" | "advisory" | "vendor" | "cert"
 | "news". Порожній список, якщо немає іменованих посилань.
 
-threat_level — Low | Medium | High | Critical. Калібровка з метаданих.
+threat_level — Low | Medium | High | Critical.
+
+Це оцінка ЗАГРОЗИ, а не списку справ для читача. Рівень загрози й
+можливість дії — дві незалежні осі: витік мільйона медичних записів має
+рівень High навіть тоді, коли читач не може вдіяти нічого. Поле
+`actionability` у метаданих відповідає на питання «чи може читач діяти?» —
+воно НІКОЛИ не визначає цей рівень.
+
+Оцінюйте за трьома чинниками і беріть найвищий, який справді підходить:
+  * ОХОПЛЕННЯ — скільки людей, облікових записів чи систем зачеплено
+  * ШКОДА     — що саме дістає зловмисник: гроші, паролі, медичні або
+                особові дані, віддалене керування, фізичну безпеку
+  * ЙМОВІРНІСТЬ — чи атакують просто зараз, чи легко це повторити, чи
+                вже є виправлення
+
+    Critical — атаки тривають зараз І шкода важка, або охоплення масове
+               й без потреби входити
+    High     — важка шкода АБО масове охоплення, і атака практично
+               здійсненна
+    Medium   — реальна шкода, але обмежене охоплення, або атака потребує
+               умов, які є не завжди
+    Low      — вузьке охоплення й обмежена шкода, або дослідження без
+               постраждалих
+
+`threat_score` та `actionability` з метаданих враховуйте лише як свідчення
+про ЙМОВІРНІСТЬ. Дві опорні точки, обидві — реальні помилки, яких слід
+уникати:
+  Витік 1,26 млн записів медичного білінгу, читач вдіяти нічого не може,
+  actionability=informational                                    → High
+  Дослідницький прототип передавання файлів, що працює лише коли
+  користувач сам відкриє його на обох телефонах                  → Low
+НІКОЛИ не ставте Low лише тому, що actionability = «informational».
+Більшість витоків, ботнетів і ransomware-крадіжок для читача саме
+інформаційні — і Low вони не є.
 
 why_it_matters — 1-2 речення. ≤40 СЛІВ ЖОРСТКИЙ ЛІМІТ. Операційний
 тон. Конкретний ланцюг наслідків саме для ЦЬОГО інциденту («зловмисник
@@ -644,14 +775,31 @@ affected_users — 3-6 компактних міток. ≤6 СЛІВ КОЖНА
 «Користувачі Chrome у Windows», «Адміни Microsoft 365», «Android-
 користувачі з APK». НІКОЛИ «усі», «загальна аудиторія».
 
-am_i_affected — 2-3 перевірки, які читач виконує САМ, щоб дізнатися, чи
+am_i_affected — 0-3 перевірки, які читач виконує САМ, щоб дізнатися, чи
 його це стосується. Кожна ≤16 слів, наказовий спосіб, кожна завершується
-перевірюваною відповіддю. Назвіть точний шлях у меню, екран, файл або
-версію. Це НЕ опис того, кого стосується — для цього є affected_users.
+перевірюваною відповіддю. Назвіть точний шлях у меню, екран, файл, команду
+або версію. Це НЕ опис того, кого стосується — для цього є affected_users.
+
+ПОВЕРТАЙТЕ ПОРОЖНІЙ СПИСОК, якщо читачеві нема чого перевіряти. Це
+правильна, очікувана відповідь: шар рендерингу просто прибере цей блок.
+НІКОЛИ не заповнюйте список повідомленням, що перевірки не існує. Усе це
+заборонено:
+  «Ця новина про метод атаки. Технічної перевірки для вашого пристрою немає.»
+  «Ви звичайний абонент: діяти нічого не можете, це на боці оператора.»
+  «Виправлення ставить оператор.»
+Вони стоять під заголовком, який обіцяє перевірку, і не дають її — це
+читається як порушена обіцянка, а не як відповідь.
+
+Виняток — це теж перевірка, якщо він називає щось конкретне, що читач може
+пригадати або побачити. Саме в цьому різниця:
   ДОБРЕ: «Відкрийте меню Chrome > Довідка > Про Google Chrome. Нижче
           126.0.6478 — вас це стосується.»
   ДОБРЕ: «Виконайте 'uname -r'. Ядра 6.1-6.7 уражені.»
+  ДОБРЕ: «Якщо ви ніколи не запускали yay чи paru, вас це не стосується.»
+          (названо конкретні команди, тож читач доходить висновку)
   ПОГАНО: «Користувачам уражених версій варто перевірити свою версію.»
+  ПОГАНО: «Технічної перевірки для вашого пристрою немає.»
+          (нічого не названо — краще поверніть порожній список)
 
 if_already_affected — 0-3 кроки відновлення для того, хто ВЖЕ перейшов за
 посиланням, встановив пакет або запустив файл. Кожен ≤16 слів,
@@ -659,11 +807,28 @@ if_already_affected — 0-3 кроки відновлення для того, �
   ДОБРЕ: «Змініть пароль з іншого пристрою і завершіть усі сесії.»
 
 severity_reason — ОДНЕ речення, ≤25 слів, простими словами: чому саме
-такий рівень загрози. Назвіть вирішальний чинник — легкість експлуатації,
-чи вже атакують, скільки людей зачіпає. Без жаргону.
+такий рівень загрози. Назвіть вирішальний чинник із тих самих трьох, за
+якими ви ставили рівень: ОХОПЛЕННЯ, ШКОДА, ЙМОВІРНІСТЬ. Без жаргону.
+
+Три речі, яких це речення не робить ніколи:
+  * Не пояснює рівень тим, чого НЕ написало джерело. Наше джерело — не
+    властивість загрози. «…а деталей про жертв джерело не наводить»
+    читачеві не пояснює нічого.
+  * Не пояснює рівень тим, що читачеві нема чого робити. Рівень загрози —
+    це не можливість дії (див. контракт threat_level). «Середній, бо
+    звичайному користувачеві прямої дії не потрібно» — заборонено.
+  * Не переказує сам ярлик. «Критично через серйозність вразливості» —
+    замкнене коло.
+Краще лишіть поле ПОРОЖНІМ, ніж напишіть щось із цього.
+
   ДОБРЕ: «Критично, бо атаки вже тривають, пароль не потрібен, а кожен
           неоновлений сервер доступний з інтернету.»
+  ДОБРЕ: «Високий рівень, бо медичні платіжні дані 1,26 млн людей уже в
+          руках зловмисників.»
   ПОГАНО: «Критично через серйозність вразливості.» (замкнене коло)
+  ПОГАНО: «Середній рівень, бо звичайному користувачеві прямої дії не
+          потрібно, а деталей джерело не наводить.» (оцінює наше джерело
+          і список справ читача, а не загрозу)
 
 what_to_do — РІВНО 3 пункти. Кожен ≤18 СЛІВ. ОДНА клауза на пункт — без
 крапок з комою, без тире-зʼєднань, без дужок, без «і/або». Дієслово
@@ -679,9 +844,20 @@ what_to_do — РІВНО 3 пункти. Кожен ≤18 СЛІВ. ОДНА к
   ДОБРЕ: «Встановіть ядро 6.7.9 або новіше і перезавантажте.»
   ДОБРЕ: «Заблокуйте порт 1217 на периметрі вхідного firewall.»
 
-Хоча б один пункт має бути здійсненним для Читача 1 — нетехнічної людини.
-Якщо загроза стосується лише серверів, так і напишіть простими словами
-(«Нічого робити не треба, якщо ви не адмініструєте власний сервер.»).
+ЖОДНИХ ПОРОЖНІХ ПУНКТІВ. Ніколи не витрачайте пункт на повідомлення, що
+робити нічого не треба. «Нічого робити не треба, якщо ви не адмініструєте
+власний сервер», «Звичайним абонентам робити нічого не треба», «Це на боці
+оператора» — заборонені. Вони займають місце, не відповідають ні на що, а
+у стрічці видно лише перші два пункти, тож порожній витісняє справжній.
+
+Якщо загроза справді не дає звичайному читачеві жодного завдання — не
+доливайте воду. Дайте менше пунктів: дві справжні дії кращі за три з
+наповнювачем. Якщо немає дії, доступної будь-якому читачеві, напишіть дії
+для тих, хто МОЖЕ їх виконати, а межі аудиторії нехай несе affected_users.
+Список з однієї справжньої дії — це правильна відповідь.
+
+Якщо дія, здійсненна для Читача 1 (нетехнічної людини), справді існує —
+поставте її. Не вигадуйте її штучно.
 Якщо є affected_platforms — хоча б одна дія має згадати цю платформу.
 Заборонено: «будьте пильними», «дотримуйтеся кібергігієни», «навчайте
 користувачів», «дотримуйтеся рекомендацій вендора», «оперативно
@@ -691,10 +867,20 @@ what_not_to_do — 0-2 анти-патерни. Кожен ≤15 СЛІВ. По�
 Пропустіть поле (порожній список), якщо немає конкретного анти-патерну —
 краще ніж наповнювач.
 
-quick_facts — 3-5 тез МАКСИМУМ. Кожна теза ≤12 СЛІВ. Лише конкретика:
+quick_facts — 2-5 тез МАКСИМУМ. Кожна теза ≤12 СЛІВ. Лише конкретика:
 названий CVE, версія, статус експлуатації, статус патчу, масштаб.
 БЕЗ загальних пояснень. БЕЗ речень. БЕЗ «це небезпечно тому що».
 Лише іменникові словосполучення або стислі констатації.
+
+ФАКТ — ЦЕ ТЕ, ЩО Є, А НЕ ТЕ, ЧОГО НЕ ВІДОМО. Не перелічуйте, чого не
+написали у статті. Заборонено: «IOC не оприлюднені», «Угрупування не
+назване», «Технічних деталей не розкрито», «Обсяг витоку не уточнено».
+Дві-три справжні тези кращі за п'ять, розбавлених порожнечею.
+
+ОДИН ВИНЯТОК, бо він змінює рішення захисника: відсутність атак,
+публічного експлойта або патча. «Публічного PoC не помічено», «Патча ще
+немає», «Масового сканування не видно», «Дані ще не оприлюднені, лише
+погроза» — доречні.
 
 emotional_weight — 0..1. Звичайне FYI ~0.2. Critical zero-day ~0.95.
 reading_time_seconds — 15-45 (читання з мобільного).

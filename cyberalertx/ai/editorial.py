@@ -41,6 +41,12 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
+from .hygiene import (
+    is_absence_fact,
+    is_null_action,
+    is_null_check,
+    is_weak_severity_reason,
+)
 from .models import ThreatPostResponse
 
 
@@ -357,6 +363,31 @@ def refine_response(response: ThreatPostResponse, language: str) -> None:
     )
     response.what_to_do = strip_generic_actions(response.what_to_do, language)
     response.what_not_to_do = strip_generic_actions(response.what_not_to_do, language)
+
+    # Content hygiene, shared with the render layer so there is exactly one
+    # definition of "this bullet says nothing". Applying it here as well
+    # means a freshly-generated post is clean the moment it enters the
+    # cache, instead of relying on every consumer to filter on the way out.
+    #
+    # If this empties `what_to_do`, the validator that runs next rejects the
+    # response and we fall back to rule_based. That is the intended outcome:
+    # a response whose every action was "nothing to do" had no actions.
+    response.what_to_do = [
+        a for a in response.what_to_do if not is_null_action(a, language)
+    ]
+    response.what_not_to_do = [
+        a for a in response.what_not_to_do if not is_null_action(a, language)
+    ]
+    response.am_i_affected = [
+        c for c in response.am_i_affected if not is_null_check(c, language)
+    ]
+    response.quick_facts = [
+        f for f in response.quick_facts if not is_absence_fact(f, language)
+    ]
+    if response.severity_reason and is_weak_severity_reason(
+        response.severity_reason, language,
+    ):
+        response.severity_reason = ""
 
     # Drop paragraphs that restate stuff the reader already sees on the card.
     response.detail_body = dedupe_detail_paragraphs(
