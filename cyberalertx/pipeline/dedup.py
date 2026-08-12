@@ -147,8 +147,39 @@ _MIN_DISTINCTIVE_FOR_TEXT = 3
 #: hash to the same value and merge with all the others.
 _MIN_BODY_FOR_IDENTITY = 120
 
+#: RULE D — smallest integer that can act as a story-identifying quantity.
+#: Below this a shared number is overwhelmingly coincidence: counts of
+#: zero-days, ages, quarters, percentages.
+_RARE_QUANTITY_MIN = 100
+#: Bare four-digit numbers in this range are dates, not counts.
+_QUANTITY_YEAR_LO = 1990
+_QUANTITY_YEAR_HI = 2035
+#: RULE D — how far past a number we look for the noun it counts.
+_QUANTITY_UNIT_WINDOW = 40
+#: RULE D — shared subject words required alongside the shared quantity.
+#: A count of fixed vulnerabilities is a per-release fingerprint — vendors
+#: ship a different number every month — so "398 flaws" plus one shared
+#: subject word is decisive. A count of victims, people or organizations is
+#: an incidental attribute that two unrelated incidents can share, so it has
+#: to bring more of the headline with it.
+_MIN_SUBJECT_FOR_ROLLUP = 1
+_MIN_SUBJECT_FOR_QUANTITY = 2
+#: RULE D — a headline listing this many entities covers several stories.
+_MIN_ENTITIES_FOR_ENUMERATION = 3
+
 _CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 _TOKEN_RE = re.compile(r"[^\W_]+(?:[-.][^\W_]+)*", flags=re.UNICODE)
+
+# RULE D — a bare integer, optionally with thousands separators. The
+# lookarounds are the whole point: they refuse any digit run glued to a word
+# character or to `. , / : -`, which discards CVSS scores (9.8), product
+# versions (3.1), ISO dates (2026-08-11), IP addresses, host:port pairs and
+# the numeric halves of identifiers like "UNC6671" or "v7".
+_QUANTITY_RE = re.compile(r"(?<![\w.,/:-])(\d{1,3}(?:,\d{3})+|\d+)(?![\w.,/:%-])")
+_QUANTITY_WORD_CHARS = "_-'\u2019"
+#: Digits either side of a comma, so a thousands separator in "100,000" is
+#: not mistaken for a list separator when reading a headline.
+_NUMERIC_COMMA_RE = re.compile(r"(?<=\d),(?=\d)")
 
 # Ordinary English/Ukrainian function words. Same list the ranker and the
 # credibility analyzer use, kept local so this module has no cross-stage
@@ -202,7 +233,33 @@ _GENERIC_SECURITY_TERMS: frozenset[str] = frozenset({
     "server", "servers", "device", "devices", "account", "accounts",
     "data", "access", "malicious", "attacks", "campaign", "campaigns",
     "researcher", "researchers", "vendor", "vendors", "company",
-    "companies", "firm", "firms", "team", "teams",
+    "companies", "firm", "firms", "team", "teams", "organization",
+    "organizations", "organisation", "organisations", "org", "orgs",
+    # Malware and attack-category nouns. The list had none of these, and
+    # "malware" is the single most frequent distinctive token in the live
+    # store — 15 of 200 headlines, ahead of "microsoft". A category name
+    # says what KIND of story this is, never WHICH story.
+    "malware", "ransomware", "backdoor", "backdoors", "trojan", "trojans",
+    "worm", "worms", "spyware", "stealer", "stealers", "infostealer",
+    "infostealers", "loader", "loaders", "dropper", "droppers", "rat",
+    "rats", "botnet", "botnets", "rootkit", "keylogger", "wiper",
+    "phishing", "phish", "phishes", "scam", "scams", "spam",
+    # Delivery and action verbs, on the same argument: every campaign
+    # delivers, installs, steals or spreads something. "deliver" is the
+    # sixth most frequent distinctive token in the store (8 of 200), ahead
+    # of "google".
+    "deliver", "delivers", "delivered", "delivering", "delivery",
+    "steal", "steals", "stealing", "stolen", "theft",
+    "install", "installs", "installed", "deploy", "deploys", "deployed",
+    "infect", "infects", "infected", "spread", "spreads",
+    "push", "pushes", "pushed", "drop", "drops", "dropped",
+    "hijack", "hijacks", "hijacked", "compromise", "compromises",
+    "compromised", "leak", "leaks", "leaked",
+    # Supply-chain vocabulary. Four separate npm stories ran in one week of
+    # the live store; "package" and "cross-platform" are what made two of
+    # them look like one.
+    "package", "packages", "supply-chain", "cross-platform",
+    "dependency", "dependencies",
     # Ukrainian equivalents
     "критичн", "критична", "критичний", "вразливість", "вразливості",
     "вразливо", "експлойт", "експлуатація", "атака", "атаки", "атакують",
@@ -235,6 +292,85 @@ def _norm_token(tok: str) -> str:
     if len(t) > 4 and t.endswith("s") and not t.endswith(("ss", "us", "is", "os")):
         return t[:-1]
     return t
+
+
+# `_norm_token` folds a trailing plural, so the comparison sets hold
+# "patche" and "vulnerabilitie" rather than "patches" and "vulnerabilities".
+# Listing only the surface forms above therefore leaked both straight back in
+# as distinctive tokens AND as named entities — 4 headlines each in the live
+# store. Fold the vocabulary the same way it will be looked up.
+_GENERIC_SECURITY_TERMS = frozenset(
+    _GENERIC_SECURITY_TERMS | {_norm_token(_t) for _t in _GENERIC_SECURITY_TERMS}
+)
+
+
+# --------------------------------------------------------------------------
+# RULE D vocabularies. These describe the words AROUND a number, which are
+# what decide whether it states a fact about an event or spells part of a
+# product's name.
+# --------------------------------------------------------------------------
+
+# Words that may introduce a counted quantity even though the number after
+# them is followed by capitals. Headlines are title-cased, so without this
+# "Microsoft Plugs Nearly 400 Security Holes" reads as a product name.
+_QUANTIFIER_CUES: frozenset[str] = frozenset({
+    "nearly", "least", "more", "than", "over", "about", "roughly", "around",
+    "almost", "approximately", "up", "some", "just", "only", "total", "all",
+    "another", "additional", "affecting", "exceeding", "exceeds", "plus",
+    "under", "upwards", "fixes", "fixed", "fixing", "patches", "patched",
+    "plugs", "addresses", "closes", "remedy", "remedies", "resolves",
+    "discloses", "disclosed", "reports", "reported", "exposed", "exposes",
+    "affects", "hit", "hits", "leaked", "leaks", "stole", "stolen",
+    # Ukrainian
+    "до", "понад", "близько", "майже", "приблизно",
+    "щонайменше", "більше", "всього", "загалом", "швидкістю",
+})
+
+# Words that mark the number after them as an identifier — a port, a
+# standard, a model. "port 8999" and "IEC 61850" are as generic as the word
+# "firmware" and must never anchor a merge.
+_IDENTIFIER_CUES: frozenset[str] = frozenset({
+    "port", "ports", "cvss", "version", "versions", "build", "builds", "rev",
+    "revision", "rfc", "iso", "iec", "ieee", "ansi", "nist", "model",
+    "models", "series", "sha", "md5", "sha1", "sha256", "asn", "bug",
+    "issue", "ticket", "case", "chapter", "section", "article", "figure",
+    "table", "page", "suite", "no", "sma", "windows", "office", "sp",
+    # Ukrainian
+    "порт", "версія", "версії", "версію",
+})
+
+# Words sitting between a number and the noun it counts. Skipped when
+# reading the unit so that "398 security vulnerabilities" and "398 flaws"
+# agree, and so that "100 million people" counts people, not millions.
+_UNIT_SKIP: frozenset[str] = frozenset({
+    "million", "millions", "billion", "billions", "thousand", "thousands",
+    "hundred", "hundreds", "total", "separate", "distinct", "unique",
+    "known", "different", "additional", "other", "more", "new", "its",
+    "their", "such", "security", "malicious", "critical", "affected",
+    "vulnerable", "confirmed", "reported", "individual", "further",
+    "тис", "млн", "млрд", "більше",
+})
+
+# Unit nouns folded onto one representative, so two newsrooms counting the
+# same things in different words still agree. Krebs's "398 security
+# vulnerabilities" and The Hacker News's "398 Flaws" both count `vuln`;
+# "50,000 residents" and "50,000 people" both count `people`.
+_UNIT_SYNONYMS: dict[str, str] = {
+    "flaw": "vuln", "vulnerability": "vuln", "vulnerabilitie": "vuln",
+    "hole": "vuln", "bug": "vuln", "weakness": "vuln", "defect": "vuln",
+    "cve": "vuln", "issue": "vuln", "patch": "vuln", "patche": "vuln",
+    "fix": "vuln", "вразливостей": "vuln",
+    "organization": "org", "organisation": "org", "compan": "org",
+    "company": "org", "companie": "org", "firm": "org", "busines": "org",
+    "victim": "org", "entitie": "org", "entity": "org",
+    "person": "people", "people": "people", "resident": "people",
+    "citizen": "people", "customer": "people", "member": "people",
+    "employee": "people", "officer": "people", "patient": "people",
+    "мешканців": "people", "людей": "people",
+}
+
+#: Units whose count identifies a release rather than describing an event.
+_ROLLUP_UNITS: frozenset[str] = frozenset({"vuln"})
 
 
 def extract_cves(text: str) -> frozenset[str]:
@@ -281,6 +417,14 @@ def _entities(title: str) -> set[str]:
             continue
         if norm in _ENTITY_BLOCKLIST:
             continue
+        if raw.isdigit():
+            # A bare number names nothing. The digit clause below is there
+            # for "log4j", "wp2shell" and version strings; on its own a
+            # number was letting RULE C treat a shared count as a shared
+            # product. "Microsoft says 500 organizations breached in
+            # Exchange attacks" and "Microsoft warns 500 organizations hit
+            # by Teams phishing" share the entity "500" and nothing else.
+            continue
         looks_like_entity = (
             raw[0].isupper()
             or any(ch.isdigit() for ch in raw)
@@ -316,6 +460,157 @@ def _jaccard(a: set[str] | frozenset[str], b: set[str] | frozenset[str]) -> floa
     return len(a & b) / len(a | b)
 
 
+# Headlines that describe a bureaucratic action rather than the story.
+# CISA's KEV catalog posts are the live example: "CISA Adds One Known
+# Exploited Vulnerability to Catalog" is authoritative but tells a reader
+# nothing about what was actually found. When such an item clusters with
+# real reporting ("Cisco warns of FMC static credential flaw exploited in
+# zero-day attacks"), the reporting headline must win — otherwise raw source
+# credibility hands the feed its least informative title.
+#
+# RULE D reuses the list for a second job: a roundup quotes the counts that
+# belong to every story it lists, so it must never match on a number.
+_INDEX_HEADLINE_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\badds?\b.*\bto\b.*\bcatalog\b", re.IGNORECASE),
+    re.compile(r"\bknown exploited vulnerabilit(?:y|ies)\b", re.IGNORECASE),
+    re.compile(r"\b(?:weekly|monthly|daily)\s+"
+               r"(?:recap|roundup|round-up|summary|digest)\b", re.IGNORECASE),
+    re.compile(r"\bthreatsday\b", re.IGNORECASE),
+    re.compile(r"\+\s*\d+\s+more\s+stories\b", re.IGNORECASE),
+    re.compile(r"\bnews\s*#\s*\d+\b", re.IGNORECASE),
+    re.compile(r"\bдайджест\b", re.IGNORECASE),
+)
+
+
+def _is_roundup_headline(title: str) -> bool:
+    """Does this headline stand for several stories at once?
+
+    Two shapes. The first is the labelled digest that
+    `_INDEX_HEADLINE_RES` already knows — a KEV catalog entry, a weekly
+    recap, a ThreatsDay bulletin. The second is the unlabelled one: a
+    headline that simply lists its subjects, as in "Veeam, Terraform MCP
+    and Django Patch 340 Flaws This Week". Its "340" belongs to three
+    projects at once, so merging it with any one of them on that number
+    would delete a real article.
+
+    Thousands separators are stripped before the commas are counted, or
+    "leak info of over 100,000 UK police officers, staff" would read as a
+    list. Requiring several entities as well keeps ordinary two-clause
+    headlines out: "Microsoft August 2026 Patch Tuesday fixes 400 flaws, 3
+    zero-days" has one comma and no "and", and stays a normal headline.
+    """
+    text = title or ""
+    if any(rx.search(text) for rx in _INDEX_HEADLINE_RES):
+        return True
+    if len(_entities(text)) < _MIN_ENTITIES_FOR_ENUMERATION:
+        return False
+    commas = _NUMERIC_COMMA_RE.sub("", text).count(",")
+    if commas >= 2:
+        return True
+    return commas >= 1 and re.search(r"\band\b", text, re.IGNORECASE) is not None
+
+
+def _preceding_word(text: str, start: int) -> str:
+    """The word immediately before `text[start]`, or "" if there is none.
+
+    A backwards character scan rather than a regex: it runs once per number
+    found, and an anchored regex would rescan the text from the top each
+    time.
+    """
+    i = start - 1
+    while i >= 0 and not (text[i].isalnum() or text[i] in _QUANTITY_WORD_CHARS):
+        i -= 1
+    if i < 0 or text[i].isdigit():
+        return ""
+    end = i + 1
+    while i >= 0 and (text[i].isalnum() or text[i] in _QUANTITY_WORD_CHARS):
+        i -= 1
+    return text[i + 1:end]
+
+
+def _is_identifier_slot(text: str, start: int) -> bool:
+    """Is the number at `start` naming a thing rather than counting things?
+
+    The discriminator is the word in front of it. Product and standard
+    designations follow a proper noun — "Microsoft 365", "SonicWall SMA
+    1000", "C-CURE 9000", "Applied Biosystems 3130", "IEC 61850" — while a
+    counted quantity follows a verb, a preposition or a quantifier: "at
+    least 398", "roughly 50,000", "fixes 400", "зі швидкістю 190".
+
+    Headlines are title-cased, so capitalization alone would also reject
+    "Nearly 400"; `_QUANTIFIER_CUES` is the exemption that keeps those.
+    """
+    word = _preceding_word(text, start)
+    if not word:
+        return False
+    lowered = word.lower()
+    if lowered in _IDENTIFIER_CUES:
+        return True
+    if lowered in _QUANTIFIER_CUES:
+        return False
+    return word[:1].isupper()
+
+
+def _quantity_unit(text: str, end: int) -> str:
+    """The kind of thing the number ending at `end` counts, or "".
+
+    Reading the unit is what stops one number matching across two different
+    facts. "400 flaws" is not "400 organizations" and "615,000 people" is
+    not "615 GB", however loudly both sides say the same digits.
+    """
+    for match in _TOKEN_RE.finditer(text, end):
+        if match.start() - end > _QUANTITY_UNIT_WINDOW:
+            return ""
+        raw = match.group(0)
+        if raw.isdigit():
+            continue
+        tok = _norm_token(raw)
+        if tok in _STOPWORDS or tok in _UNIT_SKIP:
+            continue
+        return _UNIT_SYNONYMS.get(tok, tok)
+    return ""
+
+
+def extract_quantities(text: str) -> frozenset[tuple[int, str]]:
+    """Counted quantities in `text`, each paired with the noun it counts.
+
+    "Microsoft released updates to remedy at least 398 security
+    vulnerabilities" and "Microsoft Patches 398 Flaws" are the same Patch
+    Tuesday, and nothing else in the store counts 398 of anything. That
+    agreement is the signal. Every filter below is there to keep out the
+    numbers that are not that:
+
+      * the regex refuses digit runs glued to a word character or to
+        `. , / : -`, which removes CVSS scores, versions, dates and IPs;
+      * `_RARE_QUANTITY_MIN` removes small counts, which are everywhere;
+      * four-digit numbers in the calendar range are dates;
+      * `_is_identifier_slot` removes product, port and standard numbers;
+      * a number whose unit cannot be read is dropped entirely, because
+        without one it cannot be compared safely.
+
+    Measured over the 200-item live store: 35 quantities survive across 26
+    articles, and exactly five in-window pairs share one.
+    """
+    clean = _CVE_RE.sub(" ", text or "")
+    found: set[tuple[int, str]] = set()
+    for match in _QUANTITY_RE.finditer(clean):
+        digits = match.group(1).replace(",", "")
+        if len(digits) > 1 and digits[0] == "0":
+            continue
+        value = int(digits)
+        if value < _RARE_QUANTITY_MIN:
+            continue
+        if _QUANTITY_YEAR_LO <= value <= _QUANTITY_YEAR_HI:
+            continue
+        if _is_identifier_slot(clean, match.start(1)):
+            continue
+        unit = _quantity_unit(clean, match.end(1))
+        if not unit:
+            continue
+        found.add((value, unit))
+    return frozenset(found)
+
+
 @dataclass(frozen=True)
 class StoryFeatures:
     """Everything `same_story` needs about one article, computed once.
@@ -332,6 +627,10 @@ class StoryFeatures:
     distinctive: frozenset[str]
     entities: frozenset[str]
     body_digest: str
+    #: Counted quantities from title AND body, each with the noun it counts.
+    #: Defaulted so that a caller building features by hand keeps working;
+    #: RULE D simply never fires for them.
+    quantities: frozenset[tuple[int, str]] = frozenset()
 
     @classmethod
     def from_item(cls, item: NewsItem) -> "StoryFeatures":
@@ -352,6 +651,12 @@ class StoryFeatures:
             distinctive=frozenset(_distinctive_tokens(item.title)),
             entities=frozenset(_entities(item.title)),
             body_digest=_body_digest(item.raw_content),
+            # Quantities come from the same title+body text as the CVEs, for
+            # the same reason: the number that identifies an event is as
+            # likely to sit in the lede as in the headline. Krebs put "398"
+            # in its body and "400" in its title of the same Patch Tuesday
+            # article; The Hacker News put "398" in its headline.
+            quantities=extract_quantities(cve_text),
         )
 
 
@@ -424,20 +729,71 @@ def same_story(
     if a.source == b.source and a.title.strip().lower() == b.title.strip().lower():
         return False
 
+    long_enough = (
+        len(a.distinctive) >= _MIN_DISTINCTIVE_FOR_TEXT
+        and len(b.distinctive) >= _MIN_DISTINCTIVE_FOR_TEXT
+    )
+
     # RULE C — text-only match. Always requires a shared named entity, so
     # two stories must at minimum be about the same product or actor.
-    if not shared_entities:
-        return False
-    if (
-        len(a.distinctive) < _MIN_DISTINCTIVE_FOR_TEXT
-        or len(b.distinctive) < _MIN_DISTINCTIVE_FOR_TEXT
+    #
+    # Written as a positive block rather than guard-and-return so that its
+    # entity gate no longer short-circuits RULE D below. Behaviour is
+    # otherwise unchanged, verified over all 19,900 pairs of the live store
+    # with `quantities` emptied.
+    if shared_entities and long_enough:
+        shared_tokens = len(a.distinctive & b.distinctive)
+        if title_j >= _TITLE_JACCARD_STRONG and shared_tokens >= _MIN_SHARED_STRONG:
+            return True
+        if title_j >= _TITLE_JACCARD_WEAK and shared_tokens >= _MIN_SHARED_WEAK:
+            return True
+
+    # RULE D — the same counted quantity, about the same subject.
+    #
+    # The one positive path that does not require a shared entity, which is
+    # the whole point of it. For any story about a major vendor the entity
+    # intersection is empty by construction, because `_ENTITY_BLOCKLIST`
+    # holds "microsoft", "google", "windows", "chrome" and friends. Krebs on
+    # Security and The Hacker News covering the same Patch Tuesday share one
+    # distinctive token ("microsoft", blocked as an entity), a title Jaccard
+    # of 0.091 and no CVE — and both count 398 vulnerabilities. Without this
+    # rule there is no path left for them and the reader sees the story
+    # twice.
+    #
+    # Four things must line up. Each was added because dropping it produced
+    # a false merge on the live store or on a hand-built pair:
+    #
+    #   * the same NUMBER counting the same KIND of thing. A bare number is
+    #     not enough: "400 flaws" is not "400 organizations", and "615,000
+    #     people" is not "615 GB". Pairing the unit is what lets the store's
+    #     four separate "800"s — npm packages, kernel builds, network-layer
+    #     attacks, poisoned packages — coexist without colliding.
+    #   * a shared subject word carrying no digits, and never the unit noun
+    #     itself. Otherwise the number vouches for itself:
+    #     `_distinctive_tokens` keeps digit runs, so "100,000" donates the
+    #     tokens "100" and "000", and two headlines that both say "500
+    #     organizations" would offer "organization" as corroboration.
+    #   * enough subject agreement for what is being counted. See
+    #     `_MIN_SUBJECT_FOR_ROLLUP`.
+    #   * neither headline may be a roundup.
+    shared_quantities = a.quantities & b.quantities
+    if shared_quantities and long_enough and not (
+        _is_roundup_headline(a.title) or _is_roundup_headline(b.title)
     ):
-        return False
-    shared_tokens = len(a.distinctive & b.distinctive)
-    if title_j >= _TITLE_JACCARD_STRONG and shared_tokens >= _MIN_SHARED_STRONG:
-        return True
-    if title_j >= _TITLE_JACCARD_WEAK and shared_tokens >= _MIN_SHARED_WEAK:
-        return True
+        units = {unit for _, unit in shared_quantities}
+        subject = {
+            tok for tok in (a.distinctive & b.distinctive)
+            if not any(ch.isdigit() for ch in tok)
+            and _UNIT_SYNONYMS.get(tok, tok) not in units
+        }
+        needed = (
+            _MIN_SUBJECT_FOR_ROLLUP
+            if units & _ROLLUP_UNITS
+            else _MIN_SUBJECT_FOR_QUANTITY
+        )
+        if len(subject) >= needed:
+            return True
+
     return False
 
 
@@ -505,19 +861,6 @@ def cluster_items(
 # Canonical selection
 # --------------------------------------------------------------------------
 
-# Headlines that describe a bureaucratic action rather than the story.
-# CISA's KEV catalog posts are the live example: "CISA Adds One Known
-# Exploited Vulnerability to Catalog" is authoritative but tells a reader
-# nothing about what was actually found. When such an item clusters with
-# real reporting ("Cisco warns of FMC static credential flaw exploited in
-# zero-day attacks"), the reporting headline must win — otherwise raw source
-# credibility hands the feed its least informative title.
-_INDEX_HEADLINE_RES: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\badds?\b.*\bto\b.*\bcatalog\b", re.IGNORECASE),
-    re.compile(r"\bknown exploited vulnerabilit(?:y|ies)\b", re.IGNORECASE),
-    re.compile(r"\b(?:weekly|monthly)\s+(?:recap|roundup|summary)\b", re.IGNORECASE),
-)
-
 #: Headline quality tiers used to rank canonical candidates.
 _HEADLINE_INDEX = 0     # bureaucratic index entry — worst canonical
 _HEADLINE_TERSE = 1     # bare product name ("Siemens SIMATIC")
@@ -527,8 +870,9 @@ _HEADLINE_NORMAL = 2    # ordinary reporting headline
 def headline_quality(title: str) -> int:
     """How well a headline stands on its own as the face of a story.
 
-    Used only for canonical selection — it never affects whether two
-    articles match.
+    Used for canonical selection. It does not decide whether two articles
+    match, though RULE D shares its `_INDEX_HEADLINE_RES` list to recognize
+    a roundup.
     """
     if any(rx.search(title or "") for rx in _INDEX_HEADLINE_RES):
         return _HEADLINE_INDEX
@@ -759,4 +1103,5 @@ __all__ = [
     "choose_canonical",
     "story_key_for",
     "extract_cves",
+    "extract_quantities",
 ]
