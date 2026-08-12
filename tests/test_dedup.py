@@ -503,3 +503,81 @@ def test_collapse_without_prefer_never_probes():
     assign_story_keys(items)
     survivors, _ = collapse_duplicates(items)
     assert len(survivors) == 3
+
+
+# ---------------------------------------------------------------------------
+# RULE 0 — identical article text
+# ---------------------------------------------------------------------------
+
+_SYNDICATED = (
+    "OpenAI paused part of its work on Astra, an AI model built for agentic "
+    "programming and cybersecurity, after internal evaluations showed it had "
+    "crossed a capability threshold the company was not ready to ship. The "
+    "decision was described in a memo circulated to staff on Monday."
+)
+
+
+def test_same_article_under_two_urls_is_one_story() -> None:
+    """itc.ua publishes every story twice — a `?p=<id>` permalink and a slug.
+
+    Same title, same timestamp, same body, two fingerprints, two posts in the
+    feed. Three such pairs were live at once, and VETO 2 was blocking the
+    merge: it assumes a newsroom does not publish one headline twice for one
+    story, which holds for the CISA advisory feed it was written for and
+    fails for a syndicating outlet.
+    """
+    title = "OpenAI зупинила розробку ШІ-моделі Astra"
+    a = item(title, source="itc.ua", body=_SYNDICATED,
+             url="https://itc.ua/ua/?p=4715935")
+    b = item(title, source="itc.ua", body=_SYNDICATED,
+             url="https://itc.ua/ua/novini/openai-zupynyla-rozrobku-astra/")
+    assert matches(a, b) is True
+    assert StoryFeatures.from_item(a).body_digest != ""
+
+
+def test_identical_body_wins_over_a_retitle() -> None:
+    """BleepingComputer re-published one article under a second headline and
+    slug. Body identity catches it where title matching cannot."""
+    a = item("Claude uploaded malware to PyPI in Anthropic's botched test",
+             body=_SYNDICATED)
+    b = item("Anthropic's Claude breached 3 orgs, uploaded PyPI malware during tests",
+             body=_SYNDICATED)
+    assert matches(a, b) is True
+
+
+def test_thin_bodies_do_not_all_collapse_together() -> None:
+    """The length floor is load-bearing: several feeds ship an empty or
+    one-line body, and without it every one would hash alike and merge into
+    a single cluster."""
+    a = item("Siemens SIMATIC", source="CISA Alerts", body="")
+    b = item("MikroTik RouterOS", source="CISA Alerts", body="")
+    assert StoryFeatures.from_item(a).body_digest == ""
+    assert matches(a, b) is False
+
+    short = "Short teaser line."
+    c = item("Some advisory", source="CISA Alerts", body=short)
+    d = item("Other advisory", source="CISA Alerts", body=short)
+    assert StoryFeatures.from_item(c).body_digest == ""
+    assert matches(c, d) is False
+
+
+def test_rule_zero_ignores_whitespace_and_case_only_differences() -> None:
+    a = item("Story A", body=_SYNDICATED)
+    b = item("Story B", body="  " + _SYNDICATED.replace(" ", "\n  ").upper() + "\n")
+    assert matches(a, b) is True
+
+
+def test_different_bodies_still_obey_the_vetoes() -> None:
+    """RULE 0 must not weaken the advisory protections. Two CISA entries with
+    one headline and different bodies stay apart."""
+    a = item("CISA Adds One Known Exploited Vulnerability to Catalog",
+             source="CISA Alerts",
+             body="CISA added CVE-2026-8037, a Progress Kemp LoadMaster command "
+                  "injection flaw, to the Known Exploited Vulnerabilities catalog "
+                  "after confirming active exploitation against internet-facing hosts.")
+    b = item("CISA Adds One Known Exploited Vulnerability to Catalog",
+             source="CISA Alerts", days=2,
+             body="CISA added CVE-2026-63077, a JetBrains TeamCity deserialization "
+                  "of untrusted data flaw, to the Known Exploited Vulnerabilities "
+                  "catalog following reports of exploitation in the wild.")
+    assert matches(a, b) is False

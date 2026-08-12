@@ -142,6 +142,11 @@ _TITLE_JACCARD_SUPPORT = 0.20
 #: reporting headlines clear it.
 _MIN_DISTINCTIVE_FOR_TEXT = 3
 
+#: RULE 0 — the shortest body we will treat as identifying. Several feeds
+#: ship an empty or one-line body, and every one of those would otherwise
+#: hash to the same value and merge with all the others.
+_MIN_BODY_FOR_IDENTITY = 120
+
 _CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 _TOKEN_RE = re.compile(r"[^\W_]+(?:[-.][^\W_]+)*", flags=re.UNICODE)
 
@@ -288,6 +293,23 @@ def _entities(title: str) -> set[str]:
     return found
 
 
+def _body_digest(text: str | None) -> str:
+    """Identity hash of an article body, or "" when the body is too thin.
+
+    Whitespace-collapsed and lowercased so a re-render with different line
+    wrapping still matches, but otherwise exact — this is used to assert
+    that two entries ARE the same article, so it must not be fuzzy.
+
+    The length floor is load-bearing. Several feeds ship an empty or
+    one-line body, and without it every one of those would hash alike and
+    merge into a single cluster.
+    """
+    normalized = " ".join((text or "").split()).lower()
+    if len(normalized) < _MIN_BODY_FOR_IDENTITY:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
 def _jaccard(a: set[str] | frozenset[str], b: set[str] | frozenset[str]) -> float:
     if not a or not b:
         return 0.0
@@ -309,6 +331,7 @@ class StoryFeatures:
     cves: frozenset[str]
     distinctive: frozenset[str]
     entities: frozenset[str]
+    body_digest: str
 
     @classmethod
     def from_item(cls, item: NewsItem) -> "StoryFeatures":
@@ -328,6 +351,7 @@ class StoryFeatures:
             cves=extract_cves(cve_text),
             distinctive=frozenset(_distinctive_tokens(item.title)),
             entities=frozenset(_entities(item.title)),
+            body_digest=_body_digest(item.raw_content),
         )
 
 
@@ -355,6 +379,25 @@ def same_story(
         return True
     if not _within_window(a, b, days=window_days):
         return False
+
+    # RULE 0 — the same article text, whatever the URL says.
+    #
+    # Not a heuristic and not a similarity score: the bodies are the same
+    # words. It runs ahead of both vetoes because no amount of contrary
+    # metadata can make one article into two.
+    #
+    # This exists because itc.ua publishes every story under two URLs — a
+    # `?p=4717356` permalink and a slug — which produce two fingerprints
+    # with identical titles, identical timestamps and identical bodies. Three
+    # such pairs were live simultaneously. VETO 2 was actively blocking them:
+    # it assumes "a newsroom does not publish the same headline twice for the
+    # same story", which is true of the CISA advisory feed it was written for
+    # and false for a syndicating outlet.
+    #
+    # Placing it first also makes it work across sources, which is correct —
+    # two outlets carrying one wire story verbatim are one story.
+    if a.body_digest and a.body_digest == b.body_digest:
+        return True
 
     both_have_cves = bool(a.cves) and bool(b.cves)
     shared_cves = a.cves & b.cves
