@@ -343,3 +343,55 @@ def test_an_english_headline_full_of_brands_is_still_rejected() -> None:
     assert _wrong_script_for_language(
         "Attackers are exploiting this flaw against unpatched servers.", "ua",
     ) is True
+
+
+# --------------------- «вада» is not a security term -----------------------
+
+def test_vada_is_replaced_with_vrazlyvist_in_every_case() -> None:
+    """«Вада» is a defect in the everyday or medical sense — вада серця,
+    вада конструкції. It is the wrong register for a software flaw an
+    attacker exploits, and the product owner rejected it outright.
+
+    A stem swap cannot do this: «вада» is 1st declension and «вразливість»
+    is 3rd, so the suffix cannot be preserved. Every form is mapped, and
+    both nouns are feminine so agreement survives.
+    """
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques as n
+
+    assert n("Microsoft закрила 398 вад, одну вже використовують") == (
+        "Microsoft закрила 398 вразливостей, одну вже використовують"
+    )
+    assert n("критична вада у ядрі") == "критична вразливість у ядрі"
+    assert n("цю ваду вже використовують") == "цю вразливість вже використовують"
+    assert n("патч до вади") == "патч до вразливості"
+    assert n("скориставшись вадою") == "скориставшись вразливістю"
+    assert n("у трьох вадах") == "у трьох вразливостях"
+    assert n("Вада дозволяє обхід") == "Вразливість дозволяє обхід"
+
+
+def test_vada_replacement_fixes_the_preposition_it_creates() -> None:
+    """«в ваді» is unremarkable; «в вразливості» stacks в+вр, which Ukrainian
+    euphony resolves to «у». Case must survive the swap."""
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques as n
+
+    assert n("в ваді") == "у вразливості"
+    assert n("В ваді знайшли причину") == "У вразливості знайшли причину"
+
+
+def test_vada_map_matches_whole_words_only() -> None:
+    """«Вадим» must never become «Вразливістьм»."""
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques as n
+
+    assert n("Вадим Іванов повідомив") == "Вадим Іванов повідомив"
+    assert n("вадемекум") == "вадемекум"
+
+
+def test_the_prompt_no_longer_teaches_vada() -> None:
+    """The term reached 66 of 187 live posts because it was sitting in
+    _SHARED_RULES_UK as a ДОБРЕ example in four places. Examples are what a
+    model copies, so a ban that contradicts an example loses."""
+    from cyberalertx.ai.templates import _SHARED_RULES_UK
+
+    for banned in ("через ваду", "цю ваду", "усунула ваду", "патч до вади"):
+        assert banned not in _SHARED_RULES_UK, banned
+    assert "«вада» — НЕ термін кібербезпеки" in _SHARED_RULES_UK

@@ -133,6 +133,52 @@ _CALQUE_STEMS: tuple[tuple[str, str], ...] = tuple(
     sorted(CALQUE_GLOSSARY.items(), key=lambda kv: -len(kv[0]))
 )
 
+# ===========================================================================
+# Exact-form replacements, for terms where a stem swap would break grammar.
+#
+# «Вада» is not a cybersecurity term. In Ukrainian it is a defect in the
+# everyday or medical sense — вада серця, вада конструкції — and reads wrong
+# for a software flaw an attacker exploits. The term is «вразливість».
+#
+# This cannot go in CALQUE_GLOSSARY: that table swaps stems and keeps the
+# suffix, which only works when both words share a declension class. These
+# two do not. «Вада» is 1st declension (вада, вади, ваду, вадою), while
+# «вразливість» is 3rd (вразливість, вразливості, вразливістю), and the
+# genitive plural is irregular against it — «398 вад» becomes «398
+# вразливостей», not «398 вразливостей» by any suffix rule. So every form is
+# mapped explicitly.
+#
+# Both nouns are feminine, so adjectives, pronouns and past-tense verbs
+# agreeing with them stay correct: «критична вада» → «критична вразливість»,
+# «цю ваду» → «цю вразливість».
+#
+# Whole-word matching only — «Вадим» must never become «Вразливістьм».
+# ===========================================================================
+
+TERM_FORMS: Mapping[str, str] = {
+    "вада":   "вразливість",    # nom sg
+    "вади":   "вразливості",    # gen sg / nom pl / acc pl
+    "ваді":   "вразливості",    # dat sg / loc sg
+    "ваду":   "вразливість",    # acc sg
+    "вадою":  "вразливістю",    # instr sg
+    "вад":    "вразливостей",   # gen pl
+    "вадам":  "вразливостям",   # dat pl
+    "вадами": "вразливостями",  # instr pl
+    "вадах":  "вразливостях",   # loc pl
+}
+
+# Replacing the noun can leave a preposition Ukrainian euphony rejects: «в
+# ваді» is unremarkable, but «в вразливості» stacks в+вр. The rule is «у»
+# before a consonant cluster. Case is carried over so a mid-sentence «в»
+# does not come back capitalised.
+_V_BEFORE_CLUSTER = re.compile(r"\b([Вв])(\s+вразлив\w+)")
+
+
+def _fix_euphony(text: str) -> str:
+    return _V_BEFORE_CLUSTER.sub(
+        lambda m: ("У" if m.group(1).isupper() else "у") + m.group(2), text,
+    )
+
 # Collocations a single-word swap cannot reach. Applied BEFORE the stem pass
 # and keyed on the ORIGINAL wording, so a legitimate «мережевий захист»
 # (network protection in general) is never turned into «мережевий екран»
@@ -202,6 +248,12 @@ def _normalize_calque_word(word: str) -> str:
     inflected form survives, and the first letter's case is carried over.
     """
     lower = word.lower()
+    # Exact forms win over stems: these are the terms whose replacement does
+    # not share a declension class, so suffix-preserving substitution would
+    # produce a non-word.
+    exact = TERM_FORMS.get(lower)
+    if exact is not None:
+        return exact[0].upper() + exact[1:] if word[0].isupper() else exact
     for stem, replacement in _CALQUE_STEMS:
         if lower.startswith(stem):
             tail = word[len(stem):]
@@ -221,7 +273,8 @@ def normalize_ukrainian_calques(text: str) -> str:
         return text
     for source, target in CALQUE_PHRASES.items():
         text = text.replace(source, target)
-    return _WORD_RE.sub(lambda m: _normalize_calque_word(m.group(1)), text)
+    text = _WORD_RE.sub(lambda m: _normalize_calque_word(m.group(1)), text)
+    return _fix_euphony(text)
 
 
 def normalize_ukrainian_calque_fields(values: object) -> object:
