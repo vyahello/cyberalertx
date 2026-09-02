@@ -1,0 +1,34 @@
+# /etc/systemd/system/cyberalertx-analytics.timer
+#
+# Fires cyberalertx-analytics.service once a day at 03:00 local time, pulling
+# the previous day's log lines into the analytics store.
+#
+# 03:00 is chosen against three constraints, not arbitrarily:
+#   * AFTER logrotate's nightly run, so the freshly rotated file is complete
+#     and closed rather than being appended to mid-read.
+#   * In the traffic trough, so the read competes with nothing.
+#   * An hour BEFORE the 04:00 visitor-salt rotation, so a night's ingest uses
+#     one salt throughout and cannot split a single visitor across two
+#     identities mid-run.
+#
+# Persistent=true: if the VPS was off when a scheduled fire was due, systemd
+# runs it as soon as the box is back up. That matters more here than for the
+# other timers — a missed window is not just a late render, it is a permanent
+# hole in the history once logrotate drops the source file 14 days later.
+#
+# RandomizedDelaySec=300: spread the fire by up to 5 min. Purely to avoid
+# contending with other 03:00 cron/timer work on the box; there is no remote
+# service to be polite to.
+
+[Unit]
+Description=CyberAlertX visitor analytics ingest timer (daily 03:00)
+Requires=cyberalertx-analytics.service
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=cyberalertx-analytics.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,33 @@
+# /etc/logrotate.d/cyberalertx-access
+#
+# Rotates ONLY the dedicated cyberalertx analytics log. Deliberately a separate
+# file: /etc/logrotate.d/nginx is shared with three other vhosts and must not be
+# touched.
+#
+# The file is named .jsonl, not .log, precisely so it does NOT match the
+# `/var/log/nginx/*.log` glob in the nginx config. Two configs naming one file
+# is a logrotate "duplicate log entry" error and this retention would silently
+# never apply. Verify with: sudo logrotate -d /etc/logrotate.d/cyberalertx-access
+#
+# 365 days because the whole point of the analytics store is all-time history.
+# Measured volume is ~3.5 MB per 15 days across ALL FOUR vhosts, and the
+# extended JSON format is roughly 3x the width of combined, so a year is on the
+# order of tens of megabytes against 49 GB free. Non-issue.
+#
+# The SQLite store ingests daily and is the real long-term home; this retention
+# is the safety net for a missed ingest, not the primary archive.
+/var/log/nginx/cyberalertx-access.jsonl {
+        daily
+        rotate 365
+        missingok
+        notifempty
+        compress
+        delaycompress
+        create 0640 www-data adm
+        sharedscripts
+        postrotate
+                if [ -d /run/systemd/system ]; then
+                        systemctl kill -s USR1 nginx.service >/dev/null 2>&1 || true
+                fi
+        endscript
+}

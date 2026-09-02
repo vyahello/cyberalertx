@@ -65,3 +65,6 @@ Thumbs.db
 # are never part of the source-of-truth.
 # ============================================================================
 .playwright-mcp/
+
+# Internal build contract for the analytics tool — scaffolding, not docs.
+.analytics-spec.md

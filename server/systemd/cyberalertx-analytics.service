@@ -1,0 +1,62 @@
+# /etc/systemd/system/cyberalertx-analytics.service
+#
+# Visitor analytics ingest — one-shot helper invoked by
+# cyberalertx-analytics.timer.
+#
+# Runs `python -m server.analytics ingest`: reads nginx access logs, classifies
+# each request, and appends enriched rows to the SQLite store at
+# data/analytics.sqlite3. Idempotent by construction — every line carries a
+# content hash under a UNIQUE index, so re-reading a file it has already seen
+# inserts nothing. Re-running after a failure is always safe.
+#
+# Why a persistent store at all, rather than reading logs on demand:
+# logrotate keeps 14 days. The question the tool exists to answer is
+# "stats for all time, by month, by day", which a stateless log reader can
+# never answer. This unit is what turns a 14-day window into permanent
+# history — if it stops firing, history stops accruing and the gap is
+# unrecoverable once the logs rotate out. `status` reports coverage gaps.
+#
+# Reads only. It never writes, truncates, rotates or deletes a log file, and it
+# never signals nginx.
+#
+# Why a separate unit from the ingest/generate services:
+#   * Failures here (a corrupt DB, a permission change on /var/log) are
+#     analytics-only and must not ripple into the news pipeline.
+#   * It holds no secrets and needs none — see the EnvironmentFile note below.
+#
+# Cost: zero. No network, no API calls, no Anthropic. Pure local I/O.
+
+[Unit]
+Description=CyberAlertX visitor analytics ingest (one-shot, fired by timer)
+# No After=/Wants= ordering. This reads files off disk; it does not need the
+# API, the frontend, or the network, and nginx need not be running for the
+# already-written log lines to be readable.
+
+[Service]
+Type=oneshot
+User=cax
+Group=cax
+# THE ONE LINE THAT MAKES THIS WORK. nginx logs are 0640 www-data:adm, so the
+# cax user can only read them via the adm group. Without this the unit fails on
+# every run with PermissionError on /var/log/nginx/cyberalertx-access.jsonl.
+# Note this grants the SERVICE adm membership; it does NOT give the interactive
+# cax shell the same access — for that a human still needs
+# `sudo usermod -aG adm cax` plus a fresh login session.
+SupplementaryGroups=adm
+# Deliberately NOT root, and deliberately no AmbientCapabilities. Reading log
+# files is an unprivileged operation once adm membership is granted, and a
+# nightly job that parses attacker-controlled strings (User-Agent, Referer,
+# request paths) is exactly the sort of thing that should not run as root.
+WorkingDirectory=/home/cax/cax
+ExecStart=/home/cax/cax/venv/bin/python -m server.analytics ingest
+# No EnvironmentFile. This unit needs no secrets, and handing log analytics the
+# .env would give it the Anthropic key for no reason. Keep it that way.
+#
+# 900s because the FIRST run is the slow one: a cold ingest walks ~15 days of
+# archived .gz logs (~75k lines) before the store exists. Steady-state nightly
+# runs read one day and finish in seconds.
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
+
+# No [Install] — this is started by the .timer unit, not on boot.

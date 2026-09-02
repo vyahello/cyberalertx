@@ -17,9 +17,15 @@ server/
 │   ├── cyberalertx-generate.service       AI render one-shot (fires from timer)
 │   ├── cyberalertx-generate.timer         Every 6h, runs the generate one-shot
 │   ├── cyberalertx-telegram.service       Telegram publish one-shot (fires from timer)
-│   └── cyberalertx-telegram.timer         Every 6h (+15m), publishes to TG channels
+│   ├── cyberalertx-telegram.timer         Every 6h (+15m), publishes to TG channels
+│   ├── cyberalertx-analytics.service      visitor-stats ingest one-shot (fires from timer)
+│   └── cyberalertx-analytics.timer        daily 03:00, pulls new log lines into the store
 ├── nginx/
-│   └── cyberalertx.conf                   reverse proxy + SSL
+│   ├── cyberalertx.conf                   reverse proxy + SSL
+│   └── analytics-log-format.conf          http-level JSON log_format (goes in conf.d/)
+├── logrotate/
+│   └── cyberalertx-access                 365-day rotation for the dedicated log
+├── analytics/                             visitor analytics package (python -m server.analytics)
 ├── scripts/
 │   └── refresh_feed.py                    editorial reset: prune store + regen AI
 ├── setup.sh                               one-time VPS bootstrap (run as root)
@@ -468,9 +474,416 @@ sudo journalctl -u cyberalertx-run --since "1 hour ago" | grep -c "cycle complet
 sudo journalctl -u cyberalertx-generate.service --since "24 hours ago" | grep "Started"
 
 # nginx access / error logs
+# NOTE: after the analytics change below, cyberalertx traffic is NOT in
+# access.log any more — it goes to its own file. The other vhosts still use
+# access.log exactly as before.
 sudo tail -f /var/log/nginx/access.log
 sudo tail -f /var/log/nginx/error.log
+sudo tail -f /var/log/nginx/cyberalertx-access.jsonl     # this site, JSON per line
 ```
+
+---
+
+## Visitor analytics
+
+Self-hosted audience stats, read straight from the nginx access logs by
+`python -m server.analytics`. No tracker, no third-party JavaScript, no
+cookies, no data leaving the box. Log lines are parsed, classified, and
+appended to a local SQLite store (`data/analytics.sqlite3`), which is what
+makes "all time, by month, by day" answerable at all — logrotate only keeps
+14 days, so a stateless log reader could never see further back than that.
+A daily timer at 03:00 does the ingest; you just read reports.
+
+**What it measures:** pageviews and their EN/UA split, top articles and entry
+pages, acquisition channel (Telegram, search, social, direct), browser / OS /
+device type, country, time-of-day and day-of-week patterns, 404s and 5xx,
+latency percentiles, and a full accounting of bot and scanner traffic —
+including scrapers that wear a browser User-Agent and are only detectable
+across requests (see "The behavioural automation filter" below).
+
+**What it cannot measure**, by design or by physics — the report says so itself
+rather than guessing:
+
+| Not measured | Why |
+|---|---|
+| Individual people | Visitors are salted daily hashes. The salt rotates at 04:00, so cross-day identity is not computable — "returning visitors" and retention curves are never printed. |
+| Anything on legacy logs needing a client IP | Before the nginx change below, every request shows a *Cloudflare edge* IP, not a visitor. Unique-visitor counts are **suppressed, never estimated**, for those days. |
+| Time on the last page of a visit | Nothing marks its end. Reported as "measured span", never "time on site". |
+| Cached locale switches | Next.js App Router serves back/forward from its Router Cache and emits no request. No correction multiplier is applied — that would be inventing data. |
+| iPhone / iPad models | Never exposed server-side. Brave counts as Chrome; iPads count as macOS. |
+
+**Scoping — this touches one vhost only.** Other sites share this nginx
+instance and this box. The change below
+is confined to the cyberalertx `server` block: the http-level `access_log` is
+untouched, so those three keep writing to `/var/log/nginx/access.log` with
+byte-identical behaviour, and `/etc/logrotate.d/nginx` is never modified. The
+tool reads only cyberalertx's own log, never signals or restarts a service, and
+never writes to, truncates or rotates a log file.
+
+### One-time: enable the extended log (nginx)
+
+Everything the tool needs beyond the legacy format comes from one `log_format`
+plus three directives in the vhost. Every failure mode here is a parse-time
+`emerg` that `nginx -t` catches **before** the reload, and a failed reload
+leaves the running config untouched — there is no window where any of the four
+sites is down.
+
+```bash
+# 0. Snapshot to diff against afterwards.
+sudo nginx -t
+sudo nginx -T > /root/nginx-dump-before.txt
+
+# 1. Back up the vhost. NOT into conf.d/ or sites-enabled/ — both are globbed
+#    and a stray backup file would be loaded as config.
+sudo cp -a /etc/nginx/sites-available/cyberalertx \
+           /root/cyberalertx.vhost.bak.$(date +%F-%H%M%S)
+
+# 2. Pre-create the log 0640 www-data:adm. Do NOT skip: nginx's master runs as
+#    root and would otherwise create it root:root 0644 — world-readable, and it
+#    now holds real visitor IPs — until the first nightly rotate fixes it.
+sudo install -o www-data -g adm -m 0640 /dev/null \
+     /var/log/nginx/cyberalertx-access.jsonl
+
+# 3. Install the log_format, then test with nothing referencing it yet.
+#    Defining a format is inert, so this step cannot affect any vhost.
+sudo cp <app-dir>/server/nginx/analytics-log-format.conf \
+        /etc/nginx/conf.d/cyberalertx-log.conf
+sudo nginx -t
+
+# 4. Install the vhost, then test. THIS IS THE GATE — a failure changes nothing.
+sudo cp <app-dir>/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx
+sudo nginx -t
+
+# 5. Reload — NOT restart. restart drops in-flight connections on all four sites.
+sudo systemctl reload nginx
+
+# 6. Install the rotate config and dry-run it (-d changes nothing).
+sudo cp <app-dir>/server/logrotate/cyberalertx-access /etc/logrotate.d/cyberalertx-access
+sudo logrotate -d /etc/logrotate.d/cyberalertx-access
+sudo logrotate -d /etc/logrotate.d/nginx 2>&1 | grep -i cyberalertx   # expect NO match
+
+# 7. Verify the new log, through Cloudflare (not the origin).
+curl -sI https://<your-domain>/en > /dev/null
+sudo tail -n 1 /var/log/nginx/cyberalertx-access.jsonl | python3 -m json.tool
+
+# 8. Verify the other three vhosts are untouched.
+sudo tail -n 5 /var/log/nginx/access.log
+# Repeat for each sibling vhost in /etc/nginx/sites-enabled/ — each must
+# still answer exactly as it did before the reload.
+curl -skI https://<sibling-vhost>/ | head -1
+
+# 9. Confirm the diff is only what was intended.
+sudo nginx -T > /root/nginx-dump-after.txt
+sudo diff -u /root/nginx-dump-before.txt /root/nginx-dump-after.txt
+
+# 10. Grant log read access to the analytics tool (see "Log access" below).
+sudo usermod -aG adm <user>
+```
+
+Reading step 7's output:
+
+| Symptom | Meaning | Fix |
+|---|---|---|
+| `ip` equals `pip` | `real_ip` is not firing | Check the `set_real_ip_from` block landed inside the `listen 443` server block |
+| `ip` is your public IP (`curl -s https://ifconfig.me`), `pip` is a Cloudflare IP | Correct | — |
+| `ray` populated, `cc` empty or `-` | **Cloudflare IP Geolocation is OFF** | Turn it on — see the note below. Country data is blank until you do |
+| `ray` empty on your own request | You hit the origin directly, bypassing Cloudflare | Re-test against `https://<your-domain>`, not the VPS IP |
+| The log stays empty while traffic flows | Traffic is arriving over IPv6 and being served by another vhost | See the IPv6 note below |
+
+`nginx -t` prints two `[warn] protocol options redefined for 0.0.0.0:443 ...
+sites-enabled/hoba` lines. Those are **pre-existing** and unrelated to this
+change; they appear before it too.
+
+**Rollback.** Remove the format and restore the vhost **together**, then test
+once. Removing the format while the vhost still references it yields
+`[emerg] unknown log format "cax_json"` and the reload is refused.
+
+```bash
+# Remove the format and restore the backed-up vhost in one go.
+sudo rm -f /etc/nginx/conf.d/cyberalertx-log.conf
+sudo cp -a /root/cyberalertx.vhost.bak.<TIMESTAMP> /etc/nginx/sites-available/cyberalertx
+
+# Test, then reload only if the test passed.
+sudo nginx -t && sudo systemctl reload nginx
+
+# Prove you are back where you started (expect no output).
+sudo diff -u /root/nginx-dump-before.txt <(sudo nginx -T)
+
+# Optional: drop the rotate config too.
+sudo rm -f /etc/logrotate.d/cyberalertx-access
+```
+
+The store keeps every event already ingested, so a rollback costs you new
+extended fields going forward, not your history.
+
+### Cloudflare: turn on IP Geolocation
+
+The `country` dimension comes from the `CF-IPCountry` header, which Cloudflare
+only sends when the **"Add visitor location headers"** Managed Transform (the
+IP Geolocation toggle) is **ON**. It is free on every plan and needs no
+Transform Rule of your own.
+
+Cloudflare dashboard → your domain → **Rules → Settings → Add visitor location
+headers** → enable.
+
+Until it is on, `cc` is empty on every line and the report labels country as
+unavailable rather than plotting a misleading zero. Three values are *not*
+countries and are handled as such: `XX` (Cloudflare has no data), `T1` (Tor),
+and empty (did not traverse Cloudflare, or the toggle is off).
+
+### Daily use
+
+```bash
+cd <app-dir> && source venv/bin/activate
+
+# Nightly, from the timer: pull every new log line into the store.
+python -m server.analytics ingest
+
+# Same, but show what would happen and write nothing.
+python -m server.analytics ingest --dry-run
+
+# The default: last 30 days, terminal report.
+python -m server.analytics
+
+# Last 7 days, by day, with period-over-period deltas.
+python -m server.analytics report --since 7d --compare
+
+# Monthly view of everything ever stored, plus the all-time summary.
+python -m server.analytics report --since all --by month --all-time
+
+# One specific month.
+python -m server.analytics report --since 2026-08-01 --until 2026-08-31
+
+# Machine-readable, for piping.
+python -m server.analytics report --since 7d --json > /tmp/audience.json
+
+# A local HTML page to open in a browser.
+python -m server.analytics report --since 30d --html data/analytics/report.html
+
+# Cross-check the store against the raw logs, ignoring the database.
+python -m server.analytics report --since 7d --from-logs
+
+# What does the store actually hold?
+python -m server.analytics status
+```
+
+The timer does the ingest for you:
+
+```bash
+# Enable the nightly ingest (once).
+sudo systemctl enable --now cyberalertx-analytics.timer
+
+# When does it next fire?
+systemctl list-timers --no-pager | grep analytics
+
+# Run it by hand right now.
+sudo systemctl start cyberalertx-analytics.service
+sudo journalctl -u cyberalertx-analytics.service -n 50 --no-pager
+```
+
+### Flags
+
+Global — accepted by every subcommand:
+
+| Flag | What it does | Example |
+|---|---|---|
+| `--db PATH` | The persistent store (default: `data/analytics.sqlite3`). | `--db /tmp/scratch.sqlite3` |
+| `--tz ZONE` | Reporting timezone, IANA name (default: `Europe/Kyiv`). The log line's own offset is the instant; this is the wall clock it is shown in. | `--tz UTC` |
+| `--no-color` | Force colour off. Also honoured: `NO_COLOR` (any value), `TERM=dumb`, non-tty stdout. | `--no-color` |
+| `--color {auto,always,never}` | Colour policy (default: `auto`). `always` for `less -R`. `--no-color` wins. | `--color always` |
+| `--ascii` | ASCII fallback for bars, sparklines and the heatmap. Auto-enabled when stdout is not UTF-8. | `--ascii` |
+| `-v`, `-vv` | `-v` → INFO, `-vv` → DEBUG (default: WARNING). Goes to stderr, so `> report.txt` stays clean. | `-vv` |
+| `-q`, `--quiet` | Suppress `[analytics]` progress lines. Errors still print. | `-q` |
+
+`ingest` — reads logs, writes events. Additive; never modifies a log:
+
+| Flag | What it does | Example |
+|---|---|---|
+| `--log PATH` | An explicit log file, plain or `.gz`. Repeatable. Highest-priority source. | `--log /var/log/nginx/cyberalertx-access.jsonl` |
+| `--log-dir DIR` | Scanned for `cyberalertx-access.jsonl*` and `access.log*` (default: `/var/log/nginx`). | `--log-dir /var/log/nginx` |
+| `--archive-dir DIR` | Scanned for date-named `*.log.gz` / `*.log` (default: `data/nginx-archive`). | `--archive-dir data/nginx-archive` |
+| `--since WHEN` | Skip records older than this (default: `all`). | `--since 7d` |
+| `--until WHEN` | Skip records newer than this (default: `now`). | `--until yesterday` |
+| `--reingest` | Ignore the already-seen-file fast path and re-read everything. Safe and idempotent — a per-line unique index still blocks double-counting. Slow, not destructive. | `--reingest` |
+| `--dry-run` | Parse, classify, count; write nothing. Prints what *would* be inserted. | `ingest --dry-run` |
+| `--batch-size N` | Rows per transaction (default: `2000`). Tune only for memory. | `--batch-size 500` |
+
+`report`:
+
+| Flag | What it does | Example |
+|---|---|---|
+| `--since WHEN` | Start of the window, inclusive (default: `30d`). | `--since 2026-08-01` |
+| `--until WHEN` | End of the window, inclusive (default: `now`). | `--until today` |
+| `--by {day,week,month,year}` | Bucket for "Traffic over time" (default: `day`). | `--by month` |
+| `--all-time` | Adds the all-time summary, covering the whole store regardless of `--since`. | `--all-time` |
+| `--compare` | Period-over-period deltas against the preceding complete period. Partial periods are excluded. | `--since 7d --compare` |
+| `--top N` | Rows per table before the `+N more` line (default: `10`). | `--top 25` |
+| `--host HOST` | Vhost filter, repeatable or comma-separated (default: your two site hosts). `all` disables filtering and the report says so loudly. | `--host all` |
+| `--include-bots` | Fold bot and agent traffic into the audience numbers. Every headline label flips to `(BOTS INCLUDED)`. | `--include-bots` |
+| `--hard-only` | Count only hard navigations — reproduces the naive document-only number for cross-checking. | `--hard-only` |
+| `--automation-threshold N` | Pageview floor for the behavioural automation filter (default: `100`). See "The behavioural automation filter" below before lowering it — under it you start deleting real returning readers. | `--automation-threshold 150` |
+| `--no-automation-filter` | Switch that filter off entirely. Audience numbers then include any scraper wearing a plausible browser UA; the report says loudly that the filter did not run. | `--no-automation-filter` |
+| `--rolling-salt N` | One salt across N days, enabling cross-day identity. Never silent: the report prints a privacy note when it is on. | `--rolling-salt 7` |
+| `--json` | Emit the whole report as JSON on stdout instead of the terminal render. | `--json > /tmp/a.json` |
+| `--html PATH` | Also write a self-contained HTML report. Opens offline; makes zero network requests. | `--html data/analytics/report.html` |
+| `--from-logs` | Bypass the store and read logs directly for this one report. Slower, and limited to what logrotate still holds. | `--from-logs` |
+| `--log`, `--log-dir`, `--archive-dir` | As for `ingest`. Only meaningful with `--from-logs`. | `--from-logs --log-dir /var/log/nginx` |
+
+`status` takes no flags beyond the globals. It prints date coverage, row counts,
+per-day capabilities (which dimensions actually existed that day), last ingest
+time, and the database size on disk.
+
+`--since` / `--until` accept: `7d`, `12h`, `6w`, `3m`, `1y`, `45min`; an ISO
+date (`2026-08-19`, both ends inclusive); an ISO datetime; `today`, `yesterday`,
+`now`, `all`.
+
+Exit codes: `0` success — **including "nothing matched"**, since the end state
+is what you asked for; `1` a real error (unreadable logs, corrupt database,
+unwritable `--html`); `2` bad input (an unparseable `--since`, `--since` after
+`--until`, no log files found at all).
+
+### Expected numbers
+
+```bash
+# Sanity-check the tool against known-good ground truth.
+python -m server.analytics report --since 15d
+```
+
+**Expected: roughly 155 human pageviews per day**, about 2 300 over 15 days
+(~3.1% of raw log lines), split roughly **EN 77% / UA 23%**. Most raw lines are
+not audience — around 79% never traversed Cloudflare at all and are
+direct-to-origin probes.
+
+Those figures are **after** the behavioural automation filter. Run the same
+window with `--no-automation-filter` and the tool reports ~4 180 pageviews at
+EN 72% / UA 28% instead: two scraper user-agents accounted for 1 857 pageviews,
+44.4% of the pre-filter audience, and they harvested both editions, which is
+what diluted the EN skew. If you are comparing against an older report, check
+which of the two numbers it was.
+
+**If the tool reports thousands of daily visitors, it is wrong.** In order,
+check: (1) Cloudflare provenance filtering — anything whose peer IP is outside
+Cloudflare's ranges is a probe, not a person; (2) the `/healthz` exclusion,
+which must be by **path**, since the monitor wears a real Chrome User-Agent and
+a real Referer and hits ~60×/day; (3) prefetch filtering, without which the
+EN/UA split drifts to 50/50 by construction.
+
+### The behavioural automation filter
+
+Classification is per request: Cloudflare provenance, then the User-Agent
+signature, then the path. That catches everything that announces itself and
+everything that skips the proxy, and it is structurally blind to the one thing
+that separates a scraper from a reader here — what a single client did across
+two thousand requests and fifteen days.
+
+Measured on this site's own logs: one forged `iPhone OS 13_2_3` User-Agent (an
+OS from 2019) arrived through Cloudflare from 788 different edge addresses, hit
+380 paths on a ~10-minute cycle with no daily rhythm at all, fetched the `/en`
+and `/ua` copy of the same article, and **never once requested a `/_next/`
+chunk**. Every individual request looked like a person. With a second identity
+polling `/` → `/en` around the clock it held 1 857 of 4 181 reported pageviews.
+
+So after the per-request rules, a whole-window pass groups requests by
+User-Agent and demotes an identity out of the audience **only when all three**
+hold:
+
+1. it produced **≥ 100 human pageviews** in the window (`--automation-threshold`);
+2. it fetched **exactly zero** static assets across the whole window;
+3. it was active on **≥ 5 days**.
+
+Below **10 days** of data the pass suppresses itself and changes nothing, and
+says so in the report.
+
+**The asymmetry, and why the floor is high.** Fetching an asset *proves* a
+browser; never fetching one is evidence only *at volume*. Cloudflare serves
+`/_next/static` from the edge (immutable, cached a year) and the browser cache
+serves it again, so a returning reader's page requests reach the origin alone:
+61–64% of ordinary reader User-Agents here fetch **no** asset at all. Zero
+assets is the *normal* condition of a real reader. Over 15 days the largest
+innocent zero-asset User-Agent held 42 pageviews and the smaller of the two
+scraper pools held 415 — a 9.9× gap with nothing inside it. A floor of 20 would
+have destroyed 931 genuine pageviews across 32 real reader populations.
+**Do not lower `--automation-threshold` without re-measuring that gap.**
+
+**How it fails, in both directions** — the report prints all of this in its
+footnotes, every run:
+
+| Failure | Direction |
+|---|---|
+| The verdict is per **User-Agent string**, not per person, so a demoted string takes any real reader sending that exact string with it. | Deletes readers |
+| A scraper that fetches **one asset per window** defeats the test entirely — one fetch exempts an identity. | Keeps bots |
+| It is scoped to the report's window, so a different `--since` can reach a different verdict about the same User-Agent. | Both |
+| Fetching assets never *whitelists* anything: `Baiduspider-render` fetches `/_next/static/chunks/*.js`, and the signature catalogue still outranks behaviour. | — |
+
+It is a **report-time** judgement and is never written back into the store:
+stored rows keep the per-request verdict, so `ingest --reingest` stays
+reproducible and the rule can be revised as evidence accrues. The subtraction
+appears as its own row in the DATA QUALITY funnel, and every demoted
+User-Agent is named with its evidence under `SUSPECTED AUTOMATION (DEMOTED)` in
+the automated appendix.
+
+### Log access (the `adm` group)
+
+nginx logs are `0640 www-data:adm`, so reading them needs `adm` membership:
+
+```bash
+# One time, then log out and back in.
+sudo usermod -aG adm <user>
+```
+
+**Group membership only applies to NEW login sessions.** After running it, log
+out and back in — or, for the current shell only, `newgrp adm`. Check with
+`id -nG`. The systemd unit gets there its own way, via
+`SupplementaryGroups=adm`, so the nightly timer works whether or not you ever
+add yourself. If it is missing, the tool tells you exactly this and exits 1
+rather than silently reporting zero.
+
+### Legacy vs extended logs — read this before trusting a trend
+
+The tool reads **both** the old combined-format `access.log` and the new
+extended JSON log, in the same run and the same report, detecting the format
+**per line** (a rotated file spans the reload boundary and legitimately holds
+both). Every report opens with a `DATA COVERAGE` banner naming the exact date
+range held and which dimensions were unavailable for part of it.
+
+For days before the nginx change, these are **suppressed with a stated reason,
+not zeroed**: country, unique visitors, sessions, bounce, pages/visit, duration,
+the language × locale matrix, all client-hint dimensions, the
+hard/soft/prefetch split, and all latency. Still available on legacy days:
+pageviews, locale split, top articles, entry pages, 404s, acquisition channel,
+browser/OS/device from the User-Agent, time-of-day — and, importantly,
+Cloudflare provenance and forged-crawler detection, which work on old logs with
+no nginx change at all.
+
+**The one trap:** legacy lines carry no prefetch header, so `?_rsc=` requests
+are excluded from legacy pageviews entirely, making them hard navigations only —
+a **lower bound**. The day the nginx change lands, the pageview series steps up
+for methodological reasons. That is a measurement change, not growth, and the
+report labels it. Do not read that step as a traffic win.
+
+### Reading the numbers
+
+Three caveats worth carrying in your head, all of which the report also prints
+in its footer:
+
+* **Bots are excluded, and the subtraction is shown.** The bot percentage is a
+  share of *requests reaching the origin*, not of all traffic — Cloudflare
+  already absorbed an unknown amount at the edge.
+* **Bounce rate is an upper bound.** App Router back/forward navigation emits no
+  request, so some engaged visits are indistinguishable from a single-page one.
+* **Visitor counts undercount.** Carrier NAT (Kyivstar, Vodafone, lifecell)
+  merges several people behind one address, so the true figure is *higher* than
+  reported. The bias has a known direction, which is why the number is still
+  worth printing.
+
+One condition to be aware of and **not** to fix: the vhost listens on IPv4 only,
+and over IPv6 another vhost owns the default. Harmless today, because Cloudflare
+only reaches the origin over IPv6 if an AAAA record exists. But **if an AAAA
+origin record is ever added, cyberalertx traffic silently starts being served by
+another vhost and vanishes from this log.** The symptom is the new log staying
+empty while traffic flows. Do not "fix" it by adding `listen [::]:443` to this
+vhost — it sorts first alphabetically and would steal the IPv6 default from
+whichever sibling vhost currently holds it.
 
 ---
 
@@ -608,6 +1021,28 @@ sudo -u <user> jq '.counters.ai_renders_success' \
 × $0.009 ≈ ~ to-date spend on Haiku. Wildly different → check the
 console for model fallthrough (someone set `CYBERALERTX_AI_MODEL` to
 Sonnet/Opus by accident).
+
+### 9. Audience numbers are still plausible
+
+```bash
+sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
+  && python -m server.analytics report --since 7d'
+```
+
+Expected: ~290 human pageviews/day, EN/UA roughly 71/29. A sudden jump into
+the thousands means the bot filter broke, not that the site went viral —
+check Cloudflare provenance filtering, the `/healthz` path exclusion, and
+prefetch filtering, in that order. Also confirm the nightly ingest is
+actually running:
+
+```bash
+systemctl list-timers --no-pager | grep analytics
+sudo journalctl -u cyberalertx-analytics.service --since "48 hours ago" | tail -20
+```
+
+A gap in ingest is unrecoverable once logrotate drops the source file, so
+`python -m server.analytics status` reporting missing days is worth acting
+on the same week.
 
 ---
 
@@ -786,6 +1221,8 @@ Postgres data lives on Supabase — restore via their dashboard
 | Delete a post that slipped through | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
 | Editorial reset (after prompt change) | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.scripts.refresh_feed --regen'` |
 | Pull prod logs | `ssh <user>@<your-domain> 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
+| Pull the audience report | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.analytics report --since 7d'` |
+| Check the analytics store | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.analytics status'` |
 | Check AI timer next-fire | `ssh <user>@<your-domain> 'systemctl list-timers --no-pager \| grep generate'` |
 | Pull prod data backup | `scp <user>@<your-domain>:~/backups/data-*.tar.gz ~/Downloads/` |
 | Sync local → prod data | `rsync -avz data/ <user>@<your-domain>:<app-dir>/data/` |
