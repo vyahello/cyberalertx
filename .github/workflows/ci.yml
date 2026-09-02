@@ -104,6 +104,11 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          # sshd does not listen on 22 on this box. Carried as a secret rather
+          # than written here: this repository is public, and publishing the
+          # port would undo the reason it was moved. Falls back to 22 so a fork
+          # or a box that never moved it still works without the secret set.
+          port: ${{ secrets.VPS_PORT || 22 }}
           # Fail the job if any deploy command exits non-zero.
           script_stop: true
           # npm ci + next build can take a few minutes.
