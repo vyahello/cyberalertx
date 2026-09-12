@@ -17,7 +17,7 @@ server/
 │   ├── cyberalertx-generate.service       AI render one-shot (fires from timer)
 │   ├── cyberalertx-generate.timer         Every 6h, runs the generate one-shot
 │   ├── cyberalertx-telegram.service       Telegram publish one-shot (fires from timer)
-│   ├── cyberalertx-telegram.timer         Every 6h (+15m), publishes to TG channels
+│   ├── cyberalertx-telegram.timer         10x/day (+15m), publishes to TG channels
 │   ├── cyberalertx-analytics.service      visitor-stats ingest one-shot (fires from timer)
 │   └── cyberalertx-analytics.timer        daily 03:00, pulls new log lines into the store
 ├── nginx/
