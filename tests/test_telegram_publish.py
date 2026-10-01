@@ -156,7 +156,7 @@ def test_render_message_structure_and_link() -> None:
     # Quick facts still stay out of the message — they're a spec sheet, and
     # the channel's job is "what happened, what do I do".
     assert deep_link("https://cyberalertx.com", "en", item.fingerprint) in msg
-    assert ">Read more</a>" in msg
+    assert ">Read more — the full brief</a>" in msg
 
 
 def test_plain_summary_leads_then_the_specifics_follow() -> None:
@@ -595,7 +595,15 @@ def test_urgent_hashtag_never_disagrees_with_the_push() -> None:
     assert "#urgent" in _hashtags(high)
 
 
-def test_message_leads_with_self_check_then_actions() -> None:
+def test_self_checks_stay_off_the_card_when_there_is_an_action() -> None:
+    """One block, not two.
+
+    The card used to carry a self-check section above the actions. Together
+    with "What not to do" and "If you're already affected" that was four
+    headings and a median of eight bullets, which the owner read as a wall.
+    The title and the two summary paragraphs already name the affected
+    product, so the checks stay on the detail page.
+    """
     item = _item("sc")
     payload = _payload(item, "en", title="Chrome bug", summary="Update Chrome.",
                        actions=["Update Chrome from the menu."])
@@ -603,10 +611,9 @@ def test_message_leads_with_self_check_then_actions() -> None:
         "Open Chrome menu > Help > About. Below 126 is affected.",
     ]
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "🔎 <b>Check if this affects you</b>" in msg
-    # "does this affect me" must come before "what to do" — a reader whose
-    # answer is "no" should stop reading there.
-    assert msg.index("🔎") < msg.index("✅")
+    assert "✅ <b>What to do</b>" in msg
+    assert "Check if this affects you" not in msg
+    assert msg.count("<b>") == 2  # the headline and the one block heading
 
 
 def test_message_names_the_other_outlets_that_reported_it() -> None:
@@ -726,8 +733,11 @@ def test_message_renders_what_not_to_do() -> None:
         "Don't click links in emails about this breach.",
     ]
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "What not to do" in msg
-    assert "Don't click links in emails about this breach." in msg
+    # No separate heading any more — the bullet joins the single block. It
+    # survives the merge unlabelled because every one of these opens with
+    # "Don't" or "Не", so it still reads correctly without its own heading.
+    assert "What not to do" not in msg
+    assert "• Don't click links in emails about this breach." in msg
 
 
 def test_audience_replaces_the_check_heading_when_there_is_no_check() -> None:
@@ -775,3 +785,120 @@ def test_three_actions_are_rendered_not_two() -> None:
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
     for action in payload["translations"]["en"]["what_to_do"]:
         assert action in msg
+
+
+# --------------------- the single action block -----------------------------
+
+def test_four_blocks_collapse_into_one() -> None:
+    """The card carries one heading, whatever the post holds.
+
+    Measured before this change: 119 of 173 UA posts and 109 of 135 EN posts
+    rendered all four headed sections, a median of eight bullets and ~1200
+    characters. The complete checklist stays on the detail page.
+    """
+    item = _item("one")
+    payload = _payload(item, "en", title="Router bug", summary="Patch shipped.",
+                       actions=["Install firmware 2.1.", "Reboot the router."])
+    c = payload["translations"]["en"]
+    c["am_i_affected"] = ["Open the admin page and read the firmware version."]
+    c["what_not_to_do"] = ["Don't expose the admin page to the internet."]
+    c["if_already_affected"] = ["Reset the admin password after the update."]
+
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert msg.count("✅") == 1
+    for gone in ("Check if this affects you", "What not to do",
+                 "If you're already affected", "🔎", "⛔", "🆘"):
+        assert gone not in msg, gone
+    assert len([l for l in msg.split("\n") if l.startswith("•")]) == 3
+
+
+def test_the_block_mixes_actions_with_the_warning() -> None:
+    """Two actions then the anti-pattern. A warning is a different speech act
+    from the two steps above it, so it covers ground a third action would
+    not, and it needs no heading: every such bullet opens with "Don't"."""
+    item = _item("mix")
+    payload = _payload(item, "en", title="T", summary="S",
+                       actions=["Install the update.", "Reboot after installing.",
+                                "Audit exposed hosts."])
+    payload["translations"]["en"]["what_not_to_do"] = [
+        "Don't wait for your next maintenance window.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "• Install the update." in msg
+    assert "• Reboot after installing." in msg
+    assert "• Don't wait for your next maintenance window." in msg
+    assert "Audit exposed hosts" not in msg   # the quota held the third action
+
+
+def test_a_recovery_step_promoted_into_the_block_keeps_its_condition() -> None:
+    """Recovery bullets are bare imperatives — "Rotate…", "Reset…", «Змініть».
+
+    Under a generic heading they would read as instructions to every reader,
+    telling uncompromised people to rotate every token they own. So a
+    promoted recovery step carries its condition inline.
+    """
+    item = _item("rec")
+    payload = _payload(item, "en", title="T", summary="S",
+                       actions=["Update Chrome to 126."])
+    payload["translations"]["en"]["if_already_affected"] = [
+        "Change your password from another device.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "• If it already hit you: change your password from another device." in msg
+
+
+def test_the_block_drops_a_bullet_that_repeats_one_already_chosen() -> None:
+    """The model writes one instruction into two lists. On the Cisco SD-WAN
+    post `what_to_do[1]` was "Remove SD-WAN Manager admin accounts that
+    nobody on your team created" and `if_already_affected[0]` was "Disable
+    any SD-WAN Manager admin account that nobody on your team created".
+    Merging without suppression reads worse than four headings did."""
+    item = _item("dup")
+    payload = _payload(item, "en", title="T", summary="S", actions=[
+        "Install the Catalyst SD-WAN Manager security update.",
+        "Remove SD-WAN Manager admin accounts that nobody on your team created.",
+    ])
+    payload["translations"]["en"]["if_already_affected"] = [
+        "Disable any SD-WAN Manager admin account that nobody on your team created.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "If it already hit you" not in msg
+    assert len([l for l in msg.split("\n") if l.startswith("•")]) == 2
+
+
+def test_a_post_with_only_a_warning_still_gets_a_block() -> None:
+    """The quotas shape a full block; they must not empty a thin one."""
+    item = _item("warn")
+    payload = _payload(item, "en", title="T", summary="S", actions=[])
+    payload["translations"]["en"]["what_not_to_do"] = [
+        "Don't reuse the password from this leak anywhere else.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "• Don't reuse the password from this leak anywhere else." in msg
+
+
+def test_checks_carry_the_block_when_there_is_no_instruction_at_all() -> None:
+    item = _item("chk")
+    payload = _payload(item, "en", title="T", summary="S", actions=[])
+    payload["translations"]["en"]["am_i_affected"] = [
+        "Run 'uname -r'. Kernels 6.1 to 6.7 are affected.",
+    ]
+    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+    assert "🔎 <b>Check if this affects you</b>" in msg
+    assert "✅" not in msg
+
+
+def test_the_read_more_label_never_varies() -> None:
+    """It used to be picked from three strings depending on what the detail
+    page held, so the channel showed "Read more — full analysis and the
+    facts" on one post and "Read more — why it's rated this way" on the next.
+    The owner read that as two different links."""
+    item = _item("lbl")
+    rich = _payload(item, "en", title="T", summary="S", actions=["Do it."])
+    rich["translations"]["en"]["detail_body"] = "Long analysis."
+    rich["translations"]["en"]["severity_reason"] = "Because reasons."
+    bare = _payload(_item("lbl2"), "en", title="T", summary="S", actions=["Do it."])
+
+    for payload in (rich, bare):
+        msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
+        assert ">Read more — the full brief</a>" in msg

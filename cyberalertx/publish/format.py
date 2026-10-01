@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any
+from typing import Any, Sequence
 
 # Bare CVE identifiers (e.g. "CVE-2026-45247") that the AI writes into the
 # summary / quick facts are plain text — Telegram doesn't auto-link them. We
@@ -33,13 +33,24 @@ _LEVEL_EMOJI = {
 # summary if a render is unusually long.
 _MAX_SUMMARY_CHARS = 600
 
-# Telegram slices. Three actions, not two: nearly every cached post carries
-# three after hygiene and the median rendered message is ~826 chars — 20% of
-# Telegram's 4096 cap — so cutting the third bought nothing and cost the 4G/5G
-# post its only consumer-usable step ("Увімкніть Wi-Fi Calling…").
+# ONE action block, not four.
+#
+# The card used to carry "Check if this affects you", "What to do", "What not
+# to do" and "If you're already affected" as separate headed sections. On the
+# live corpus that was four headings and a median of EIGHT bullets on 69% of
+# UA posts and 81% of EN posts — the owner's words were "дуже муляє очі ці 4
+# блоки". A phone reader scrolls past a wall like that; the detail page is
+# where the complete checklist belongs.
+#
+# So the card now prints a single block of at most three lines, drawn from
+# those lists in priority order. The quotas below are what keep the mix
+# useful rather than three restatements of one instruction.
+_MAX_BLOCK_BULLETS = 3
+_QUOTA_ACTIONS = 2
+_QUOTA_AVOID = 1
+_QUOTA_RECOVERY = 1
+#: Fallback paths, used only when there is no action to show at all.
 _MAX_CHECKS = 2
-_MAX_ACTIONS = 3
-_MAX_AVOID = 2
 _MAX_AUDIENCE = 3
 
 # `short_summary` opens with a source-attribution clause by contract
@@ -73,6 +84,113 @@ _OUTLET_TOKENS: frozenset[str] = frozenset({
 
 def _bullets(values: Any, limit: int) -> list[str]:
     return [str(v).strip() for v in (values or []) if str(v).strip()][:limit]
+
+
+#: Function words, so the duplicate check compares what a bullet is ABOUT.
+#: Both languages are listed because either can appear in either locale's
+#: payload — a UA render routinely carries English product names, and the
+#: comparison must not call two bullets alike on "the" and "your".
+_DUP_STOPWORDS: frozenset[str] = frozenset({
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "your",
+    "you", "that", "any", "is", "are", "it", "this", "with", "from", "at",
+    "by", "be", "not", "no", "do", "don", "if", "all", "after", "every",
+    "і", "й", "та", "у", "в", "на", "з", "із", "до", "що", "це", "як",
+    "для", "якщо", "не", "а", "о", "вже", "усі", "всі", "свої", "своїх",
+})
+_DUP_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
+
+#: Two bullets saying the same thing in different words. Measured against the
+#: live corpus: the model routinely writes one instruction into two lists —
+#: on the Cisco SD-WAN post `what_to_do[1]` is "Remove SD-WAN Manager admin
+#: accounts that nobody on your team created" while `if_already_affected[0]`
+#: is "Disable any SD-WAN Manager admin account that nobody on your team
+#: created". Merging the lists without this check reads WORSE than the four
+#: separate headings did.
+_DUP_JACCARD = 0.6
+#: Containment catches the other shape: one bullet restating another in fewer
+#: words, where Jaccard is dragged down by the longer bullet's extra clause.
+_DUP_CONTAINMENT = 0.8
+
+
+def _content_words(text: str) -> frozenset[str]:
+    return frozenset(
+        w for w in (t.lower() for t in _DUP_WORD_RE.findall(text or ""))
+        if len(w) > 2 and w not in _DUP_STOPWORDS
+    )
+
+
+def _is_near_duplicate(candidate: str, chosen: Sequence[str]) -> bool:
+    """True when `candidate` repeats something already selected."""
+    cand = _content_words(candidate)
+    if not cand:
+        return False
+    for other in chosen:
+        seen = _content_words(other)
+        if not seen:
+            continue
+        if len(cand & seen) / len(cand | seen) >= _DUP_JACCARD:
+            return True
+        if len(cand & seen) / min(len(cand), len(seen)) >= _DUP_CONTAINMENT:
+            return True
+    return False
+
+
+def _action_block(content: dict[str, Any], copy: dict[str, str]) -> tuple[str, list[str]]:
+    """The card's single block: (heading, bullets).
+
+    Priority is actions, then the anti-pattern, then recovery, and the
+    ordering is not a preference — it is what the bullets themselves allow.
+
+      * `what_not_to_do` is self-labelling. Every one of the 406 such bullets
+        in the live corpus opens with "Не" or "Don't", so it still reads
+        correctly once its heading is gone, and it earns a slot because a
+        warning is a different speech act from the two actions above it.
+      * `if_already_affected` is NOT self-labelling. Those bullets are bare
+        imperatives — "Змініть", "Перевірте", "Rotate", "Reset" — which under
+        a generic heading would tell every reader to rotate every token they
+        own. It is therefore prefixed with its condition, and only fills a
+        slot the warning left empty.
+      * `am_i_affected` stays off the card entirely while any action exists:
+        the title and the two summary paragraphs already name the affected
+        product, and the detail page keeps the checks.
+
+    Returns the check heading instead when there is no action to show, so the
+    block never promises a step it cannot supply.
+    """
+    actions = _bullets(content.get("what_to_do"), 99)
+    avoid = _bullets(content.get("what_not_to_do"), 99)
+    recovery = _bullets(content.get("if_already_affected"), 99)
+
+    chosen: list[str] = []
+
+    def take(pool: Sequence[str], quota: int, prefix: str = "") -> None:
+        used = 0
+        for bullet in pool:
+            if len(chosen) >= _MAX_BLOCK_BULLETS or used >= quota:
+                return
+            if _is_near_duplicate(bullet, chosen):
+                continue
+            if prefix:
+                bullet = prefix + bullet[:1].lower() + bullet[1:]
+            chosen.append(bullet)
+            used += 1
+
+    take(actions, _QUOTA_ACTIONS)
+    take(avoid, _QUOTA_AVOID)
+    take(recovery, _QUOTA_RECOVERY, prefix=copy["already_prefix"])
+    # Top up rather than ship a one-line block: first with the actions the
+    # quota held back, then with the other two lists, so a post carrying only
+    # a warning still gets one. The quotas shape a full block; they must not
+    # empty a thin one.
+    take(actions, _MAX_BLOCK_BULLETS)
+    take(avoid, _MAX_BLOCK_BULLETS)
+    take(recovery, _MAX_BLOCK_BULLETS, prefix=copy["already_prefix"])
+    if chosen:
+        return (copy["do"], chosen)
+
+    # No instruction of any kind. Fall back to the self-checks, which is the
+    # only other thing a reader can act on.
+    return (copy["check"], _bullets(content.get("am_i_affected"), _MAX_CHECKS))
 
 
 def _strip_attribution(text: str, locale: str) -> str:
@@ -192,16 +310,24 @@ def quality_problem(payload: dict[str, Any], *, locale: str) -> str | None:
         for n, a in enumerate(content.get("what_to_do") or [])
         if str(a).strip()
     ]
+    # Not sliced to what the renderer happens to show: `_action_block` picks
+    # across all three lists and the selection shifts with the post's
+    # content, so the gate inspects every bullet that could reach the card.
     checked += [
         (f"what_not_to_do[{n}]", str(a).strip())
         for n, a in enumerate(content.get("what_not_to_do") or [])
         if str(a).strip()
-    ][:_MAX_AVOID]
+    ]
+    checked += [
+        (f"if_already_affected[{n}]", str(a).strip())
+        for n, a in enumerate(content.get("if_already_affected") or [])
+        if str(a).strip()
+    ]
     checked += [
         (f"am_i_affected[{n}]", str(a).strip())
         for n, a in enumerate(content.get("am_i_affected") or [])
         if str(a).strip()
-    ][:_MAX_CHECKS]
+    ]
     # `affected_users` is DELIBERATELY not checked. Its entries are 3-6-word
     # labels like "Адміни TeamCity On-Premises", where the Latin product name
     # pushes the script ratio past `_TARGET_LANGUAGE_MIN_RATIO`. A large share
@@ -225,56 +351,36 @@ def quality_problem(payload: dict[str, Any], *, locale: str) -> str | None:
 # same skeleton.
 _COPY: dict[str, dict[str, str]] = {
     "en": {
-        "read_more": "Read more",
-        # Named payoffs for the link. The message already carries the
-        # summary, the checks and the actions, so a bare "Read more" asks
-        # for a tap without saying what is on the other side. Each of these
-        # is only used when the post actually has that content.
-        "more_analysis": "Read more — full analysis and the facts",
-        "more_severity": "Read more — why it's rated this way",
-        "more_sources": "Read more — the reporting behind this",
+        # One label, always. It used to be picked from three strings
+        # depending on whether the post had an analysis section, a severity
+        # rationale or corroborating outlets, which meant the channel showed
+        # "Read more — full analysis and the facts" on one post and "Read
+        # more — why it's rated this way" on the next. The owner read that as
+        # two different links. It is honest on every post: `severity_reason`
+        # is present on 100% of the corpus and never appears on the card, and
+        # the card now shows at most three of the steps the page carries.
+        "read_more": "Read more — the full brief",
         "check": "Check if this affects you",
         "affects": "Who this affects",
         "do": "What to do",
-        "avoid": "What not to do",
+        #: Prefix for a recovery step promoted into the single block. Those
+        #: bullets are bare imperatives ("Rotate…", "Reset…") that would read
+        #: as instructions to everyone without their original heading.
+        "already_prefix": "If it already hit you: ",
         "reported_by": "Also reported by",
         "source": "Source",
-        "already": "If you're already affected",
     },
     "ua": {
-        "read_more": "Читати більше",
-        "more_analysis": "Читати більше — розбір і деталі",
-        "more_severity": "Читати більше — чому саме такий рівень",
-        "more_sources": "Читати більше — на чому це ґрунтується",
+        "read_more": "Читати більше — повний розбір",
         "check": "Перевірте, чи це вас стосується",
         "affects": "Кого це стосується",
         "do": "Що робити",
-        "avoid": "Чого не робити",
+        "already_prefix": "Якщо вже зачепило: ",
         "reported_by": "Також повідомили",
         "source": "Джерело",
-        "already": "Якщо вас це вже зачепило",
     },
 }
 
-
-def _read_more_label(
-    payload: dict[str, Any], content: dict[str, Any], copy: dict[str, str],
-) -> str:
-    """Pick the link label that names what the detail page actually adds.
-
-    Ordered by how much the extra content is worth to a reader who has just
-    finished the message: the analysis is the biggest payoff, then the
-    severity rationale, then the corroborating reporting. Falls back to a
-    plain "Read more" when the post has none of them, so the label never
-    promises something the page does not have.
-    """
-    if str(content.get("detail_body") or "").strip():
-        return copy.get("more_analysis", copy["read_more"])
-    if str(content.get("severity_reason") or "").strip():
-        return copy.get("more_severity", copy["read_more"])
-    if payload.get("corroborating_sources"):
-        return copy.get("more_sources", copy["read_more"])
-    return copy["read_more"]
 
 # Hashtags make a post findable inside Telegram's own search and let readers
 # follow one theme across the channel. Only a small curated set — a wall of
@@ -348,32 +454,27 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
 
         The specifics: named product, named actor, the numbers.
 
-        🔎 Check if this affects you       (or 👥 Who this affects)
-        • self-check step
-
-        ✅ What to do
+        ✅ What to do                      (or 🔎 Check if this affects you,
+        • action                            or 👥 Who this affects)
         • action
-        • action
-        • action
-
-        ⛔ What not to do
-        • anti-pattern
-
-        🆘 If you're already affected
-        • recovery step
+        • Don't … / If it already hit you: …
 
         Also reported by BleepingComputer, CISA
         Source: The Hacker News
-        🔗 Read more — full analysis and the facts
+        🔗 Read more — the full brief
         #vulnerability #Windows
+
+    ONE block of at most three lines, not four headed sections. The complete
+    checklist — every check, every action, every recovery step — stays on the
+    detail page, which is what the read-more link is for.
 
     Sections are omitted rather than padded when the post has no content for
     them, so a thin advisory produces a short post instead of a scaffold of
     empty headings.
 
-    The check heading has exactly three outcomes and never a fourth: real
-    self-checks, else the audience, else nothing. We never print a heading
-    that promises a check and then withholds one.
+    The block has exactly three outcomes and never a fourth: the actions,
+    else the self-checks when there is no action, else the audience. We never
+    print a heading that promises something the post cannot supply.
 
     Raises KeyError/ValueError if the payload lacks the requested locale's
     translation — the caller treats that as "skip this post" (degrade-and-log).
@@ -420,49 +521,31 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
         lines.append("")
         lines.append(_text(detail))
 
-    # "Does this affect me?" is the first question a non-expert has. Three
-    # outcomes, never a fourth:
-    #   * real self-checks                → print them under the check heading
-    #   * none, but we know the audience  → print the audience
-    #   * neither                         → print nothing
-    # We never print a heading that promises a check and then withholds one.
-    # `affected_users` is populated on every cached post with specific labels;
-    # `who_should_care` is NOT usable here — it collapses to the string
-    # "Фахівці з кібербезпеки" on a large share of the posts this branch serves.
-    checks = _bullets(content.get("am_i_affected"), _MAX_CHECKS)
-    if checks:
+    # The card's single action block. At most three lines, drawn across
+    # what_to_do, what_not_to_do and if_already_affected — see
+    # `_action_block` for why that order is forced rather than preferred.
+    #
+    # This replaced four separate headed sections. On the live corpus those
+    # produced a median of eight bullets under four headings on 69% of UA
+    # posts and 81% of EN posts, which is a wall to scroll past on a phone.
+    # The complete checklist stays on the detail page, which is what the
+    # read-more link is for.
+    #
+    # Three outcomes, never a fourth: the action block, else the self-check
+    # heading when the post has no action, else the audience. We do not print
+    # a heading that promises something the post cannot supply.
+    heading, block = _action_block(content, copy)
+    if block:
+        icon = "✅" if heading == copy["do"] else "🔎"
         lines.append("")
-        lines.append(f"🔎 <b>{_text(copy['check'])}</b>")
-        lines.extend(f"• {_text(c)}" for c in checks)
+        lines.append(f"{icon} <b>{_text(heading)}</b>")
+        lines.extend(f"• {_text(b)}" for b in block)
     else:
         audience = _bullets(content.get("affected_users"), _MAX_AUDIENCE)
         if audience:
             lines.append("")
             lines.append(f"👥 <b>{_text(copy['affects'])}</b>")
             lines.extend(f"• {_text(a)}" for a in audience)
-
-    actions = _bullets(content.get("what_to_do"), _MAX_ACTIONS)
-    if actions:
-        lines.append("")
-        lines.append(f"✅ <b>{_text(copy['do'])}</b>")
-        lines.extend(f"• {_text(a)}" for a in actions)
-
-    # Anti-patterns. Present on every cached post and rendered on none of them
-    # until now, which meant the channel never carried the single most
-    # protective sentence in a breach post ("Не переходьте за посиланнями з
-    # листів про цей витік").
-    avoid = _bullets(content.get("what_not_to_do"), _MAX_AVOID)
-    if avoid:
-        lines.append("")
-        lines.append(f"⛔ <b>{_text(copy['avoid'])}</b>")
-        lines.extend(f"• {_text(a)}" for a in avoid)
-
-    # Recovery path for readers who are already past the point of prevention.
-    recovery = _bullets(content.get("if_already_affected"), 2)
-    if recovery:
-        lines.append("")
-        lines.append(f"🆘 <b>{_text(copy['already'])}</b>")
-        lines.extend(f"• {_text(r)}" for r in recovery)
 
     lines.append("")
 
@@ -487,7 +570,7 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
 
     lines.append(
         f'🔗 <a href="{_esc(link)}">'
-        f'{_text(_read_more_label(payload, content, copy))}</a>'
+        f'{_text(copy["read_more"])}</a>'
     )
 
     tags = _hashtags(payload)
