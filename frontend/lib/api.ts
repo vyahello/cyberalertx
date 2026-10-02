@@ -164,14 +164,31 @@ export async function fetchFeedHealth(
 
 /** Submit one feedback record. Returns true on accept, false otherwise.
  *  Failures are silent — feedback is fire-and-forget, never blocking. */
-export async function submitFeedback(
-  body: { id: string; locale: "en" | "ua"; signal: string },
-): Promise<boolean> {
+export type FeedbackVote = "up" | "down" | "none";
+export type FeedbackReason =
+  | "too_vague"
+  | "too_technical"
+  | "incorrect"
+  | "not_relevant";
+
+/** One click on the "Was this helpful?" widget.
+ *
+ *  A vote says what it replaces (`previous`), so the server can keep exact
+ *  counts when a reader switches or takes a vote back, without any reader
+ *  identifier. A reason is sent separately, after a 👎, and is optional. */
+export type FeedbackSubmission =
+  | { kind: "vote"; id: string; locale: "en" | "ua"; vote: FeedbackVote; previous: FeedbackVote }
+  | { kind: "reason"; id: string; locale: "en" | "ua"; reason: FeedbackReason };
+
+export async function submitFeedback(body: FeedbackSubmission): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
+      // The reader may navigate away the moment they click; let the request
+      // finish anyway.
+      keepalive: true,
     });
     return res.ok;
   } catch {

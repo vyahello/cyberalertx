@@ -22,18 +22,27 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import secrets
 import threading
+import time
+from collections import deque
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from ..ai.detail_context import detail_context_for
 from ..ai.generator import ContentGenerator, build_default_generator
 from ..ai.hygiene import clean_localized_content
 from ..ai.models import ThreatPost
 from ..config import DATA_DIR, SETTINGS
+from ..feedback import FeedbackError, append_record, parse_submission, read_records, summarize
+from .admin_feedback import render_feedback_page
 from ..models import NewsItem
 from ..observability import get_quality_metrics, get_source_health
 from ..pipeline.dedup import collapse_duplicates
@@ -41,6 +50,21 @@ from ..pipeline.signals import extract_signals, potential_impact, who_should_car
 from ..storage.json_store import JsonNewsStore
 
 logger = logging.getLogger(__name__)
+
+#: The admin password must be long enough that guessing it over HTTP is not a
+#: plan. 24 characters of `openssl rand -hex 32` output is far past that; the
+#: floor exists to refuse an accidental "admin123", not to define strength.
+_MIN_ADMIN_TOKEN_LEN = 24
+
+#: /feedback is the only public write. These bound what a flood can cost.
+#: The rate is site-wide rather than per client on purpose: the origin is
+#: reachable directly, so any client address the app sees can be forged, and
+#: a per-IP limit would be one header away from useless. 120 votes a minute
+#: is far beyond organic traffic for this site.
+_FEEDBACK_MAX_PER_MINUTE = 120
+#: ~150 bytes a record, so this is over 100k votes — well past organic volume.
+#: Past it, writes stop rather than fill the disk.
+_FEEDBACK_MAX_BYTES = 20 * 1024 * 1024
 
 
 # ----------- homepage ranking ------------------------------------------
@@ -465,6 +489,7 @@ def build_app(
     *,
     service: _PostService | None = None,
     cors_origins: list[str] | None = None,
+    feedback_path: Path | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
@@ -838,12 +863,54 @@ def build_app(
         ]
         return payload
 
-    # ----- observability ------------------------------------------------
-    # These routes give a developer JSON visibility into pipeline health
-    # without building an admin UI. They are intentionally namespaced
-    # `/admin/*` so a reverse proxy can lock them down with one rule.
+    # ----- admin authentication ----------------------------------------
+    # Every /admin/* route depends on this. They used to be public: anyone
+    # could read the AI provider's error counts and per-source ingest health,
+    # and the origin answers direct requests on its IP, so a Cloudflare rule
+    # alone would not have closed it. The check therefore lives here, at the
+    # origin, where nothing can route around it.
 
-    @app.get("/admin/metrics", tags=["meta"])
+    _basic = HTTPBasic(auto_error=False)
+
+    def _require_admin(
+        credentials: HTTPBasicCredentials | None = Depends(_basic),
+    ) -> None:
+        """HTTP Basic, checked against CYBERALERTX_ADMIN_TOKEN.
+
+        Basic rather than a `?token=` query parameter because nginx logs the
+        full request URI into the analytics store — a token in the URL would
+        be written to disk on every visit. The browser shows its own login
+        prompt; any username is accepted, the password is the token.
+
+        Fails CLOSED. With no token configured — or one too short to resist
+        guessing — the routes do not serve, so no deploy can expose them by
+        default. Read per request rather than at import, so setting it needs
+        only a restart.
+        """
+        expected = os.getenv("CYBERALERTX_ADMIN_TOKEN", "").strip()
+        if len(expected) < _MIN_ADMIN_TOKEN_LEN:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Admin access is not configured: set CYBERALERTX_ADMIN_TOKEN "
+                    f"to a random value of at least {_MIN_ADMIN_TOKEN_LEN} characters."
+                ),
+            )
+        supplied = credentials.password if credentials else ""
+        if not secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required.",
+                headers={"WWW-Authenticate": 'Basic realm="CyberAlertX admin"'},
+            )
+
+    _admin = [Depends(_require_admin)]
+
+    # ----- observability ------------------------------------------------
+    # JSON visibility into pipeline health. Namespaced `/admin/*` and behind
+    # `_require_admin` like every other route under that prefix.
+
+    @app.get("/admin/metrics", tags=["meta"], dependencies=_admin)
     def admin_metrics() -> dict[str, Any]:
         """Quality + AI-rejection counters since the metrics file was created.
 
@@ -854,7 +921,7 @@ def build_app(
         """
         return get_quality_metrics().as_dict()
 
-    @app.get("/admin/sources", tags=["meta"])
+    @app.get("/admin/sources", tags=["meta"], dependencies=_admin)
     def admin_sources() -> dict[str, Any]:
         """Per-source ingest health.
 
@@ -865,51 +932,102 @@ def build_app(
         """
         return get_source_health().as_dict()
 
-    # ----- internal feedback loop --------------------------------------
-    # A tiny "was this useful?" widget on detail pages POSTs here. We
-    # store one line per click in a JSONL file — append-only, no schema
-    # migration, no admin UI yet. Future prompt tuning reads this.
+    # ----- reader feedback ---------------------------------------------
+    # The 👍 / 👎 widget under every post POSTs here, and the editor reads the
+    # result at /admin/feedback. Validation and aggregation live in
+    # `cyberalertx/feedback.py`; this is only the HTTP edge.
 
-    _FEEDBACK_SIGNALS = frozenset({
-        "helpful", "too_vague", "too_technical", "incorrect", "not_relevant",
-    })
-    _feedback_path = DATA_DIR / "feedback.jsonl"
+    _feedback_path = feedback_path or (DATA_DIR / "feedback.jsonl")
     _feedback_lock = threading.Lock()
+    _feedback_recent: deque[float] = deque()
+    def _title_for(post_id: str, locale: str) -> str:
+        """The headline the reader actually saw, falling back to the source
+        title, then to the bare id. Cache-only: this page must never trigger
+        a render."""
+        cache = getattr(getattr(svc, "_generator", None), "_cache", None)
+        if cache is not None:
+            try:
+                post = cache.get(post_id, locale)
+            except Exception:  # pragma: no cover - defensive, cache is local
+                post = None
+            if post is not None and post.title:
+                return str(post.title)
+        for item in svc.list_items():
+            if item.fingerprint == post_id:
+                return item.title
+        return ""
+
+    def _summary() -> Any:
+        with _feedback_lock:
+            records = list(read_records(_feedback_path))
+        return summarize(records)
 
     @app.post("/feedback", tags=["feedback"])
     def submit_feedback(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-        """Append one feedback record. JSONL — one line per submission.
+        """Append one feedback record.
 
-        Body: `{"id": "<fingerprint>", "locale": "en|uk", "signal": "<one-of>"}`
+        v2 body: `{id, locale, kind: "vote", vote, previous}` or
+        `{id, locale, kind: "reason", reason}`. The v1 `{id, locale, signal}`
+        shape is still accepted, because cached copies of the old page keep
+        posting it for a while after a deploy.
 
-        We do NOT echo a running tally back. This endpoint is collection-
-        only; analytics happens offline by reading the file.
+        Collection only — nothing is echoed back. Readers never see a tally.
         """
-        post_id = (payload.get("id") or "").strip()
-        locale = (payload.get("locale") or "").strip()
-        signal = (payload.get("signal") or "").strip()
-        if not post_id or len(post_id) > 64:
-            raise HTTPException(status_code=400, detail="invalid id")
-        if locale not in ("en", "ua"):
-            raise HTTPException(status_code=400, detail="invalid locale")
-        if signal not in _FEEDBACK_SIGNALS:
-            raise HTTPException(status_code=400, detail="invalid signal")
-        record = {
-            "id": post_id,
-            "locale": locale,
-            "signal": signal,
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
         try:
-            _feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            record = parse_submission(payload)
+        except FeedbackError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with _feedback_lock:
+            now = time.monotonic()
+            while _feedback_recent and now - _feedback_recent[0] > 60.0:
+                _feedback_recent.popleft()
+            if len(_feedback_recent) >= _FEEDBACK_MAX_PER_MINUTE:
+                raise HTTPException(status_code=429, detail="too many requests")
+            _feedback_recent.append(now)
+        try:
+            if _feedback_path.exists() and _feedback_path.stat().st_size >= _FEEDBACK_MAX_BYTES:
+                logger.warning("feedback log at size cap; dropping writes")
+                raise HTTPException(status_code=429, detail="feedback is paused")
             with _feedback_lock:
-                with _feedback_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                append_record(_feedback_path, record)
         except OSError as exc:
-            # We never want a transient FS issue to surface as a 500 to the
-            # reader. Log it; respond OK; analytics will skip this record.
+            # A transient FS error must not surface to the reader as a 500.
             logger.warning("feedback append failed (%s)", exc)
         return {"ok": True}
+
+    @app.get(
+        "/admin/feedback",
+        tags=["meta"],
+        response_class=HTMLResponse,
+        dependencies=_admin,
+    )
+    def admin_feedback_page() -> HTMLResponse:
+        """What readers thought of each post, worst first."""
+        return HTMLResponse(
+            render_feedback_page(_summary(), title_for=_title_for),
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+        )
+
+    @app.get("/admin/feedback.json", tags=["meta"], dependencies=_admin)
+    def admin_feedback_json() -> dict[str, Any]:
+        """The same numbers as the page, for scripts."""
+        summary = _summary()
+        return {
+            "up": summary.up,
+            "down": summary.down,
+            "helpful_rate": summary.helpful_rate,
+            "votes_last_7d": summary.votes_last_7d,
+            "reasons": dict(summary.reasons),
+            "by_locale": {k: {"up": u, "down": d} for k, (u, d) in summary.by_locale.items()},
+            "posts": [
+                {
+                    "id": p.id, "locale": p.locale, "title": _title_for(p.id, p.locale),
+                    "up": p.up, "down": p.down, "reasons": dict(p.reasons),
+                    "last_at": p.last_at,
+                }
+                for p in summary.posts
+            ],
+        }
 
     return app
 

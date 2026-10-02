@@ -127,12 +127,18 @@ type StringTable = {
   freshness_days_ago: (n: number) => string;
   // Feedback widget
   feedback_prompt: string;
-  feedback_helpful: string;
-  feedback_too_vague: string;
-  feedback_too_technical: string;
-  feedback_incorrect: string;
-  feedback_not_relevant: string;
+  feedback_yes: string;
+  feedback_no: string;
+  /** After 👍. */
   feedback_thanks: string;
+  /** After 👎 — thanks, then the optional follow-up question. */
+  feedback_follow_up: string;
+  /** After a reason is picked. */
+  feedback_thanks_reason: string;
+  feedback_reason_too_vague: string;
+  feedback_reason_too_technical: string;
+  feedback_reason_incorrect: string;
+  feedback_reason_not_relevant: string;
   // Additional empty / unavailable copy
   empty_filter_hint: string;
   empty_backend_updating: string;
@@ -372,13 +378,16 @@ const EN: StringTable = {
   freshness_hours_ago: (n) => (n === 1 ? "1 hr ago" : `${n} hrs ago`),
   freshness_days_ago: (n) => (n === 1 ? "1 day ago" : `${n} days ago`),
   // --- feedback ---
-  feedback_prompt: "Was this brief useful?",
-  feedback_helpful: "Helpful",
-  feedback_too_vague: "Too vague",
-  feedback_too_technical: "Too technical",
-  feedback_incorrect: "Incorrect",
-  feedback_not_relevant: "Not relevant to me",
-  feedback_thanks: "Thanks — your signal helps us tune the briefings.",
+  feedback_prompt: "Was this helpful?",
+  feedback_yes: "Yes",
+  feedback_no: "No",
+  feedback_thanks: "Thanks for your feedback!",
+  feedback_follow_up: "Thanks! What could be better?",
+  feedback_thanks_reason: "Thanks for letting us know!",
+  feedback_reason_too_vague: "Too vague",
+  feedback_reason_too_technical: "Too technical",
+  feedback_reason_incorrect: "Inaccurate",
+  feedback_reason_not_relevant: "Not relevant to me",
   // --- empty states (additions) ---
   empty_filter_hint: "Try a different quick-view or clear the filters.",
   empty_backend_updating:
@@ -574,14 +583,19 @@ const UK: StringTable = {
   freshness_hours_ago: (n) => `${n} год тому`,
   freshness_days_ago: (n) => (n === 1 ? "1 день тому" : `${n} дн тому`),
   // --- feedback ---
-  feedback_prompt: "Чи був цей огляд корисним?",
-  feedback_helpful: "Корисно",
-  feedback_too_vague: "Надто загально",
-  feedback_too_technical: "Надто технічно",
-  feedback_incorrect: "Неточно",
-  feedback_not_relevant: "Не моя тема",
-  feedback_thanks:
-    "Дякуємо — ваш сигнал допомагає налаштувати огляди.",
+  // The site calls a post a «матеріал» everywhere else, so the prompt does
+  // too. The old thank-you line — «ваш сигнал допомагає налаштувати огляди»
+  // — was jargon ("signal", "tune") that told the reader nothing.
+  feedback_prompt: "Чи був цей матеріал корисним?",
+  feedback_yes: "Так",
+  feedback_no: "Ні",
+  feedback_thanks: "Дякуємо за відгук!",
+  feedback_follow_up: "Дякуємо! Що можна покращити?",
+  feedback_thanks_reason: "Дякуємо, що підказали!",
+  feedback_reason_too_vague: "Надто загально",
+  feedback_reason_too_technical: "Надто технічно",
+  feedback_reason_incorrect: "Є неточності",
+  feedback_reason_not_relevant: "Не моя тема",
   // --- empty states ---
   empty_filter_hint:
     "Спробуйте іншу підбірку або очистіть фільтри.",

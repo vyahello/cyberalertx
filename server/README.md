@@ -1264,3 +1264,43 @@ skip). Lift the cap by going Sonnet 4.6 (~3× cost) or bumping
 Scale up: bump to a larger VPS tier (8 GB RAM, ~$8/mo) only if Next.js
 OOMs or ingest interval drops below 5 min. Supabase Pro ($25/mo) only
 after ~50k items in `news_items` (won't happen with the 20-cap).
+
+## Admin pages and reader feedback
+
+Everything under `/admin/*` needs a password. That covers:
+
+| Page | What it shows |
+|---|---|
+| `/admin/feedback` | Readers' 👍 / 👎 on every post, worst first, with the reasons they gave |
+| `/admin/feedback.json` | The same numbers, for scripts |
+| `/admin/metrics` | AI render and rejection counters |
+| `/admin/sources` | Per-feed ingest health |
+
+These pages were open to anyone until the password was added. With no password
+configured they **do not serve at all** (HTTP 503). A fresh deploy can't
+expose them by accident.
+
+### Turn them on
+
+1. Generate a password and add it to `<app-dir>/.env`. It must be at least 24
+   characters; shorter ones are refused.
+   ```bash
+   echo "CYBERALERTX_ADMIN_TOKEN=$(openssl rand -hex 32)" >> /home/cax/cax/.env
+   chmod 600 /home/cax/cax/.env
+   grep CYBERALERTX_ADMIN_TOKEN /home/cax/cax/.env   # copy it into your password manager
+   ```
+2. Restart the API: `sudo systemctl restart cyberalertx-api`
+3. Open `https://cyberalertx.com/admin/feedback`. The browser shows a login
+   prompt. Any username works; the password is the token.
+
+The login uses HTTP Basic auth, and that's deliberate. A `?token=` in the URL
+would end up in the nginx access log, which the analytics store keeps.
+
+### The origin answers direct requests
+
+`https://178.105.143.68/` serves the site with `Host: cyberalertx.com` and skips
+Cloudflare entirely, so a WAF or Access rule set in Cloudflare alone can be
+bypassed. That's why the admin password check lives in the app. To close
+the bypass itself, allow 80/443 only from
+[Cloudflare's IP ranges](https://www.cloudflare.com/ips/) (ufw, or nginx
+`allow`/`deny`) or turn on Cloudflare Authenticated Origin Pulls.
