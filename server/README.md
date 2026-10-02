@@ -1298,9 +1298,14 @@ would end up in the nginx access log, which the analytics store keeps.
 
 ### The origin answers direct requests
 
-`https://178.105.143.68/` serves the site with `Host: cyberalertx.com` and skips
-Cloudflare entirely, so a WAF or Access rule set in Cloudflare alone can be
-bypassed. That's why the admin password check lives in the app. To close
-the bypass itself, allow 80/443 only from
-[Cloudflare's IP ranges](https://www.cloudflare.com/ips/) (ufw, or nginx
-`allow`/`deny`) or turn on Cloudflare Authenticated Origin Pulls.
+The VPS serves the site to anyone who connects to its IP address directly
+with `Host: cyberalertx.com`, skipping Cloudflare entirely. So a WAF or
+Access rule set only in Cloudflare can be bypassed, and that's why the
+admin password check lives in the app. To close the bypass itself, allow
+80/443 only from [Cloudflare's IP ranges](https://www.cloudflare.com/ips/)
+(ufw, or nginx `allow`/`deny`) or turn on Cloudflare Authenticated Origin
+Pulls.
+
+Never write the server's address into this repository — it is public, and
+Cloudflare only shields an origin whose address nobody knows. Use the
+`<vps-ip>` placeholder from the table at the top of this file.
