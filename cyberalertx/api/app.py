@@ -20,10 +20,10 @@ fingerprint are essentially free.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
-import os
-import secrets
 import threading
 import time
 from collections import deque
@@ -31,10 +31,12 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.security import HTTPBasicCredentials
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..ai.detail_context import detail_context_for
 from ..ai.generator import ContentGenerator, build_default_generator
@@ -42,7 +44,16 @@ from ..ai.hygiene import clean_localized_content
 from ..ai.models import ThreatPost
 from ..config import DATA_DIR, SETTINGS
 from ..feedback import FeedbackError, append_record, parse_submission, read_records, summarize
-from .admin_feedback import render_feedback_page
+from .admin import (
+    CSP as ADMIN_CSP,
+    AdminGuard,
+    FeedStatus,
+    render_feedback,
+    render_not_found,
+    render_overview,
+    render_quality,
+    render_sources,
+)
 from ..models import NewsItem
 from ..observability import get_quality_metrics, get_source_health
 from ..pipeline.dedup import collapse_duplicates
@@ -50,11 +61,6 @@ from ..pipeline.signals import extract_signals, potential_impact, who_should_car
 from ..storage.json_store import JsonNewsStore
 
 logger = logging.getLogger(__name__)
-
-#: The admin password must be long enough that guessing it over HTTP is not a
-#: plan. 24 characters of `openssl rand -hex 32` output is far past that; the
-#: floor exists to refuse an accidental "admin123", not to define strength.
-_MIN_ADMIN_TOKEN_LEN = 24
 
 #: /feedback is the only public write. These bound what a flood can cost.
 #: The rate is site-wide rather than per client on purpose: the origin is
@@ -490,6 +496,7 @@ def build_app(
     service: _PostService | None = None,
     cors_origins: list[str] | None = None,
     feedback_path: Path | None = None,
+    admin_guard: AdminGuard | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
@@ -863,104 +870,13 @@ def build_app(
         ]
         return payload
 
-    # ----- admin authentication ----------------------------------------
-    # Every /admin/* route depends on this. They used to be public: anyone
-    # could read the AI provider's error counts and per-source ingest health,
-    # and the origin answers direct requests on its IP, so a Cloudflare rule
-    # alone would not have closed it. The check therefore lives here, at the
-    # origin, where nothing can route around it.
-
-    _basic = HTTPBasic(auto_error=False)
-
-    def _require_admin(
-        credentials: HTTPBasicCredentials | None = Depends(_basic),
-    ) -> None:
-        """HTTP Basic, checked against CYBERALERTX_ADMIN_TOKEN.
-
-        Basic rather than a `?token=` query parameter because nginx logs the
-        full request URI into the analytics store — a token in the URL would
-        be written to disk on every visit. The browser shows its own login
-        prompt; any username is accepted, the password is the token.
-
-        Fails CLOSED. With no token configured — or one too short to resist
-        guessing — the routes do not serve, so no deploy can expose them by
-        default. Read per request rather than at import, so setting it needs
-        only a restart.
-        """
-        expected = os.getenv("CYBERALERTX_ADMIN_TOKEN", "").strip()
-        if len(expected) < _MIN_ADMIN_TOKEN_LEN:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Admin access is not configured: set CYBERALERTX_ADMIN_TOKEN "
-                    f"to a random value of at least {_MIN_ADMIN_TOKEN_LEN} characters."
-                ),
-            )
-        supplied = credentials.password if credentials else ""
-        if not secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
-            raise HTTPException(
-                status_code=401,
-                detail="Authentication required.",
-                headers={"WWW-Authenticate": 'Basic realm="CyberAlertX admin"'},
-            )
-
-    _admin = [Depends(_require_admin)]
-
-    # ----- observability ------------------------------------------------
-    # JSON visibility into pipeline health. Namespaced `/admin/*` and behind
-    # `_require_admin` like every other route under that prefix.
-
-    @app.get("/admin/metrics", tags=["meta"], dependencies=_admin)
-    def admin_metrics() -> dict[str, Any]:
-        """Quality + AI-rejection counters since the metrics file was created.
-
-        Use cases:
-          * spot a sudden spike in `plagiarism_rejects` after a prompt edit
-          * track `ai_success_rate` over time
-          * see which validation message dominates rejections
-        """
-        return get_quality_metrics().as_dict()
-
-    @app.get("/admin/sources", tags=["meta"], dependencies=_admin)
-    def admin_sources() -> dict[str, Any]:
-        """Per-source ingest health.
-
-        Use cases:
-          * identify dead feeds (`cycles_empty / cycles_seen` near 1.0)
-          * identify noisy feeds (`relevance_rate` near 0)
-          * see `last_published_at_utc` per source for stale-feed checks
-        """
-        return get_source_health().as_dict()
-
-    # ----- reader feedback ---------------------------------------------
-    # The 👍 / 👎 widget under every post POSTs here, and the editor reads the
-    # result at /admin/feedback. Validation and aggregation live in
-    # `cyberalertx/feedback.py`; this is only the HTTP edge.
+    # ----- reader feedback (public write) --------------------------------
+    # The 👍 / 👎 widget under every post POSTs here. Validation and
+    # aggregation live in `cyberalertx/feedback.py`; this is the HTTP edge.
 
     _feedback_path = feedback_path or (DATA_DIR / "feedback.jsonl")
     _feedback_lock = threading.Lock()
     _feedback_recent: deque[float] = deque()
-    def _title_for(post_id: str, locale: str) -> str:
-        """The headline the reader actually saw, falling back to the source
-        title, then to the bare id. Cache-only: this page must never trigger
-        a render."""
-        cache = getattr(getattr(svc, "_generator", None), "_cache", None)
-        if cache is not None:
-            try:
-                post = cache.get(post_id, locale)
-            except Exception:  # pragma: no cover - defensive, cache is local
-                post = None
-            if post is not None and post.title:
-                return str(post.title)
-        for item in svc.list_items():
-            if item.fingerprint == post_id:
-                return item.title
-        return ""
-
-    def _summary() -> Any:
-        with _feedback_lock:
-            records = list(read_records(_feedback_path))
-        return summarize(records)
 
     @app.post("/feedback", tags=["feedback"])
     def submit_feedback(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
@@ -995,23 +911,103 @@ def build_app(
             logger.warning("feedback append failed (%s)", exc)
         return {"ok": True}
 
-    @app.get(
-        "/admin/feedback",
-        tags=["meta"],
-        response_class=HTMLResponse,
-        dependencies=_admin,
-    )
-    def admin_feedback_page() -> HTMLResponse:
-        """What readers thought of each post, worst first."""
-        return HTMLResponse(
-            render_feedback_page(_summary(), title_for=_title_for),
-            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+    # ----- admin ----------------------------------------------------------
+    # Everything under /admin is gated in a MIDDLEWARE, before routing, not
+    # by per-route dependencies. Routing runs first otherwise, so `POST
+    # /admin` would answer 405 and an unknown path 404 to anyone, which tells
+    # a scanner exactly which admin routes exist. Gating first means every
+    # method and every path under the prefix gets the same 401 until the
+    # password is right. See `admin/guard.py` for the lockout and why the
+    # client address it keys on can be trusted.
+
+    guard = admin_guard or AdminGuard()
+
+    @app.middleware("http")
+    async def _admin_gate(request: Request, call_next: Any) -> Response:
+        if not _is_admin_path(request.url.path):
+            response: Response = await call_next(request)
+            return response
+        try:
+            guard.check(request, _basic_credentials(request))
+        except HTTPException as exc:
+            response = PlainTextResponse(str(exc.detail), status_code=exc.status_code,
+                                         headers=exc.headers)
+        else:
+            response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Content-Security-Policy"] = ADMIN_CSP
+        return response
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_errors(request: Request, exc: StarletteHTTPException) -> Response:
+        # Plain text under /admin. FastAPI's default `{"detail": ...}` JSON
+        # names the framework for anyone who asks.
+        if _is_admin_path(request.url.path):
+            return PlainTextResponse(str(exc.detail), status_code=exc.status_code,
+                                     headers=getattr(exc, "headers", None))
+        return await http_exception_handler(request, exc)
+
+    def _title_for(post_id: str, locale: str) -> str:
+        """The headline the reader actually saw, falling back to the source
+        title, then to the bare id. Cache-only: never triggers a render."""
+        cache = getattr(getattr(svc, "_generator", None), "_cache", None)
+        if cache is not None:
+            try:
+                post = cache.get(post_id, locale)
+            except Exception:  # pragma: no cover - defensive, cache is local
+                post = None
+            if post is not None and post.title:
+                return str(post.title)
+        for item in svc.list_items():
+            if item.fingerprint == post_id:
+                return item.title
+        return ""
+
+    def _feedback_summary() -> Any:
+        with _feedback_lock:
+            records = list(read_records(_feedback_path))
+        return summarize(records)
+
+    def _feed_status() -> FeedStatus:
+        items = svc.list_items()
+        return FeedStatus(
+            stored_items=len(items),
+            latest_published_at=max((i.published_at for i in items), default=None),
+            latest_urgent_at=max(
+                (i.published_at for i in items if i.actionability_level == "urgent_action"),
+                default=None,
+            ),
         )
 
-    @app.get("/admin/feedback.json", tags=["meta"], dependencies=_admin)
+    def _now() -> datetime:
+        return datetime.now(timezone.utc)
+
+    @app.get("/admin", tags=["admin"], response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/admin/", tags=["admin"], response_class=HTMLResponse)
+    def admin_overview() -> HTMLResponse:
+        """How the site is doing right now, and what needs a look."""
+        return HTMLResponse(render_overview(
+            feed=_feed_status(),
+            metrics=get_quality_metrics().as_dict(),
+            health=get_source_health().as_dict(),
+            feedback=_feedback_summary(),
+            logins=guard.stats(),
+            title_for=_title_for,
+            now=_now(),
+        ))
+
+    @app.get("/admin/feedback", tags=["admin"], response_class=HTMLResponse)
+    def admin_feedback_page() -> HTMLResponse:
+        """What readers thought of each post, worst first."""
+        return HTMLResponse(render_feedback(_feedback_summary(), title_for=_title_for, now=_now()))
+
+    @app.get("/admin/feedback.json", tags=["admin"])
     def admin_feedback_json() -> dict[str, Any]:
-        """The same numbers as the page, for scripts."""
-        summary = _summary()
+        """The same numbers as the feedback page, for scripts."""
+        summary = _feedback_summary()
         return {
             "up": summary.up,
             "down": summary.down,
@@ -1029,8 +1025,60 @@ def build_app(
             ],
         }
 
+    @app.get("/admin/metrics", tags=["admin"], response_class=HTMLResponse)
+    def admin_metrics_page() -> HTMLResponse:
+        """How often the AI writes a post we publish, and why it doesn't."""
+        return HTMLResponse(render_quality(get_quality_metrics().as_dict(), now=_now()))
+
+    @app.get("/admin/metrics.json", tags=["admin"])
+    def admin_metrics() -> dict[str, Any]:
+        """Quality + AI-rejection counters since the metrics file was created."""
+        return get_quality_metrics().as_dict()
+
+    @app.get("/admin/sources", tags=["admin"], response_class=HTMLResponse)
+    def admin_sources_page() -> HTMLResponse:
+        """Every feed the site ingests, worst first."""
+        return HTMLResponse(render_sources(get_source_health().as_dict(), now=_now()))
+
+    @app.get("/admin/sources.json", tags=["admin"])
+    def admin_sources() -> dict[str, Any]:
+        """Per-source ingest health."""
+        return get_source_health().as_dict()
+
+    # Registered last so every real admin route wins. Only reachable after
+    # the gate, so an unknown path is a 404 for the editor and a 401 for
+    # everyone else.
+    @app.get("/admin/{rest:path}", include_in_schema=False)
+    def admin_not_found(rest: str) -> HTMLResponse:
+        return HTMLResponse(render_not_found(now=_now()), status_code=404)
+
     return app
 
+
+
+def _is_admin_path(path: str) -> bool:
+    return path == "/admin" or path.startswith("/admin/")
+
+
+def _basic_credentials(request: Request) -> HTTPBasicCredentials | None:
+    """Parse an `Authorization: Basic …` header, or None when there is none.
+
+    A header that is present but malformed is returned as empty credentials
+    rather than None, so it counts as a failed attempt instead of being
+    treated like a browser that hasn't been asked to log in yet.
+    """
+    header = request.headers.get("authorization", "")
+    if not header:
+        return None
+    scheme, _, value = header.partition(" ")
+    if scheme.lower() != "basic":
+        return HTTPBasicCredentials(username="", password="")
+    try:
+        decoded = base64.b64decode(value.strip(), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return HTTPBasicCredentials(username="", password="")
+    username, _, password = decoded.partition(":")
+    return HTTPBasicCredentials(username=username, password=password)
 
 # Module-level app for `uvicorn cyberalertx.api.app:app` and the serve CLI.
 app = build_app()

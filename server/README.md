@@ -1265,20 +1265,42 @@ Scale up: bump to a larger VPS tier (8 GB RAM, ~$8/mo) only if Next.js
 OOMs or ingest interval drops below 5 min. Supabase Pro ($25/mo) only
 after ~50k items in `news_items` (won't happen with the 20-cap).
 
-## Admin pages and reader feedback
+## Admin dashboard
 
-Everything under `/admin/*` needs a password. That covers:
+`https://cyberalertx.com/admin/` is a small dashboard for the editor. Every page
+needs a password.
 
 | Page | What it shows |
 |---|---|
+| `/admin/` | Overview: freshness, feedback, AI quality, source health, failed logins, and a "needs attention" list |
 | `/admin/feedback` | Readers' 👍 / 👎 on every post, worst first, with the reasons they gave |
-| `/admin/feedback.json` | The same numbers, for scripts |
-| `/admin/metrics` | AI render and rejection counters |
-| `/admin/sources` | Per-feed ingest health |
+| `/admin/metrics` | Content quality: how often the AI's draft is published, and why it isn't |
+| `/admin/sources` | Every feed, worst first: failing, quiet or healthy |
 
-These pages were open to anyone until the password was added. With no password
-configured they **do not serve at all** (HTTP 503). A fresh deploy can't
-expose them by accident.
+Each page has a `.json` twin for scripts (`/admin/metrics.json`, and so on).
+
+With no password configured, every `/admin` URL answers 503 and the pages
+don't load at all, so a fresh deploy can't expose them by accident.
+
+### How it's protected
+
+- **The password is checked before anything else.** Every method and every
+  path under `/admin`, including ones that don't exist, gets the same 401
+  until the password is right. A scanner learns nothing about which pages are
+  there.
+- **Guessing the password doesn't work.** A 64-character `openssl rand -hex 32`
+  token is 256 bits, far beyond brute force. Tokens shorter than 24 characters
+  are refused.
+- **Repeated wrong passwords lock the address out.** After 5 wrong passwords
+  from one address within 15 minutes, that address gets 429 for 15 minutes
+  without the password being checked. The overview page shows failed logins
+  from the last 24 hours. The address comes from nginx's `X-Real-IP`, which
+  clients can't forge in this setup (see `cyberalertx/api/admin/guard.py`).
+- **Errors say nothing useful to an attacker.** Plain-text error bodies name
+  no framework and no setting.
+- **The pages run no scripts.** Each one is served with
+  `Content-Security-Policy: default-src 'none'`, plus `no-store`, `noindex`
+  and `no-referrer`.
 
 ### Turn them on
 
@@ -1290,8 +1312,8 @@ expose them by accident.
    grep CYBERALERTX_ADMIN_TOKEN /home/cax/cax/.env   # copy it into your password manager
    ```
 2. Restart the API: `sudo systemctl restart cyberalertx-api`
-3. Open `https://cyberalertx.com/admin/feedback`. The browser shows a login
-   prompt. Any username works; the password is the token.
+3. Open `https://cyberalertx.com/admin/`. The browser shows a login prompt.
+   Any username works; the password is the token.
 
 The login uses HTTP Basic auth, and that's deliberate. A `?token=` in the URL
 would end up in the nginx access log, which the analytics store keeps.
