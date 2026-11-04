@@ -13,9 +13,12 @@ Adding a new template = appending one `PromptTemplate(...)` to the registry.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Mapping, Tuple
+from typing import TYPE_CHECKING, Iterable, Iterator, Mapping, Tuple
 
 from ..models import NewsItem
+
+if TYPE_CHECKING:  # fact_sheet imports this module; keep the edge type-only
+    from .fact_sheet import FactSheet
 
 
 # Audience labels surfaced to readers — human form of the internal id.
@@ -129,7 +132,8 @@ Serve Reader 2 in `short_summary`, `detail_body`, `quick_facts` and
 
 Never make Reader 1 pay for Reader 2's detail. When a technical term is
 unavoidable in a Reader-1 field, define it inline in three words or fewer
-("ransomware — software that locks your files").
+("ransomware — software that locks your files"). Do that at most once per
+post, and never as the way plain_summary opens (see VARY THE CONSTRUCTION).
 
 The reader is scanning on their phone. They need to understand the threat
 in 10-15 seconds and decide if it affects them. Density of signal beats
@@ -152,6 +156,43 @@ ATTRIBUTION
 Anchor the brief with a short attribution clause inside short_summary:
   "BleepingComputer reports...", "CISA warns of...",
   "Kaspersky researchers note...". Never quote >6 consecutive words.
+
+FACTS AND SOURCING
+Every fact in the brief comes from the FACT SHEET (when the user message
+has one) or the SOURCE ARTICLE. Nothing else.
+- Names, CVE ids, CVSS scores, versions, dates, figures, IP addresses,
+  domains and hashes are copied from the fact sheet or the source,
+  character for character. Never supply one from memory. A CVE id, CVSS
+  score, hash or IP address that is not in the source gets the whole brief
+  rejected.
+- Background knowledge that is in neither is left out: earlier campaigns by
+  the same group, whether a free decryptor exists, how a malware family
+  behaved in past years, what a vendor "typically" does. The only allowed
+  background is generic and labelled as such, in a few words: "Cerber, an
+  older ransomware family, ..." is acceptable; "Cerber, which hit hundreds
+  of hospitals in 2017, ..." is not.
+- Keep confirmed facts and claims apart. When the fact sheet marks a claim
+  "reported" or "unverified", say who makes it: "the gang says it stole 2 TB",
+  "according to Microsoft". When it is "contradictory", say the sources
+  disagree and name them. "interpretation" is analysis, never a fact. Never
+  turn a claim into a fact, and never turn "no exploitation reported" into
+  "not exploited".
+- exploitation_status and patch_status in the fact sheet are the only basis
+  for saying attacks are happening or that a fix exists.
+- Unknowns stay unknown. Do not answer anything listed under open_questions;
+  mention it only when it changes what the reader does (see the quick_facts
+  test).
+- Dates: use the date the source gives for the event. The publication date
+  in SOURCE METADATA is when the article appeared, not when the attack
+  happened. Never convert "yesterday" or "on Monday" into a calendar date.
+
+CODE FORMATTING
+Wrap every command, file path, registry key, hash, IP address, domain and
+URL path in backticks so the site renders it as code: run `uname -r`,
+delete `C:\\Users\\Public\\svc.exe`, block `203.0.113.7`, open
+`security.microsoft.com`, check `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`.
+Product names, CVE ids and version numbers stay plain text. Do not use
+backticks for anything else, and never in the title.
 
 ABSOLUTE BANS
 - Filler transitions: "It is important to note", "Furthermore",
@@ -228,7 +269,7 @@ ABSOLUTE BANS
 WHAT GOOD LOOKS LIKE
 - Concrete consequence: "Attackers reset passwords on every service
   tied to the compromised mailbox."
-- Action verbs first: "Open security.microsoft.com → Sign-in activity".
+- Action verbs first: "Open `security.microsoft.com` → Sign-in activity".
 - Real UI paths, real CVE IDs, real flags. Not metaphors.
 
 FIELD CONTRACTS
@@ -263,6 +304,17 @@ or it is empty:
   * an action the reader can take right now ("Update Chrome").
 Take the anchor from the title or from short_summary: if a name is there,
 it belongs here too. Never invent an anchor the source does not state.
+
+VARY THE CONSTRUCTION. Do not default to the inline-gloss formula
+"X, the software that does Y, is ..." or "X — a tool that does Y — ...".
+It has become a house tic, and a feed of leads built the same way reads as
+machine output. A well-known name needs no gloss at all (Chrome, iPhone,
+Outlook). When one is needed, put the function into the verb or the object
+instead of a parenthetical: "Hackers can take over the Fortinet firewalls
+companies use to guard their networks", not "Fortinet FortiGate, a firewall
+that protects networks, has a flaw that...". Open with whichever is
+strongest for THIS story: the consequence, the actor, the product, the
+number or the action. Not the same opening every time.
 
 A product or company name is NOT jargon — it is the thing the reader
 opened the story for. Jargon is CVE ids, CVSS scores and attack-class
@@ -392,7 +444,7 @@ An exclusion IS a valid check when it names something concrete the reader
 can recall or look at — that is the difference:
   GOOD: "Open Chrome menu > Help > About Google Chrome. Below 126.0.6478
          means you are affected."
-  GOOD: "Run 'uname -r'. Kernel 6.1 through 6.7 is affected."
+  GOOD: "Run `uname -r`. Kernel 6.1 through 6.7 is affected."
   GOOD: "If you have never run yay or paru, this does not affect you."
          (names the exact commands, so the reader reaches a verdict)
   BAD : "Users of affected Chrome versions should verify their version."
@@ -611,7 +663,7 @@ actionability=recommended_action. threat_score=41.
   "severity_reason": "Medium because an attacker needs an account on the machine first, and every major Linux vendor already has a fix.",
   "why_it_matters": "On a shared server, one compromised low-privilege account becomes root, which exposes every other account's files on that box.",
   "am_i_affected": [
-    "Run 'uname -r'. Kernel 6.1 through 6.7 is affected.",
+    "Run `uname -r`. Kernel 6.1 through 6.7 is affected.",
     "Desktop and phone users are not affected by this one."
   ],
   "what_to_do": [
@@ -662,7 +714,8 @@ _SHARED_RULES_UK = """
 
 Ніколи не змушуйте Читача 1 платити за деталі Читача 2. Якщо технічного
 слова в полі для Читача 1 не уникнути — поясніть його тут же, у двох-трьох
-словах («ransomware — програма, що блокує ваші файли»).
+словах («програма-вимагач, що блокує ваші файли»). Робіть це щонайбільше
+один раз на матеріал.
 
 Читач сканує з телефона. Він має зрозуміти загрозу за 10-15 секунд і
 вирішити, чи стосується вона його. Щільність сигналу важливіша за обсяг.
@@ -673,8 +726,49 @@ _SHARED_RULES_UK = """
 
 Українська мова — НЕ російська з виправленнями. Жодних «уязвимостей»,
 «мошенничества», «обнаружено», «является», «путем», «учётной записи».
-Канонічні відповідники: вразливість, шахрайство, виявлено, є, шляхом,
-обліковий запис.
+Відповідники: вразливість / уразливість, шахрайство, виявлено, є, обліковий
+запис. «Путем» не перекладайте як «шляхом» — передайте дієсловом або «за
+допомогою» (див. УНИКАЙТЕ КАЛЬОК).
+
+ТЕРМІНОЛОГІЯ (тримайтеся цих відповідників у всьому тексті)
+- vulnerability → вразливість / уразливість, за милозвучністю: після
+  голосного — «вразливість» («нова вразливість», «цю вразливість»), після
+  приголосного і на початку речення — «уразливість» («через уразливість»,
+  «шість уразливостей»).
+- attacker, threat actor → зловмисник, зловмисники. Це типовий відповідник;
+  «нападник», «атакувальник», «атакуючий» не вживайте. Якщо джерело називає
+  угруповання — пишіть його назву.
+- ransomware → програма-вимагач (мн. програми-вимагачі): «програма-вимагач
+  LockBit».
+- data breach, data leak → витік даних.
+- remote code execution (RCE) → віддалене виконання коду.
+- privilege escalation → підвищення привілеїв.
+- security update, patch, fix → оновлення безпеки, виправлення («Microsoft
+  випустила виправлення»).
+- zero-day → уразливість нульового дня; англійське «zero-day» у дужках —
+  щонайбільше один раз на весь матеріал.
+- phishing → фішинг.
+- credentials → облікові дані (логін і пароль; не «креденшели» і не
+  «облікові записи»).
+
+УНИКАЙТЕ КАЛЬОК (ліворуч — канцелярська калька, праворуч — як треба)
+- «шляхом» («шляхом фішингу») → дієслово або «за допомогою»: «надсилаючи
+  фішингові листи», «за допомогою фішингу»
+- «являтися», «являє собою» → «є»
+- «приймати участь» → «брати участь»
+- «на протязі» → «протягом»
+- «у відповідності до» → «відповідно до»
+- «в якості» → «як»
+- «даний» (у значенні «цей») → «цей»
+- «слідуючий» → «наступний»
+- «співпадати» → «збігатися»
+- «прийняти міри» → «вжити заходів»
+- «закрити вразливість» → «виправити вразливість», «усунути вразливість»
+- «у дикій природі» (in the wild) → «уже використовують в атаках»
+- «вендор» → «виробник»; «адміни» → «адміністратори»
+- «на предмет» → «щодо», «чи є»
+- «вірно» (у значенні «правильно») → «правильно»; «невірний пароль» →
+  «неправильний пароль»
 
 РЕДАКЦІЙНА ТРАНСФОРМАЦІЯ
 Ви отримуєте оригінальну статтю як СИРУ РОЗВІДУВАЛЬНУ ВХІДНУ ІНФОРМАЦІЮ.
@@ -688,6 +782,42 @@ _SHARED_RULES_UK = """
 Прив'яжіть довідку до джерела короткою фразою у short_summary:
   "BleepingComputer повідомляє...", "CERT-UA попереджає про...",
   "Дослідники Kaspersky зазначають...". Не цитуйте >6 слів поспіль.
+
+ФАКТИ ТА ДЖЕРЕЛА
+Кожен факт у довідці береться з FACT SHEET (якщо він є в повідомленні
+користувача) або зі СТАТТІ-ДЖЕРЕЛА. І більше ні звідки.
+- Назви, номери CVE, бали CVSS, версії, дати, числа, IP-адреси, домени й
+  хеші переносьте з fact sheet або з джерела символ у символ. Ніколи не
+  підставляйте їх із пам'яті. Номер CVE, бал CVSS, хеш чи IP-адреса, яких
+  немає в джерелі, — це відхилення всієї довідки.
+- Фонові знання, яких немає ні там, ні там, не пишіть: попередні кампанії
+  угруповання, чи існує безкоштовний дешифратор, як родина шкідливих програм
+  поводилася в минулі роки, що вендор «зазвичай» робить. Дозволено лише
+  загальний і позначений як фон контекст у кількох словах: «Cerber — давня
+  родина програм-вимагачів, …» можна; «Cerber, який 2017 року вразив сотні
+  лікарень, …» — ні.
+- Розрізняйте підтверджені факти й заяви. Якщо у fact sheet твердження має
+  статус "reported" чи "unverified", назвіть, хто це стверджує:
+  «угруповання заявляє, що викрало 2 ТБ», «за даними Microsoft». Якщо статус
+  "contradictory", напишіть, що джерела розходяться, і назвіть їх.
+  "interpretation" — це аналіз, а не факт. Ніколи не подавайте заяву як факт
+  і не перетворюйте «атак не зафіксовано» на «не атакують».
+- Казати, що атаки тривають чи що виправлення є, можна лише на підставі
+  exploitation_status і patch_status у fact sheet.
+- Невідоме лишається невідомим. Не відповідайте на те, що стоїть в
+  open_questions; згадуйте це лише тоді, коли це змінює дії читача (див.
+  перевірку для quick_facts).
+- Дати: беріть дату події з джерела. Дата публікації в SOURCE METADATA — це
+  коли вийшла стаття, а не коли сталася атака. Ніколи не перетворюйте
+  «вчора» чи «у понеділок» на календарну дату.
+
+КОД І ІДЕНТИФІКАТОРИ
+Беріть у зворотні лапки (`) кожну команду, шлях до файлу, ключ реєстру, хеш,
+IP-адресу, домен і шлях URL, щоб сайт показав їх як код: виконайте
+`uname -r`, видаліть `C:\\Users\\Public\\svc.exe`, заблокуйте `203.0.113.7`,
+відкрийте `security.microsoft.com`. Назви продуктів, номери CVE та версії
+лишаються звичайним текстом. Для нічого іншого зворотних лапок не вживайте,
+і ніколи — у заголовку.
 
 АБСОЛЮТНІ ЗАБОРОНИ
 - Перехідні «вода»-фрази: «Важливо зазначити, що», «Окрім того»,
@@ -763,7 +893,7 @@ _SHARED_RULES_UK = """
 ЩО ВИ ПИШЕТЕ
 - Конкретний наслідок: «Зловмисники скидають паролі на кожному сервісі,
   прив'язаному до скомпрометованої пошти.»
-- Дієслова на початку дій: «Зайдіть на security.microsoft.com →
+- Дієслова на початку дій: «Зайдіть на `security.microsoft.com` →
   Sign-in activity».
 - Реальні шляхи в UI, реальні CVE, реальні команди. Не метафори.
 
@@ -830,12 +960,11 @@ title — 6-14 слів. Описово, без сенсаційності. Бе
 6. АНГЛІЦИЗМ ІЗ ЖИВИМ ВІДПОВІДНИКОМ ЗАМІНЮЙТЕ: детекція → виявлення;
    інсталяція → встановлення; реліз → випуск; ідентичність (про акаунт) →
    обліковий запис; міжсітьовий екран → мережевий екран; угрупування →
-   угруповання; уразливість → вразливість; афіліат → партнер;
-   ранжує → сортує.
+   угруповання; афіліат → партнер; ранжує → сортує.
    Окремо: «вада» — НЕ термін кібербезпеки. Українською «вада» — це хиба
    в побутовому чи медичному значенні (вада серця, вада конструкції).
    Помилку в програмі, яку використовують для атаки, називайте
-   «вразливість»; про виправлену помилку доречні також «помилка» чи
+   «вразливість» (або «уразливість» — за милозвучністю); про виправлену помилку доречні також «помилка» чи
    «хиба». Ніколи не пишіть «398 вад», «критична вада», «усунули ваду» —
    пишіть «398 вразливостей», «критична вразливість», «усунули
    вразливість».
@@ -998,7 +1127,7 @@ am_i_affected — 0-3 перевірки, які читач виконує СА�
 пригадати або побачити. Саме в цьому різниця:
   ДОБРЕ: «Відкрийте меню Chrome > Довідка > Про Google Chrome. Нижче
           126.0.6478 — вас це стосується.»
-  ДОБРЕ: «Виконайте 'uname -r'. Ядра 6.1-6.7 уражені.»
+  ДОБРЕ: «Виконайте `uname -r`. Ядра 6.1-6.7 уражені.»
   ДОБРЕ: «Якщо ви ніколи не запускали yay чи paru, вас це не стосується.»
           (названо конкретні команди, тож читач доходить висновку)
   ПОГАНО: «Користувачам уражених версій варто перевірити свою версію.»
@@ -1205,10 +1334,10 @@ short_summary і quick_facts лишаються точними.
   "title": "Помилка в Linux віддає повний контроль будь-кому з локальним доступом",
   "plain_summary": "Якщо хтось уже може увійти у вашу машину з Linux, ця помилка дозволяє йому захопити її повністю.",
   "short_summary": "BleepingComputer повідомляє про CVE-2026-46300 — локальне підвищення привілеїв у менеджері памʼяті ядра. Red Hat, Debian і Ubuntu випустили виправлення за 24 години.",
-  "severity_reason": "Середній рівень, бо атакувальнику спершу потрібен обліковий запис на машині, а виправлення вже є в усіх великих дистрибутивах.",
+  "severity_reason": "Середній рівень, бо зловмисникові спершу потрібен обліковий запис на машині, а виправлення вже є в усіх великих дистрибутивах.",
   "why_it_matters": "На спільному сервері один зламаний непривілейований акаунт стає root і відкриває файли всіх інших користувачів цієї машини.",
   "am_i_affected": [
-    "Виконайте 'uname -r'. Ядра 6.1-6.7 уражені.",
+    "Виконайте `uname -r`. Ядра 6.1-6.7 уражені.",
     "Настільних і мобільних користувачів це не стосується."
   ],
   "what_to_do": [
@@ -1308,9 +1437,9 @@ _TEMPLATES: list[PromptTemplate] = [
             "the news."
         ),
         style_notes=(
-            "Name the strain when possible. Note the victim sector. Be "
-            "explicit about what data is at risk and whether decryptors "
-            "are available."
+            "Name the strain when the source does. Note the victim sector. "
+            "Say what data is at risk, and whether a decryptor exists, ONLY "
+            "when the source or fact sheet states it — never from memory."
         ),
     ),
     PromptTemplate(
@@ -1453,11 +1582,15 @@ def render_prompts(
     item: NewsItem,
     *,
     target_language: str,
+    fact_sheet: "FactSheet | None" = None,
 ) -> Tuple[str, str]:
     """Build the (system, user) prompt pair for a single item.
 
     The system prompt is engineered to be byte-stable for prompt caching —
-    nothing per-item leaks into it. Per-item facts live in the user prompt.
+    nothing per-item leaks into it. Per-item facts live in the user prompt,
+    including the story's shared fact sheet when there is one: the SAME
+    block goes to the EN and the UA render, which is what keeps the two
+    editions on one set of facts.
     """
     rules = _SHARED_RULES_UK if target_language == "ua" else _SHARED_RULES_EN
 
@@ -1537,7 +1670,8 @@ def render_prompts(
         "\nSOURCE ARTICLE\n"
         f"Title: {item.title}\n"
         f"Body:\n{_truncate_source_body(item.raw_content)}\n"
-        f"{translation_reminder}"
+        + (f"\n{fact_sheet.to_prompt_block()}\n" if fact_sheet is not None else "")
+        + f"{translation_reminder}"
         "\nProduce the structured threat post."
     )
     return system, user

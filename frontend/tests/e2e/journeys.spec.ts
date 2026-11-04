@@ -8,17 +8,15 @@ test.describe("journeys @e2e", () => {
   }) => {
     await page.goto("/en");
 
-    // ThreatCard wraps each <article> in an outer <Link>; the link
-    // doesn't live inside the article. Select by href pattern instead.
-    const cardLinks = page.locator('#feed a[href^="/en/threat/"]');
+    // Each feed row has exactly one link: its headline.
+    const cardLinks = page.locator('#feed article a[href^="/en/threat/"]');
     const cardCount = await cardLinks.count();
     test.skip(cardCount === 0, "feed has no articles in this environment");
 
     const firstLink = cardLinks.first();
-    // The link carries aria-label={title} — most stable handle for the
-    // title text, since the <h2> sits inside the same anchor.
-    const titleText = (await firstLink.getAttribute("aria-label"))?.trim();
-    expect(titleText, "card link should expose an aria-label title").toBeTruthy();
+    // The link text is the headline itself.
+    const titleText = (await firstLink.textContent())?.trim();
+    expect(titleText, "feed row link should carry the headline").toBeTruthy();
 
     await firstLink.click();
     await expect(page).toHaveURL(/\/en\/threat\/[^/]+\/?$/);
@@ -43,11 +41,32 @@ test.describe("journeys @e2e", () => {
     expect(badStatuses(responses, origin)).toEqual([]);
   });
 
-  test("trending section is visible and announces its heading", async ({ page }) => {
+  test("priority section is visible and announces its heading", async ({ page }) => {
     await page.goto("/en");
-    const trending = page.getByRole("region", { name: /trending/i });
-    await expect(trending).toBeVisible();
-    await expect(trending.getByRole("heading", { level: 2 })).toBeVisible();
+    const priority = page.getByRole("region", { name: /Also significant now/i });
+    test.skip((await priority.count()) === 0, "not enough stories for a priority list");
+    await expect(priority).toBeVisible();
+    await expect(priority.getByRole("heading", { level: 2 })).toBeVisible();
+  });
+
+  test("topic page lists only its own section and has one h1", async ({ page }) => {
+    await page.goto("/en/topic/vulnerabilities");
+    await expect(page.getByRole("heading", { level: 1, name: /Vulnerabilities/i })).toBeVisible();
+    await expect(page.locator("h1")).toHaveCount(1);
+    await expect(page.locator("#feed")).toBeVisible();
+  });
+
+  test("severity deep link narrows the feed", async ({ page }) => {
+    await page.goto("/en?level=Critical#feed");
+    // The filter applies after hydration; the live count line switches from
+    // "N briefs" to "n of N briefs" once it has.
+    await expect(page.locator("#feed [aria-live]")).toContainText(/ of /, { timeout: 10_000 });
+    const rows = page.locator("#feed article");
+    test.skip((await rows.count()) === 0, "no critical stories in this environment");
+    // Every visible row carries the Critical severity mark.
+    for (const text of await rows.allInnerTexts()) {
+      expect(text).toContain("Critical");
+    }
   });
 
   test("/ua deep-link renders the Ukrainian shell", async ({ page }) => {
@@ -56,7 +75,7 @@ test.describe("journeys @e2e", () => {
     // Hero h1 must still be present (text is localized).
     await expect(page.locator("h1#hero-headline")).toBeVisible();
     // Language switcher reflects active locale.
-    const langSwitcher = page.getByRole("group", { name: "Language" });
+    const langSwitcher = page.getByRole("group", { name: /^(Language|Мова)$/ });
     await expect(langSwitcher.getByRole("link", { name: "UA" })).toHaveAttribute(
       "aria-current",
       "page",

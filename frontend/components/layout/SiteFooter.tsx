@@ -1,59 +1,90 @@
-import { Rss, Send } from "lucide-react";
+import Link from "next/link";
 import { ObfuscatedEmail } from "./ObfuscatedEmail";
+import { Wordmark } from "./Wordmark";
 import { strings } from "@/lib/i18n";
 import { TELEGRAM_CHANNELS } from "@/lib/site";
+import { TOPIC_SLUGS } from "@/lib/topics";
 import type { Locale } from "@/lib/types";
 
 /**
- * Site-wide footer.
- *
- * Low-emphasis, below the main content on every route. Carries the two
- * subscription channels, because until now the product had no return path
- * at all: a visitor read one brief and left with no way to hear about the
- * next one. The Telegram channel and the RSS feed both already existed —
- * they were simply never linked from the site.
- *
- * Both are deliberately low-key rather than a modal or a sticky bar. The
- * audience is people checking whether something affects them; interrupting
- * that to ask for a subscription is how you lose the reading.
+ * The close: the one whole-field colour section on every page. Ground and
+ * ink invert onto the brand cyan; the wordmark returns at full width.
  */
-const socialLinkClass =
-  "inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 px-2 -mx-2 " +
-  "text-text-tertiary transition-colors rounded-md " +
-  "hover:text-text-secondary active:text-text-secondary";
-
 export function SiteFooter({ lang }: { lang: Locale }) {
   const s = strings(lang);
-  const telegram = TELEGRAM_CHANNELS[lang];
+  const linkClass =
+    "inline-flex min-h-[40px] items-center text-signal-ink underline decoration-signal-deep/50 " +
+    "decoration-1 underline-offset-[4px] hover:decoration-signal-ink";
 
   return (
-    <footer
-      role="contentinfo"
-      className="border-t border-border-subtle mt-auto"
-    >
-      {/* Bottom padding clears the iOS home indicator (safe-area inset)
-          when the page is scrolled to the very end. */}
-      <div className="mx-auto max-w-6xl px-5 sm:px-8 pt-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-center text-2xs text-text-tertiary">
-        <p className="text-xs text-text-secondary mb-3">{s.subscribe_heading}</p>
-        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 mb-4">
-          {telegram && (
-            <a
-              href={telegram}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={socialLinkClass}
-            >
-              <Send className="w-3.5 h-3.5" aria-hidden />
-              {s.subscribe_telegram}
-            </a>
-          )}
-          <a href={`/${lang}/feed.xml`} className={socialLinkClass}>
-            <Rss className="w-3.5 h-3.5" aria-hidden />
-            {s.subscribe_rss}
-          </a>
-          <ObfuscatedEmail className={socialLinkClass} />
+    <footer className="mt-section bg-signal text-signal-ink">
+      <div className="page pt-14 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="axis gap-y-10">
+          <p className="font-serif text-body text-signal-deep max-w-[34ch]">{s.footer_note}</p>
+          <div className="on-axis grid grid-cols-2 gap-x-6 gap-y-8 font-sans text-[1rem] sm:grid-cols-4">
+            <div>
+              <h2 className="font-semibold mb-2">{s.footer_sections}</h2>
+              <ul>
+                <li>
+                  <Link href={`/${lang}`} prefetch={false} className={linkClass}>
+                    {s.nav_latest}
+                  </Link>
+                </li>
+                {TOPIC_SLUGS.map((slug) => (
+                  <li key={slug}>
+                    <Link href={`/${lang}/topic/${slug}`} prefetch={false} className={linkClass}>
+                      {s.topic[slug].name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h2 className="font-semibold mb-2">{s.footer_editions}</h2>
+              <ul>
+                <li>
+                  <Link href="/en" prefetch={false} hrefLang="en" className={linkClass}>
+                    English
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/ua" prefetch={false} hrefLang="uk" className={linkClass}>
+                    Українська
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h2 className="font-semibold mb-2">{s.footer_follow}</h2>
+              <ul>
+                <li>
+                  <a
+                    href={TELEGRAM_CHANNELS[lang]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={linkClass}
+                  >
+                    {s.subscribe_telegram}
+                  </a>
+                </li>
+                <li>
+                  <a href={`/${lang}/feed.xml`} className={linkClass}>
+                    {s.subscribe_rss}
+                  </a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h2 className="font-semibold mb-2">{s.footer_contact}</h2>
+              <ObfuscatedEmail className={`${linkClass} gap-1.5`} />
+            </div>
+          </div>
         </div>
-        © 2026 CyberAlertX. All Rights Reserved.
+
+        <div className="mt-16 sm:mt-24 [container-type:inline-size]" aria-hidden>
+          <Wordmark className="text-[15.2cqw] text-signal-ink" accentColor="#071318" />
+        </div>
+        <p className="mt-4 font-sans text-small text-signal-deep">{s.footer_rights}</p>
       </div>
     </footer>
   );

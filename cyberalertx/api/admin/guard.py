@@ -29,9 +29,29 @@ overwrites whatever the client sent. nginx resolves `$remote_addr` with
 address. The API listens on 127.0.0.1 only, so nothing reaches it except
 through that nginx. If that ever changes, this header becomes spoofable and
 the lockout must move to nginx.
+
+STATE-CHANGING REQUESTS (the review queue's Approve / Reject)
+
+Basic credentials are cached by the browser and attached to every request to
+the origin, including one a hostile page triggers with a cross-site form —
+so authentication alone does not stop CSRF. Every admin POST must pass both:
+
+  1. `same_origin(request)`: `Sec-Fetch-Site`, when the browser sends it,
+     must be `same-origin`; an `Origin` header, when present and not
+     `null`, must name this host. (Admin pages send `Referrer-Policy:
+     no-referrer`, under which browsers report a same-origin form POST as
+     `Origin: null` — so `null` is not proof of anything, and check 2 is the
+     one that carries the weight.)
+  2. `csrf_ok(token)`: a token embedded in the form, `<issued>.<hmac>`, where
+     the HMAC is keyed by the admin token itself. A cross-site page can make
+     the browser submit a form, but it cannot read our page to learn the
+     token, and it cannot mint one without the secret. Tokens expire after
+     `CSRF_TTL`. Stateless: nothing to store, survives restarts.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -41,6 +61,7 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBasicCredentials
@@ -59,6 +80,10 @@ _REPORT_WINDOW = timedelta(hours=24)
 _MAX_TRACKED_ADDRESSES = 5000
 
 REALM = 'Basic realm="CyberAlertX admin", charset="UTF-8"'
+
+#: How long a form's CSRF token stays valid. A page left open longer than
+#: this needs a reload before Approve / Reject work again.
+CSRF_TTL = 12 * 3600.0
 
 
 @dataclass(frozen=True)
@@ -81,9 +106,11 @@ class AdminGuard:
         *,
         clock: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        wall: Callable[[], float] = time.time,
     ) -> None:
         self._clock = clock
         self._now = now
+        self._wall = wall
         self._lock = threading.Lock()
         self._recent: dict[str, deque[float]] = {}
         self._locked_until: dict[str, float] = {}
@@ -131,6 +158,30 @@ class AdminGuard:
             self._record_failure(address)
         logger.warning("failed /admin login from %s", address)
         raise _challenge()
+
+    # -- CSRF -------------------------------------------------------------------
+
+    def csrf_token(self) -> str:
+        """A token for one admin form. Empty when admin is not configured."""
+        secret = os.getenv(TOKEN_ENV, "").strip()
+        if len(secret) < MIN_TOKEN_LEN:
+            return ""
+        issued = int(self._wall())
+        return f"{issued}.{_csrf_signature(secret, issued)}"
+
+    def csrf_ok(self, token: str) -> bool:
+        secret = os.getenv(TOKEN_ENV, "").strip()
+        if len(secret) < MIN_TOKEN_LEN or not token:
+            return False
+        issued_raw, _, signature = token.strip().partition(".")
+        try:
+            issued = int(issued_raw)
+        except ValueError:
+            return False
+        age = self._wall() - issued
+        if age < -60 or age > CSRF_TTL:
+            return False
+        return secrets.compare_digest(signature, _csrf_signature(secret, issued))
 
     # -- reporting ----------------------------------------------------------
 
@@ -188,6 +239,35 @@ def client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def same_origin(request: Request) -> bool:
+    """Reject requests a browser labels as cross-site. See the module
+    docstring: this is defence in depth; the CSRF token is the real check."""
+    site = request.headers.get("sec-fetch-site")
+    if site is not None and site.strip().lower() != "same-origin":
+        return False
+    origin = request.headers.get("origin", "").strip()
+    if origin and origin != "null":
+        try:
+            netloc = urlparse(origin).netloc.lower()
+        except ValueError:
+            return False
+        allowed = {
+            h.strip().lower()
+            for h in (request.headers.get("host", ""), request.headers.get("x-forwarded-host", ""))
+            if h.strip()
+        }
+        if netloc not in allowed:
+            return False
+    return True
+
+
+def _csrf_signature(secret: str, issued: int) -> str:
+    return hmac.new(
+        secret.encode("utf-8"), f"cyberalertx-admin-csrf|{issued}".encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def _challenge() -> HTTPException:
     return HTTPException(
         status_code=401,
@@ -196,4 +276,7 @@ def _challenge() -> HTTPException:
     )
 
 
-__all__ = ["AdminGuard", "GuardStats", "MIN_TOKEN_LEN", "TOKEN_ENV", "client_address"]
+__all__ = [
+    "AdminGuard", "CSRF_TTL", "GuardStats", "MIN_TOKEN_LEN", "TOKEN_ENV", "client_address",
+    "same_origin",
+]

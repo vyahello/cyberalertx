@@ -22,3 +22,7 @@ psycopg[binary]>=3.1
 # .env loader. Optional — package falls back to plain os.getenv if missing,
 # so production deploys that set env vars directly don't need it.
 python-dotenv>=1.0.0
+
+# Threads integration: encrypts stored OAuth tokens (Fernet). Only imported when
+# Threads is configured; the rest of the platform runs without it.
+cryptography>=42.0

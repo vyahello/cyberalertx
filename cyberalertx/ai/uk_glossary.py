@@ -119,9 +119,9 @@ CALQUE_GLOSSARY: Mapping[str, str] = {
     "патчен":      "виправлен",
     # Half-translated Russian «межсетевой экран».
     "міжсітьов":   "мережев",
-    # Both are in SUM-11; the product ships one. Does NOT touch
-    # "уражати/ураження" — different stem, different first three letters.
-    "уразлив":     "вразлив",
+    # NOTE: «уразлив-» / «вразлив-» are NOT swapped here any more. Both are
+    # standard forms; which one a sentence takes depends on its neighbour
+    # (у/в alternation), so `apply_vrazlyv_euphony` decides from context.
     # «Угрупування» is the process noun (the act of grouping); a threat actor
     # is «угруповання». The wrong form is currently the majority form.
     "угрупуван":   "угрупован",
@@ -179,6 +179,57 @@ def _fix_euphony(text: str) -> str:
         lambda m: ("У" if m.group(1).isupper() else "у") + m.group(2), text,
     )
 
+
+# ---------------------------------------------------------------------------
+# у/в alternation for «уразлив- / вразлив-» (Український правопис, the rules
+# on alternating у and в at the start of a word; docs/editorial/
+# UKRAINIAN_STYLE_GUIDE.md and UKRAINIAN_CYBERSECURITY_GLOSSARY.md).
+#
+#   * after a word ending in a vowel     → «вразлив-»  (дві вразливості)
+#   * after a word ending in a consonant → «уразлив-»  (через уразливість,
+#     шість уразливостей)
+#   * at the start of a sentence, after punctuation, after digits or a Latin
+#     name: both forms are accepted, so the author's choice is kept.
+#
+# Only the two unambiguous contexts are corrected. The preferred dictionary
+# headword in the glossary is «уразливість»; running text follows euphony.
+# ---------------------------------------------------------------------------
+
+_UA_VOWELS = frozenset("аеєиіїоуюяАЕЄИІЇОУЮЯ")
+# A soft sign ends the word on a (palatalised) consonant: «шість уразливостей».
+_UA_CONSONANTS = frozenset("бвгґджзйклмнпрстфхцчшщьБВГҐДЖЗЙКЛМНПРСТФХЦЧШЩЬ")
+_VRAZLYV_RE = re.compile(
+    r"(?P<prev>[А-Яа-яЇїІіЄєҐґʼ'’]+)(?P<gap>[ \u00a0]+)(?P<first>[УуВв])(?P<rest>разлив\w*)"
+)
+
+
+def _vrazlyv_choice(m: "re.Match[str]") -> str:
+    prev, gap, first, rest = m.group("prev"), m.group("gap"), m.group("first"), m.group("rest")
+    last = prev[-1]
+    if last in _UA_VOWELS:
+        wanted = "в"
+    elif last in _UA_CONSONANTS:
+        wanted = "у"
+    else:  # apostrophe-final or anything unexpected: keep the author's form
+        return m.group(0)
+    if first.isupper():
+        wanted = wanted.upper()
+    return prev + gap + wanted + rest
+
+
+def apply_vrazlyv_euphony(text: str) -> str:
+    """Choose «уразлив-» or «вразлив-» from the preceding word.
+
+    Changes a form only where the neighbour makes the rule unambiguous
+    (Cyrillic vowel- or consonant-final word separated by a plain space).
+    Idempotent. Never touches other words.
+    """
+    if not text or not isinstance(text, str):
+        return text
+    # «в» + «вразлив-» stacks в+вр: the preposition takes «у» first, which
+    # then (a vowel) keeps «вразлив-».
+    return _VRAZLYV_RE.sub(_vrazlyv_choice, _fix_euphony(text))
+
 # Collocations a single-word swap cannot reach. Applied BEFORE the stem pass
 # and keyed on the ORIGINAL wording, so a legitimate «мережевий захист»
 # (network protection in general) is never turned into «мережевий екран»
@@ -225,7 +276,7 @@ def normalize_ukrainian(text: str) -> str:
     """
     if not text or not isinstance(text, str):
         return text
-    return _WORD_RE.sub(lambda m: _normalize_one(m.group(1)), text)
+    return apply_vrazlyv_euphony(_WORD_RE.sub(lambda m: _normalize_one(m.group(1)), text))
 
 
 def normalize_ukrainian_fields(values: object) -> object:
@@ -274,7 +325,7 @@ def normalize_ukrainian_calques(text: str) -> str:
     for source, target in CALQUE_PHRASES.items():
         text = text.replace(source, target)
     text = _WORD_RE.sub(lambda m: _normalize_calque_word(m.group(1)), text)
-    return _fix_euphony(text)
+    return apply_vrazlyv_euphony(text)
 
 
 def normalize_ukrainian_calque_fields(values: object) -> object:
@@ -303,7 +354,100 @@ def has_russism(text: str) -> str | None:
     return None
 
 
+# ===========================================================================
+# Calques the editor rejects — DETECTION ONLY.
+#
+# These are bureaucratic or Russian-pattern constructions that are not wrong
+# letter-by-letter, so no stem swap can fix them: «шляхом фішингу» needs the
+# sentence rebuilt around a verb, «закрити вразливість» needs a different
+# verb, «даний» is only a calque when it means «цей». The table therefore
+# feeds the editorial scorecard (`ai/scorecard.py`) and the review queue, and
+# the same list is taught in `_SHARED_RULES_UK`. Nothing here rewrites text.
+#
+# Each row: (id, regex, what was found, what to write instead). Patterns are
+# case-insensitive and Unicode word-bounded.
+# ===========================================================================
+
+CALQUES: tuple[tuple[str, str, str, str], ...] = (
+    ("shlyakhom", r"\bшляхом\b", "шляхом", "дієслово або «за допомогою»"),
+    ("yavlyatysya",
+     r"\bявля(?:ється|ються|тися|лася|лося|лися|вся)\b|\bявля(?:є|ють|ла|ло|ли|в)\s+собою\b",
+     "являтися / являє собою", "є"),
+    ("pryimaty_uchast", r"\bприй(?:ма|ня|м)\w*\s+участ[ьі]\b", "приймати участь", "брати участь"),
+    ("na_protyazi", r"\bна\s+протязі\b", "на протязі", "протягом"),
+    ("u_vidpovidnosti", r"\b[ув]\s+відповідності\s+(?:до|з|із)\b", "у відповідності до",
+     "відповідно до"),
+    ("v_yakosti", r"\b[ув]\s+якості\b", "в якості", "як"),
+    ("danyi", r"\bдан(?:ий|ого|ому|им|ій|а|е|ої|у)\b", "даний (у значенні «цей»)", "цей"),
+    ("sliduyuchyi", r"\bслідуюч\w*", "слідуючий", "наступний"),
+    ("spivpadaty", r"\bспівпад\w*", "співпадати", "збігатися"),
+    # Added from docs/editorial/CONTENT_AUDIT.md (counts over the archive).
+    ("zakryty_vrazlyvist",
+     r"\bзакри(?:ти|ла|ли|в|є|ють|ває|вають)\w*\s+(?:\w+\s+){0,2}(?:у|в)разлив\w*|\bзакри\w*\s+(?:\w+\s+)?дір\w*",
+     "закрити вразливість / діру", "виправити вразливість"),
+    ("u_dykii_pryrodi", r"\b[ув]\s+дикій\s+природі\b", "у дикій природі (in the wild)",
+     "в реальних атаках"),
+    ("na_predmet", r"\bна\s+предмет\b", "на предмет", "щодо / чи є"),
+    ("pryinyaty_miry", r"\bприй(?:ня|ма|м)\w*\s+(?:\w+\s+)?мір(?:и|у)?\b", "прийняти міри",
+     "вжити заходів"),
+    ("zakryty_vrazlyvist", r"\bзакри\w*(?:\s+[^\s.,;:!?]+){0,3}?\s+[ув]разлив\w*",
+     "закрити вразливість", "виправити / усунути вразливість"),
+    ("virno", r"\bвірно\b|\bневірн\w*", "вірно / невірний (= правильно)",
+     "правильно / неправильний"),
+)
+
+_CALQUE_RES: tuple[tuple[str, re.Pattern[str], str, str], ...] = tuple(
+    (cid, re.compile(rx, re.IGNORECASE), found, preferred)
+    for cid, rx, found, preferred in CALQUES
+)
+
+# Terminology the editor standardised on. Also detection only.
+TERM_PREFERENCES: tuple[tuple[str, str, str, str], ...] = (
+    ("napadnyk", r"\bнападник\w*", "нападник", "зловмисник"),
+    ("atakuvalnyk", r"\bатакувальник\w*|\bатакуюч(?:ий|ого|ому|им|і|их)\b",
+     "атакувальник / атакуючий", "зловмисник"),
+    ("kredenshely", r"\bкреденшел\w*|\bкреденціал\w*", "креденшели", "облікові дані"),
+    ("ransomware_latin_lead", r"\bransomware\b", "ransomware", "програма-вимагач"),
+    ("admin_slang", r"\bадмін(?:и|ів|ам|ами|ах)?\b", "адміни", "адміністратори"),
+    ("vendor", r"\bвендор\w*", "вендор", "виробник / постачальник"),
+)
+
+_TERM_RES: tuple[tuple[str, re.Pattern[str], str, str], ...] = tuple(
+    (cid, re.compile(rx, re.IGNORECASE), found, preferred)
+    for cid, rx, found, preferred in TERM_PREFERENCES
+)
+
+
+def _find(text: str, table: tuple[tuple[str, re.Pattern[str], str, str], ...]
+          ) -> list[tuple[str, str, str]]:
+    if not text:
+        return []
+    hits: list[tuple[str, str, str]] = []
+    for cid, rx, _found, preferred in table:
+        m = rx.search(text)
+        if m:
+            hits.append((cid, m.group(0), preferred))
+    return hits
+
+
+def find_calques(text: str) -> list[tuple[str, str, str]]:
+    """Every calque from `CALQUES` present in `text`, once per rule.
+
+    Returns `(rule_id, matched_text, preferred_form)` tuples, in table order.
+    """
+    return _find(text, _CALQUE_RES)
+
+
+def find_term_deviations(text: str) -> list[tuple[str, str, str]]:
+    """Same shape as `find_calques`, for `TERM_PREFERENCES`."""
+    return _find(text, _TERM_RES)
+
+
 __all__ = [
+    "CALQUES",
+    "TERM_PREFERENCES",
+    "find_calques",
+    "find_term_deviations",
     "CALQUE_GLOSSARY",
     "CALQUE_PHRASES",
     "GLOSSARY",

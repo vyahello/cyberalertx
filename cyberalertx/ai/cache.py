@@ -23,12 +23,14 @@ On-disk shape (intentionally backward-tolerant — see `_load`):
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from .models import ThreatPost
 
@@ -134,14 +136,34 @@ class ThreatPostCache:
             )
             return None
 
+    @contextlib.contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Exclusive advisory lock across processes for read-modify-write.
+
+        The API process (review decisions) and the hourly `generate` process
+        both write this file. Each write re-serialises the whole store, which
+        takes long enough on a large cache that two unlocked writers could
+        interleave and the second would drop the first one's change — for a
+        review decision, a silent loss. Readers need no lock: writes are
+        atomic renames, so a reader always sees a complete file.
+        """
+        lock_path = self._path.with_name(self._path.name + ".lock")
+        with open(lock_path, "a") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
     def set(self, fingerprint: str, locale: str, post: ThreatPost) -> None:
-        # Reload before merging — picks up entries another process wrote
-        # since our last `get()`, so we don't accidentally drop them when
+        # Reload under the lock before merging — picks up entries another
+        # process wrote since our last `get()`, so we don't drop them when
         # we flush our local view.
-        self._maybe_reload()
-        self._store[_key(fingerprint, locale)] = post.to_dict()
-        self._flush()
-        self._mtime_seen = self._current_mtime()
+        with self._locked():
+            self._maybe_reload()
+            self._store[_key(fingerprint, locale)] = post.to_dict()
+            self._flush()
+            self._mtime_seen = self._current_mtime()
 
     def delete(self, fingerprint: str, locale: str) -> bool:
         """Forget one render. Returns True if an entry was actually removed.
@@ -157,15 +179,20 @@ class ThreatPostCache:
         operation in this system, so the caller is made to name what it is
         paying to redo.
         """
-        self._maybe_reload()
-        if self._store.pop(_key(fingerprint, locale), None) is None:
-            return False
-        self._flush()
-        self._mtime_seen = self._current_mtime()
-        return True
+        with self._locked():
+            self._maybe_reload()
+            if self._store.pop(_key(fingerprint, locale), None) is None:
+                return False
+            self._flush()
+            self._mtime_seen = self._current_mtime()
+            return True
 
     def all(self) -> Iterable[ThreatPost]:
-        for raw in self._store.values():
+        # Same freshness rule as `get()`: the admin review queue lists posts
+        # through this, and a long-running server must see what `generate`
+        # wrote in another process.
+        self._maybe_reload()
+        for raw in list(self._store.values()):
             try:
                 yield ThreatPost.from_dict(raw)
             except (KeyError, ValueError, TypeError):

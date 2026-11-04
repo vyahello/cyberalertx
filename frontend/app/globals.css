@@ -2,53 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  /* Force a single dark theme — the product is always-dark by design.
-     Saves us from prefers-color-scheme inversions and flash-of-light. */
-  :root {
-    color-scheme: dark;
-    --font-tnum: "tnum" 1, "ss01" 1;
+/* ==========================================================================
+   CyberAlertX — "field guide on the axis"
+   Tokens mirror tailwind.config.ts. Rationale: docs/design/DESIGN_SYSTEM.md
+   ========================================================================== */
 
-    /* ---------- Brand tokens as CSS vars ----------
-       Mirror of the Tailwind palette for non-Tailwind contexts: inline SVG,
-       third-party widgets, embeds, ad-hoc CSS. Keep in sync with
-       tailwind.config.ts — these are the same hex literals. */
-    --brand-bg:           #0E1116;
-    --brand-bg-elevated:  #161A21;
-    --brand-bg-elevated-2:#1F242D;
-    --brand-border:       #2A2F38;
-    --brand-text:         #E6E8EC;
-    --brand-text-secondary:#9CA3AF;
-    /* AA-compliant tertiary — see the note in tailwind.config.ts. */
-    --brand-text-tertiary:#868E9C;
-    /* Calm cyan that *rhymes* with the brand glyph's #00E5FF alert ping
-       without burning eyes when applied to whole UI surfaces (buttons,
-       links, filter chips, focus rings). Pure #00E5FF only survives at the
-       1-2px scale of the ping itself; at button-size it dominates the
-       page. This is Tailwind cyan-500 — same family, ~30% less luminance,
-       passes AA contrast as text on the dark surface. The bright #00E5FF
-       stays reserved for the ping in the glyph (and the OG-card stamp). */
-    --brand-accent:       #06B6D4;
-    --brand-accent-hover: #22D3EE;
-    --brand-accent-ring:  rgba(6, 182, 212, 0.40);
-    --brand-level-critical:#FF6B6E;
-    --brand-level-high:   #F5A623;
-    --brand-signal-live:  #4FCB9C;
+@layer base {
+  :root {
+    /* Always dark: a brand commitment (PRODUCT.md), not a default. */
+    color-scheme: dark;
+
+    --ground: #0e1116;
+    --ground-raised: #161b22;
+    --ground-high: #1e242d;
+    --ground-sunk: #0a0d11;
+    --ink: #eceef1;
+    --ink-muted: #a6aeba;
+    --ink-faint: #8c95a3;
+    --signal: #06b6d4;
+    --signal-hover: #22d3ee;
+    --signal-ink: #071318;
+    --signal-deep: #0b3a44;
+    --sev-critical: #ff5c6c;
+    --sev-high: #ff9f43;
+    --sev-medium: #ede58a;
+    --sev-low: #8c95a3;
+    --line: #2a313b;
+
+    /* The frame. One pair of outer margins at every width, one gutter, and
+       one vertical axis at 42% of the content width. Every section that
+       uses the axis builds its last column from --right, so the axis lands
+       on the same pixel whatever the column count. */
+    --margin: clamp(1.25rem, 0.6rem + 2.8vw, 3rem);
+    --gutter: clamp(1.25rem, 0.8rem + 1.2vw, 2rem);
+    --right: calc((100% - var(--gutter)) * 0.58);
+    --header-h: 4rem;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    /* Our own hover/active states replace the grey tap-flash overlay
-       Android Chrome / iOS Safari paint on touched links — on card-sized
-       links the flash reads as jank, not feedback. */
     -webkit-tap-highlight-color: transparent;
+    /* Anchored jumps (#feed, #actions) clear the sticky header. */
+    scroll-padding-top: calc(var(--header-h) + 1rem);
   }
 
-  /* Smooth-scroll anchor hops (hero CTA → #feed). Scoped to users who
-     have NOT asked for reduced motion; the reduced-motion block below
-     forces it back to auto for everyone else. */
   @media (prefers-reduced-motion: no-preference) {
     html {
       scroll-behavior: smooth;
@@ -56,19 +55,17 @@
   }
 
   body {
-    @apply bg-bg-base text-text-primary font-sans antialiased;
-    /* Tabular figures for any numbers in feeds / counters — keeps columns
-       from jittering as values change. */
-    font-feature-settings: var(--font-tnum);
-    /* Landscape-notch clearance (viewport-fit=cover) — keeps content out
-       of the iPhone sensor housing. Resolves to 0 everywhere else. */
+    @apply bg-ground text-ink font-sans text-body;
+    /* Proportional figures and real hyphens by default. Tabular figures are
+       opt-in (.tnum) — applying `tnum` to all text is what turned every
+       hyphen into a wide tabular glyph ("real - world") on the old site. */
+    font-feature-settings: "kern" 1;
+    font-variant-ligatures: common-ligatures;
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+    caret-color: var(--signal);
   }
 
-  /* Declare every interactive element a tap target, not a zoom surface —
-     removes the double-tap-to-zoom delay heuristics on touch browsers so
-     taps commit instantly. */
   a,
   button,
   input,
@@ -78,26 +75,26 @@
     touch-action: manipulation;
   }
 
-  /* Text selection in the brand accent instead of the UA default blue. */
   ::selection {
-    background: rgba(6, 182, 212, 0.3);
-    color: var(--brand-text);
+    background: rgba(6, 182, 212, 0.32);
+    color: var(--ink);
   }
 
-  /* Reset focus styles so we can apply our own ring through utilities. */
-  *:focus {
+  /* One focus treatment everywhere: a 2px cyan ring offset from the
+     element, following its own (square) corners. */
+  :focus {
     outline: none;
   }
-  /* No `rounded-*` here. `border-radius` applies to the ELEMENT, not to the
-     ring, so adding it visibly squares off every pill and circular control
-     the moment it takes focus. Each component keeps its own radius and the
-     ring follows it. */
-  *:focus-visible {
-    @apply ring-2 ring-accent-ring ring-offset-2 ring-offset-bg-base;
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 3px;
   }
 
-  /* Subtle scrollbar that matches the surface — visible enough to be useful,
-     not so loud it competes with content. */
+  /* Themed scrollbars: the browser surfaces carry the palette too. */
+  * {
+    scrollbar-color: var(--ground-high) transparent;
+    scrollbar-width: thin;
+  }
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -106,24 +103,40 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--brand-border);
-    border-radius: 6px;
+    background: var(--ground-high);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #3A4250;
+    background: var(--line);
   }
 
-  /* Honour the OS "reduce motion" preference (WCAG 2.3.3). The product
-     leans on a few subtle animations — card fade-up, the live pulse/ring,
-     the slow hero drift — which can trigger vestibular discomfort. For
-     users who opt out we collapse all animation and long transitions to
-     an instant, non-moving state rather than removing the elements. */
+  /* Headings: Literata, balanced, never orphaned. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+  p,
+  li,
+  dd {
+    text-wrap: pretty;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.9em;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
       animation-duration: 0.001ms !important;
       animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
       transition-duration: 0.001ms !important;
       scroll-behavior: auto !important;
     }
@@ -131,151 +144,251 @@
 }
 
 @layer components {
-  /* The signature card surface — used by ThreatCard, TrendingCard, sidebars.
-     Encoded once so the visual rhythm is consistent across the product. */
-  .surface-card {
-    @apply bg-bg-elevated border border-border-subtle rounded-lg;
-    @apply transition-colors duration-200;
-  }
-  .surface-card-hover {
-    @apply hover:border-border-strong hover:bg-bg-elevated-2;
-    /* Touch feedback — :hover never fires meaningfully on phones, so the
-       press state is what tells a thumb "this card heard you". Same
-       treatment as hover keeps it layout-stable. */
-    @apply active:border-border-strong active:bg-bg-elevated-2;
+  /* ---- Frame -------------------------------------------------------- */
+  .page {
+    @apply mx-auto w-full max-w-page;
+    padding-inline: var(--margin);
   }
 
-  /* The compact one-liner badge shape — pill, padded, small caps. */
-  .badge {
-    @apply inline-flex items-center gap-1.5 px-2 py-0.5;
-    @apply text-2xs font-medium uppercase tracking-wider;
-    @apply rounded-md whitespace-nowrap;
+  /* Two zones split on the axis: side notes left, text right. Collapses to
+     one column below the lg breakpoint. */
+  .axis {
+    display: grid;
+    column-gap: var(--gutter);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 1024px) {
+    .axis {
+      grid-template-columns: minmax(0, 1fr) var(--right);
+    }
+    .axis > .on-axis {
+      grid-column: 2;
+    }
   }
 
-  /* Primary button — calm cyan ground, dark ink. White text on cyan is
-     a 3:1 disaster; the dark `bg-base` ink reads at ~9:1 and stops the
-     button from feeling like a glowstick. */
+  /* ---- Feed: filter rail | side-note marks | text on the axis --------
+     Phones: one column, marks inline above each headline.
+     md:     marks column + text column.
+     lg:     rail + marks + text; the text column is --right, so headlines
+             start on the same axis as the lead story above them. Rows are
+             subgrids, so every row's marks and text share the same tracks. */
+  .feed-grid {
+    display: grid;
+    column-gap: var(--gutter);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .feed-rail {
+    display: none;
+  }
+  .feed-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .feed-row__inner {
+    display: grid;
+    row-gap: 0.5rem;
+    padding-block: 0.75rem;
+  }
+  .feed-day {
+    padding-top: 2.5rem;
+    padding-bottom: 0.25rem;
+  }
+  .feed-day-group:first-of-type .feed-day {
+    padding-top: 1rem;
+  }
+  @media (min-width: 768px) {
+    .feed-grid {
+      grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+    }
+    .feed-list {
+      grid-column: 1 / -1;
+      grid-template-columns: subgrid;
+    }
+    .feed-day-group,
+    .feed-day-list,
+    .feed-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: subgrid;
+    }
+    .feed-day {
+      grid-column: 1 / -1;
+    }
+    .feed-row__inner {
+      grid-column: 1 / -1;
+      grid-template-columns: subgrid;
+      row-gap: 0;
+    }
+  }
+  @media (min-width: 1024px) {
+    .feed-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 12rem) var(--right);
+    }
+    .feed-rail {
+      display: block;
+      grid-column: 1;
+      grid-row: 1;
+      align-self: start;
+      /* Not sticky: the rail is taller than most viewports, and a capped
+         sticky panel hid its last groups with no visible way to reach them.
+         It scrolls with the page, so every group is reachable. */
+      padding-right: 0.75rem;
+    }
+    .feed-list {
+      grid-column: 2 / 4;
+      grid-row: 1;
+    }
+  }
+
+  /* ---- Type roles --------------------------------------------------- */
+  .t-display {
+    @apply font-serif text-display font-light;
+    font-variation-settings: "opsz" 72;
+  }
+  .t-head {
+    @apply font-serif text-head font-semibold;
+  }
+  .t-lead {
+    @apply font-serif text-lead;
+  }
+  .t-section {
+    /* Section headings (h2) — the head step at its lower end. */
+    @apply font-serif font-semibold tracking-[-0.01em];
+    font-size: clamp(1.625rem, 1.2rem + 1.2vw, 2.25rem);
+    line-height: 1.15;
+  }
+  .t-small {
+    @apply font-sans text-small;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Reading column for article prose. */
+  .prose-brief {
+    @apply font-serif text-body text-ink;
+    /* ~70 characters of Literata. `ch` measures its wide zero and gave ~80. */
+    max-width: 34em;
+  }
+  .prose-brief p + p {
+    margin-top: 1em;
+  }
+  .prose-brief a {
+    @apply text-signal underline decoration-1 underline-offset-[3px];
+    text-decoration-color: rgba(6, 182, 212, 0.45);
+  }
+  .prose-brief a:hover {
+    text-decoration-color: currentColor;
+  }
+  .prose-brief code {
+    @apply bg-ground-raised text-ink px-1 py-px;
+    font-size: 0.86em;
+    word-break: break-word;
+  }
+  .prose-brief pre {
+    @apply bg-ground-sunk text-ink p-4 overflow-x-auto text-small my-4;
+  }
+  .prose-brief pre code {
+    @apply bg-transparent p-0;
+  }
+  .prose-brief table {
+    @apply w-full text-small font-sans my-4 border-collapse;
+  }
+  .prose-brief th,
+  .prose-brief td {
+    @apply border-b border-line py-2 pr-4 text-left align-top;
+  }
+
+  /* ---- Controls ----------------------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 min-h-[44px] px-5
+           font-sans text-[1rem] font-semibold leading-none
+           transition-[background-color,color,transform] duration-150 ease-out
+           active:translate-y-px;
+  }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2;
-    @apply px-5 py-2.5 min-h-[44px];
-    @apply bg-accent text-bg-base font-semibold text-sm;
-    @apply rounded-md transition-all duration-200;
-    @apply hover:bg-accent-hover hover:shadow-elevated;
-    @apply active:scale-[0.98];
+    @apply btn bg-signal text-signal-ink hover:bg-signal-hover;
+  }
+  .btn-quiet {
+    @apply btn bg-ground-raised text-ink hover:bg-ground-high;
+  }
+  .link {
+    @apply text-signal underline decoration-1 underline-offset-[3px]
+           transition-colors duration-150 hover:text-signal-hover;
+    text-decoration-color: rgba(6, 182, 212, 0.45);
+  }
+  .link:hover {
+    text-decoration-color: currentColor;
   }
 
-  /* The brand lockup — used in the header. Wrap glyph + wordmark.
-     The wordmark is a sibling <span>, not <text> in SVG, so the same Inter
-     loaded by the app renders it. Glyph inherits text color via currentColor. */
-  .brand-lockup {
-    @apply inline-flex items-center gap-2.5 text-accent;
-    @apply transition-colors duration-200;
-  }
-  .brand-lockup .brand-glyph {
-    @apply h-6 w-6 flex-shrink-0;
-  }
-  .brand-lockup .brand-wordmark {
-    @apply font-semibold text-text-primary text-base tracking-tight;
-    @apply hidden sm:inline;
+  /* Field input: filled, no outline at rest, clear focus. */
+  .field {
+    @apply w-full bg-ground-raised text-ink font-sans text-[1rem] min-h-[44px] px-3
+           placeholder:text-ink-faint transition-colors duration-150
+           hover:bg-ground-high focus-visible:bg-ground-high;
   }
 
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2;
-    @apply px-4 py-2 min-h-[40px];
-    @apply text-text-secondary font-medium text-sm;
-    @apply rounded-md transition-colors duration-200;
-    @apply hover:bg-bg-elevated-2 hover:text-text-primary;
+  /* Toggle chip used by filters: square, filled, pressed state inverts. */
+  .toggle {
+    @apply inline-flex items-center min-h-[40px] px-3 font-sans text-small font-medium
+           bg-ground-raised text-ink-muted transition-colors duration-150
+           hover:bg-ground-high hover:text-ink;
+  }
+  .toggle[aria-pressed="true"] {
+    @apply bg-ink text-ground;
   }
 
-  /* "Live dot" — two concentric layers, the outer one pulses outward. */
-  .live-dot {
-    @apply relative inline-flex w-2 h-2 rounded-full;
-  }
-  .live-dot::after {
-    content: "";
-    @apply absolute inset-0 rounded-full;
-    @apply bg-signal-live animate-pulse-ring;
-  }
-
-  /* Plain-language lead — the everyday-language "what this means for you"
-     sentence that opens a card and the detail page. Larger and softer than
-     surrounding copy so a general (non-technical) reader's eye lands on the
-     plain explanation first, before any badges or jargon. */
-  .lead-text {
-    @apply text-base sm:text-lg text-text-primary leading-relaxed;
-  }
-
-  /* Loading placeholder block — route-level loading.tsx files compose
-     these into page-shaped skeletons. Tailwind's built-in pulse; the
-     reduced-motion block above freezes it to a static plate. */
-  .skeleton {
-    @apply rounded-md bg-bg-elevated-2/70 animate-pulse;
-  }
-
-  /* Skip-to-content link — sr-only until keyboard focus lands on it,
-     then it floats above the sticky header as an accent chip. Must be
-     the FIRST focusable element in <body> (see app/[locale]/layout.tsx). */
+  /* Skip link: hidden until focused. */
   .skip-link {
     @apply sr-only;
   }
   .skip-link:focus-visible {
-    @apply not-sr-only fixed top-3 left-3 z-50;
-    @apply inline-flex items-center px-4 py-2 rounded-md;
-    @apply bg-accent text-bg-base text-sm font-semibold;
-    @apply shadow-elevated;
+    @apply not-sr-only fixed top-3 left-3 z-50 inline-flex items-center px-4 py-2
+           bg-signal text-signal-ink font-sans font-semibold;
+  }
+
+  /* Loading placeholder blocks. */
+  .skeleton {
+    @apply bg-ground-raised animate-pulse;
+  }
+
+  /* ---- Motion: section entrances ------------------------------------
+     Scroll-driven where the browser supports it; everywhere else the
+     content is simply visible. Nothing is hidden by default. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .enter {
+        animation: enter-rise linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 55%;
+      }
+    }
+  }
+}
+
+@keyframes enter-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
 @layer utilities {
-  /* Mask gradient used on horizontal scrollers (Trending row) — fades the
-     edges so cut-off cards don't look truncated. */
-  .mask-fade-x {
-    mask-image: linear-gradient(
-      to right,
-      transparent 0,
-      black 24px,
-      black calc(100% - 24px),
-      transparent 100%
-    );
-  }
-  /* Escape hatch for mask-fade-x at breakpoints where the row no longer
-     scrolls (e.g. `sm:mask-none` on the preset chips) — without it the
-     first/last chip sits half-faded on desktop. Declared here because
-     Tailwind 3.4 ships no mask utilities of its own. */
-  .mask-none {
-    mask-image: none;
-  }
-
-  /* Hide the scrollbar on horizontal snap rows (trending, preset chips)
-     while keeping them scrollable — the styled 10px bar reads as page
-     chrome glued under the cards. Scrollability stays discoverable via
-     the edge fade + peeking next card. */
   .no-scrollbar {
     scrollbar-width: none;
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
-
-  /* Optimal reading measure — caps body/narrative text at ~68 characters
-     so long paragraphs stay comfortable to read on wide phones, tablets,
-     and desktop instead of stretching the full container width. */
-  .measure {
-    max-width: 68ch;
-  }
-
-  /* Subtle radial gradient for the hero — moves slowly via bg-drift. */
-  .hero-gradient {
-    background:
-      radial-gradient(
-        ellipse 80% 50% at 20% 0%,
-        rgba(6, 182, 212, 0.08) 0%,
-        transparent 50%
-      ),
-      radial-gradient(
-        ellipse 60% 40% at 80% 30%,
-        rgba(79, 203, 156, 0.06) 0%,
-        transparent 50%
-      );
+  /* Stretch a row's single link over the whole row without nesting
+     interactive elements. */
+  .stretched::after {
+    content: "";
+    position: absolute;
+    inset: 0;
   }
 }

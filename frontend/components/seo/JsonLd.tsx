@@ -140,9 +140,8 @@ export function ThreatJsonLd({
   if (!content) return null;
 
   const url = postUrl(lang, post.id);
-  const image = absoluteUrl(
-    lang === "ua" ? "/brand/og-image-ua.png" : "/brand/og-image.png",
-  );
+  // The story's own localized card (stable URL, rendered on request).
+  const image = absoluteUrl(`/${lang}/threat/${post.id}/card/og.png`);
 
   return (
     <JsonLdScript
@@ -164,6 +163,12 @@ export function ThreatJsonLd({
         // Credit the reporting this brief is derived from.
         isBasedOn: post.source_url || undefined,
         creditText: post.source,
+        isAccessibleForFree: true,
+        wordCount: [content.short_summary, content.detail_body, content.why_it_matters]
+          .filter(Boolean)
+          .join(" ")
+          .split(/\s+/)
+          .filter(Boolean).length,
         about: {
           "@type": "Thing",
           name: content.title,
@@ -176,6 +181,32 @@ export function ThreatJsonLd({
         ]
           .filter(Boolean)
           .join(", "),
+      }}
+    />
+  );
+}
+
+/**
+ * Breadcrumb trail for topic and article pages. Search engines show it in
+ * place of the raw URL, and it tells crawlers which section a brief lives in.
+ */
+export function BreadcrumbJsonLd({
+  items,
+}: {
+  items: { name: string; url: string }[];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <JsonLdScript
+      data={{
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: items.map((item, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          name: item.name,
+          item: item.url,
+        })),
       }}
     />
   );

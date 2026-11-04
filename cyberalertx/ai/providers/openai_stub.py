@@ -19,6 +19,8 @@ provider abstraction is real and the second vendor is a single file away.
 """
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 from ..models import ThreatPostResponse
 
 
@@ -57,6 +59,14 @@ class OpenAIProvider:
             "`generate_post()` and `cyberalertx.ai.generator` will pick it up "
             "with no other changes."
         )
+
+    def generate_json(
+        self, system: str, user: str, *, schema: Mapping[str, Any],  # noqa: ARG002
+    ) -> dict[str, Any]:
+        # Same story as `generate_post`: `client.responses.parse` with a JSON
+        # schema text format would go here. Raising makes the generator skip
+        # the fact sheet and render exactly as it did before the stage existed.
+        raise NotImplementedError("OpenAI provider is a stub in v1.")
 
 
 __all__ = ["OpenAIProvider"]

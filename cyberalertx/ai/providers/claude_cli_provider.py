@@ -52,7 +52,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from ..models import ThreatPostResponse
 
@@ -153,6 +153,17 @@ def _build_format_instruction(schema_json: str) -> str:
     )
 
 
+def _build_json_instruction(schema_json: str) -> str:
+    """Format note for `generate_json`: same contract, caller-supplied schema."""
+    return (
+        "\n\nRESPONSE FORMAT — STRICT AND NON-NEGOTIABLE:\n"
+        "Reply with EXACTLY ONE raw JSON object and nothing else. No markdown\n"
+        "fences, no explanations, no tools. The object MUST conform to this\n"
+        f"JSON Schema:\n{schema_json}\n"
+        "Output the JSON object now."
+    )
+
+
 class ClaudeCliProvider:
     """Sync provider backed by the `claude` CLI in headless (`-p`) mode.
 
@@ -207,8 +218,36 @@ class ClaudeCliProvider:
           * error envelope (`is_error: true`) or a refusal
           * a response that isn't a single valid ThreatPostResponse JSON object
         """
-        system_full = system + _build_format_instruction(self._schema_json)
+        payload = self._run(system + _build_format_instruction(self._schema_json), user)
+        try:
+            return ThreatPostResponse.model_validate_json(payload)
+        except Exception as exc:  # pydantic ValidationError / json errors
+            raise RuntimeError(
+                f"claude CLI returned a non-conforming ThreatPostResponse: {exc}"
+            ) from exc
 
+    def generate_json(
+        self, system: str, user: str, *, schema: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Run `claude -p` for an arbitrary JSON-Schema-shaped object.
+
+        The CLI has no server-side schema enforcement, so the schema is spelled
+        out in the system prompt exactly as for `generate_post`, and the caller
+        validates the returned object against its own model. Same failure
+        semantics: anything that is not one JSON object raises.
+        """
+        schema_json = json.dumps(dict(schema), ensure_ascii=False)
+        payload = self._run(system + _build_json_instruction(schema_json), user)
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"claude CLI returned invalid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("claude CLI JSON answer was not an object")
+        return data
+
+    def _run(self, system_full: str, user: str) -> str:
+        """One `claude -p` subprocess. Returns the JSON object text it answered."""
         cmd: List[str] = [
             self._binary,
             "-p",
@@ -262,14 +301,8 @@ class ClaudeCliProvider:
 
         usage = envelope.get("usage")
         if isinstance(usage, dict):
-            self._record_usage(usage, envelope.get("total_cost_usd"))
-
-        try:
-            return ThreatPostResponse.model_validate_json(payload)
-        except Exception as exc:  # pydantic ValidationError / json errors
-            raise RuntimeError(
-                f"claude CLI returned a non-conforming ThreatPostResponse: {exc}"
-            ) from exc
+            self._record_usage(usage, envelope.get("total_cost_usd"), self._model or "cli-default")
+        return payload
 
     # ----------------------- internals -------------------------------
 
@@ -303,7 +336,7 @@ class ClaudeCliProvider:
         return result
 
     @staticmethod
-    def _record_usage(usage: dict[str, Any], total_cost_usd: Any) -> None:
+    def _record_usage(usage: dict[str, Any], total_cost_usd: Any, model: str = "") -> None:
         """Log token usage + bump observability counters (best-effort).
 
         Mirrors AnthropicProvider._record_usage so the prompt-cache and spend
@@ -334,6 +367,15 @@ class ClaudeCliProvider:
                 m.bump("claude_cli_output_tokens", output_tokens)
         except Exception as exc:  # pragma: no cover — defensive
             logger.debug("usage counter bump skipped: %s", exc)
+        try:
+            from ...ops.usage import record_call
+            # The CLI's total_cost_usd is its own estimate (notional on a
+            # subscription login) — recorded as "claude-cli", never as billed.
+            record_call(provider="claude-cli", model=model, input_tokens=input_tokens,
+                        output_tokens=output_tokens, cache_read_tokens=cache_read,
+                        cache_write_tokens=cache_write, cost_usd=total_cost_usd, cost_source="claude-cli")
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("usage ledger skipped: %s", exc)
 
 
 def _extract_json_object(text: str) -> str:

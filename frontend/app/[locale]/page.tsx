@@ -1,16 +1,27 @@
 import { notFound } from "next/navigation";
-import { HomeShell } from "@/components/layout/HomeShell";
+import { FeedSection } from "@/components/feed/FeedSection";
+import { LeadStory } from "@/components/home/LeadStory";
+import { MethodSection } from "@/components/home/MethodSection";
+import { PriorityList } from "@/components/home/PriorityList";
+import { countOverview } from "@/components/home/ThreatOverview";
 import { FeedJsonLd } from "@/components/seo/JsonLd";
 import { fetchPosts } from "@/lib/api";
-import { SUPPORTED_LOCALES, isLocale } from "@/lib/types";
+import { slimForFeed } from "@/lib/feed";
+import { strings } from "@/lib/i18n";
+import { pickFrontPage } from "@/lib/significance";
+import { SUPPORTED_LOCALES, isLocale, postsAvailableIn } from "@/lib/types";
 
-/** ISR — same as before. Literal required by Next.js static analyzer. */
+/** ISR. Literal required by Next.js' static analyser. */
 export const revalidate = 60;
 
-/** Pre-generate one static page per supported locale at build time. */
 export function generateStaticParams() {
   return SUPPORTED_LOCALES.map((locale) => ({ locale }));
 }
+
+/** Posts shipped to the browser in the filterable feed: about a week. */
+const FEED_SIZE = 40;
+/** Pool read on the server for the 7-day overview counts (never shipped). */
+const OVERVIEW_POOL = 120;
 
 export default async function LocaleHomePage({
   params,
@@ -20,25 +31,25 @@ export default async function LocaleHomePage({
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
 
-  // Homepage policy: show only AI-rendered items (cachedOnly=true) so the
-  // rule-based fallback never leaks into the public feed. The API no
-  // longer applies a freshness window — every AI-rendered item is in
-  // scope, sorted newest-first. 20 entries is the visible-feed product
-  // cap; the raw NewsItem store holds up to 200 (config.max_items_retained)
-  // so older AI-rendered posts stay queryable as new ones arrive.
-  //
-  // Operationally: `python -m cyberalertx.main generate --limit N` adds
-  // N more posts; they show up here at the top by published_at.
-  //
-  // The empty-state copy ("Threat feed is updating") covers the
-  // first-run / no-warm-cache case gracefully.
-  const posts = await fetchPosts(locale, 20, { cachedOnly: true });
+  // Only AI-rendered items (cachedOnly) so the rule-based fallback never
+  // reaches the public feed; newest first from the API.
+  const pool = postsAvailableIn(
+    await fetchPosts(locale, OVERVIEW_POOL, { cachedOnly: true }),
+    locale,
+  );
+  const posts = pool.slice(0, FEED_SIZE);
+  const now = Date.now();
+  const { lead, priority } = pickFrontPage(posts, now);
+  const overview = countOverview(pool, now);
+  const s = strings(locale);
+
   return (
-    <>
-      {/* Describes the feed as an ordered list of stories so a crawler or
-          assistant reads it as a threat index, not one long page. */}
+    <main>
       <FeedJsonLd posts={posts} lang={locale} />
-      <HomeShell lang={locale} initialPosts={posts} />
-    </>
+      <LeadStory lead={lead} total={posts.length} lang={locale} now={now} />
+      <PriorityList posts={priority} lang={locale} overview={overview} />
+      <FeedSection posts={slimForFeed(posts, locale)} lang={locale} heading={s.section_feed} className="mt-section" />
+      <MethodSection posts={posts} lang={locale} />
+    </main>
   );
 }

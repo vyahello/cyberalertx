@@ -48,6 +48,11 @@ news_items = Table(
     # written before migration 004 read back as "own story".
     Column("story_key", String(32), nullable=False, server_default=""),
     Column("duplicate_of", String(64), nullable=False, server_default=""),
+    # Relevance classification (migration 005). PgNewsStore writes these only
+    # once it has seen them in the live table, so deploys before 005 still work.
+    Column("relevance_status", String(16), nullable=False, server_default=""),
+    Column("relevance_reason", Text, nullable=False, server_default=""),
+    Column("relevance_override", String(16), nullable=False, server_default=""),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
 )

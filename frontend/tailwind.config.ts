@@ -1,196 +1,126 @@
 import type { Config } from "tailwindcss";
 
 /**
- * CyberAlertX Design Tokens
+ * CyberAlertX design tokens — "field guide on the axis".
  *
- * Influences: Linear (graphite + restraint), Stripe (color clarity),
- * Apple (spacing rhythm). Explicitly NOT: terminal green, cyberpunk neon,
- * matrix glow.
+ * Full rationale: docs/design/DESIGN_SYSTEM.md. Short version:
  *
- * Naming convention:
- *   - bg.{base|elevated|elevated-2}  — page → card → hover surface
- *   - border.{subtle|strong|focus}   — hierarchy of separators
- *   - text.{primary|secondary|tertiary} — readability rungs
- *   - accent.{DEFAULT|soft}          — the single brand accent (calm blue)
- *   - level.{critical|high|medium|low}.{fg|bg|border} — threat colors
- *   - trust.{trusted|verified|unverified}.{fg|bg}   — credibility colors
- *   - signal.live                    — the "currently active" pulse green
+ *   ground  — graphite page and its two tone steps. Surfaces are told apart
+ *             by tone, never by outlines or shadows.
+ *   ink     — text. Running text is always `ink` (full); `muted` is for
+ *             secondary notes; `faint` is the floor for metadata and still
+ *             clears 4.5:1 on every ground step.
+ *   signal  — the brand cyan. Marks the primary action, links in running
+ *             text, focus, and the one whole-field section (footer).
+ *   sev     — severity. Always paired with a word and a segment count
+ *             (SeverityMark), never carried by colour alone.
  *
- * All threat / trust colors live below ~50% saturation by design: the
- * product feels alert, not alarmed.
+ * Every value here has a CSS custom property twin in app/globals.css for
+ * contexts Tailwind doesn't reach (SVG, inline styles, third-party widgets).
  */
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // ---------------- Graphite surfaces ----------------
-        // Tuned to read calm in dark mode; no pure black.
-        bg: {
-          base: "#0E1116",         // page background
-          elevated: "#161A21",     // card surface
-          "elevated-2": "#1F242D", // sticky / floating surfaces, header on scroll
-          inset: "#0A0D12",        // input fields, inset panels
+        ground: {
+          DEFAULT: "#0E1116",
+          raised: "#161B22",
+          high: "#1E242D",
+          sunk: "#0A0D11",
         },
-        border: {
-          subtle: "#2A2F38",
-          strong: "#3A4250",
-          focus: "#06B6D4",        // matches accent (calm cyan)
-        },
-        text: {
-          primary: "#E6E8EC",
-          secondary: "#9CA3AF",
-          // Lifted from #6B7280, which measured 3.91:1 on the page, 3.61:1
-          // on cards and 3.22:1 on elevated surfaces — all below the 4.5:1
-          // AA floor, and it carries real content at 11-12px: every section
-          // label, timestamp, filter legend and the feed counter. This value
-          // measures 5.73 / 5.29 / 4.72:1 and still reads a clear rung below
-          // `secondary` (7.45:1), so the hierarchy survives.
-          tertiary: "#868E9C",
-          // The old value, kept for decoration only — icons and rules that
-          // are `aria-hidden` and carry no information on their own, where
-          // contrast minimums don't apply.
-          quaternary: "#6B7280",
-        },
-        // ---------------- Brand accent ----------------
-        // Calm cyan that rhymes with the brand glyph's #00E5FF alert ping
-        // without burning eyes when scaled across UI surfaces. At button
-        // size pure #00E5FF dominates the page; cyan-500 (#06B6D4) carries
-        // the same identity at ~30% less luminance and reads as text on
-        // the dark surface (AA contrast). Pure #00E5FF is reserved for the
-        // ping in the glyph and the OG-card stamp.
-        accent: {
-          DEFAULT: "#06B6D4",
-          hover: "#22D3EE",
-          soft: "rgba(6, 182, 212, 0.10)",
-          ring: "rgba(6, 182, 212, 0.40)",
-        },
-        level: {
-          critical: {
-            fg: "#FF6B6E",
-            bg: "rgba(229, 72, 77, 0.10)",
-            border: "rgba(229, 72, 77, 0.30)",
-          },
-          high: {
-            fg: "#F5A623",
-            bg: "rgba(245, 166, 35, 0.10)",
-            border: "rgba(245, 166, 35, 0.28)",
-          },
-          medium: {
-            fg: "#ECCB38",
-            bg: "rgba(236, 203, 56, 0.08)",
-            border: "rgba(236, 203, 56, 0.22)",
-          },
-          low: {
-            fg: "#A0A8B5",
-            bg: "rgba(160, 168, 181, 0.06)",
-            border: "rgba(160, 168, 181, 0.22)",
-          },
-        },
-        trust: {
-          trusted: {
-            fg: "#4FCB9C",
-            bg: "rgba(79, 203, 156, 0.10)",
-          },
-          verified: {
-            fg: "#7B9CE0",
-            bg: "rgba(123, 156, 224, 0.10)",
-          },
-          unverified: {
-            fg: "#8B94A4",
-            bg: "rgba(139, 148, 164, 0.08)",
-          },
+        ink: {
+          DEFAULT: "#ECEEF1",
+          muted: "#A6AEBA",
+          faint: "#8C95A3",
         },
         signal: {
-          live: "#4FCB9C",
+          DEFAULT: "#06B6D4",
+          hover: "#22D3EE",
+          // Text on the cyan field.
+          ink: "#071318",
+          // Secondary text on the cyan field (5.2:1 on #06B6D4).
+          deep: "#0B3A44",
         },
+        sev: {
+          critical: "#FF5C6C",
+          high: "#FF9F43",
+          medium: "#EDE58A",
+          low: "#8C95A3",
+        },
+        // Only for real tables and form fields.
+        line: "#2A313B",
       },
       fontFamily: {
-        // Body & display — single typeface, varies by weight. Inter is the
-        // closest open-source equivalent to the Linear/Stripe register.
+        // Literata — the reading face: headlines, standfirsts, article text.
+        // Optical sizing is on, so the same family is a crisp display face
+        // at 44px and a sturdy text face at 17px. Latin + Cyrillic.
+        serif: ["var(--font-serif)", "Georgia", "Cambria", "serif"],
+        // Fira Sans Condensed — field marks, navigation, controls. Standard
+        // Cyrillic forms (Sofia Sans defaulted to Bulgarian letter shapes).
         sans: [
-          "Inter",
+          "var(--font-sans)",
+          "system-ui",
           "-apple-system",
-          "BlinkMacSystemFont",
           "Segoe UI",
-          "system-ui",
           "sans-serif",
         ],
-        // Brand wordmark only. Space Grotesk has the tight tracking and
-        // geometric "X" that pairs with the Aperture glyph in the header
-        // lockup. Loaded via next/font in app/layout.tsx.
-        display: [
-          "Space Grotesk",
-          "Inter",
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "system-ui",
-          "sans-serif",
-        ],
-        mono: [
-          "JetBrains Mono",
-          "ui-monospace",
-          "SFMono-Regular",
-          "Menlo",
-          "monospace",
-        ],
+        // The logotype only ("cyberalert" in the header and footer lockup).
+        logo: ["var(--font-logo)", "var(--font-sans)", "sans-serif"],
+        // Code, commands, hashes and indicators only.
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       fontSize: {
-        // A modest scale tuned for READABILITY by general readers. Body
-        // (`base`) is 16px — the mobile-readable floor — with a generous
-        // 1.6 line-height; `lg` (used for lead summaries) is 18px. The two
-        // micro sizes (2xs/xs) are reserved for badges, timestamps, and
-        // uppercase labels — never body copy.
-        "2xs": ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.01em" }],
-        xs: ["0.75rem", { lineHeight: "1.1rem", letterSpacing: "0.005em" }],
-        sm: ["0.875rem", { lineHeight: "1.4rem" }],
-        base: ["1rem", { lineHeight: "1.65rem" }],
-        lg: ["1.125rem", { lineHeight: "1.8rem" }],
-        xl: ["1.3125rem", { lineHeight: "1.8rem", letterSpacing: "-0.01em" }],
-        "2xl": ["1.5rem", { lineHeight: "1.95rem", letterSpacing: "-0.015em" }],
-        "3xl": ["1.875rem", { lineHeight: "2.25rem", letterSpacing: "-0.02em" }],
-        "4xl": ["2.375rem", { lineHeight: "2.7rem", letterSpacing: "-0.025em" }],
-        "5xl": ["3.25rem", { lineHeight: "3.45rem", letterSpacing: "-0.03em" }],
+        // Five steps. Nothing meant to be read goes below `small` (14px).
+        small: ["0.875rem", { lineHeight: "1.35rem" }],
+        body: ["clamp(1.0625rem, 1rem + 0.2vw, 1.125rem)", { lineHeight: "1.6" }],
+        lead: ["clamp(1.1875rem, 1.05rem + 0.4vw, 1.375rem)", { lineHeight: "1.35" }],
+        head: [
+          "clamp(1.75rem, 1.15rem + 1.9vw, 2.75rem)",
+          { lineHeight: "1.12", letterSpacing: "-0.015em" },
+        ],
+        display: [
+          "clamp(3rem, 1.8rem + 4.2vw, 5.5rem)",
+          { lineHeight: "0.98", letterSpacing: "-0.03em" },
+        ],
+      },
+      spacing: {
+        // Section rhythm: one value for the gap between page sections,
+        // clearly larger than any gap inside a section.
+        section: "clamp(4.5rem, 3rem + 5vw, 8rem)",
+        gutter: "var(--gutter)",
+        margin: "var(--margin)",
+      },
+      maxWidth: {
+        page: "90rem",
+        measure: "68ch",
       },
       borderRadius: {
-        // 8pt-grid radii. The product reads modern, not pillowy — caps at lg.
-        sm: "4px",
-        md: "8px",
-        lg: "12px",
-        xl: "16px",
-      },
-      boxShadow: {
-        // Soft drop shadows, not "glow" effects.
-        card: "0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 1px rgba(0, 0, 0, 0.15)",
-        elevated:
-          "0 8px 24px -8px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)",
-        "focus-ring": "0 0 0 3px rgba(6, 182, 212, 0.40)",
-      },
-      animation: {
-        // Two motion primitives — both subtle, both purposeful.
-        "pulse-live": "pulse-live 2.4s ease-in-out infinite",
-        "pulse-ring": "pulse-ring 2.4s ease-out infinite",
-        "fade-up": "fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards",
-        "bg-drift": "bg-drift 20s ease-in-out infinite",
+        // Square-cornered system; one small radius for focus-ring harmony.
+        none: "0",
+        sm: "2px",
       },
       keyframes: {
-        "pulse-live": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.55" },
+        reveal: {
+          from: { clipPath: "inset(0 0 100% 0)", transform: "translateY(0.35em)" },
+          to: { clipPath: "inset(0 0 0 0)", transform: "translateY(0)" },
         },
-        "pulse-ring": {
-          "0%": { transform: "scale(0.85)", opacity: "0.7" },
-          "70%": { transform: "scale(2.2)", opacity: "0" },
-          "100%": { transform: "scale(2.2)", opacity: "0" },
-        },
-        "fade-up": {
-          from: { opacity: "0", transform: "translateY(8px)" },
+        rise: {
+          from: { opacity: "0", transform: "translateY(18px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
-        "bg-drift": {
-          "0%, 100%": { transform: "translate(0, 0)" },
-          "50%": { transform: "translate(-2%, -1%)" },
+        "sheet-in": {
+          from: { transform: "translateY(100%)" },
+          to: { transform: "translateY(0)" },
         },
+      },
+      animation: {
+        reveal: "reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) both",
+        rise: "rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "sheet-in": "sheet-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
+      },
+      transitionTimingFunction: {
+        out: "cubic-bezier(0.16, 1, 0.3, 1)",
       },
     },
   },

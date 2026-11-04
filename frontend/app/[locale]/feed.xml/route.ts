@@ -41,7 +41,7 @@ function itemXml(post: LocalizedThreatPost, locale: Locale): string | null {
 
   const actions = (content.what_to_do ?? []).filter((a) => a.trim());
   const actionBlock = actions.length
-    ? `<p><strong>${xml(s.card_what_to_do)}</strong></p><ul>${actions
+    ? `<p><strong>${xml(s.detail_what_to_do)}</strong></p><ul>${actions
         .map((a) => `<li>${xml(a)}</li>`)
         .join("")}</ul>`
     : "";
@@ -92,7 +92,7 @@ export async function GET(
   <channel>
     <title>${xml(SITE_NAME)}${locale === "ua" ? " — Кіберзагрози" : " — Cyber threats"}</title>
     <link>${SITE_URL}/${locale}</link>
-    <description>${xml(s.hero_subhead)}</description>
+    <description>${xml(s.meta_description)}</description>
     <language>${locale === "ua" ? "uk" : "en"}</language>
     <lastBuildDate>${lastBuild}</lastBuildDate>
     <atom:link href="${xml(self)}" rel="self" type="application/rss+xml" />

@@ -11,7 +11,7 @@ test.describe("smoke @smoke", () => {
     await expect(page).toHaveURL(/\/en\/?$/);
 
     // Hero is a labelled region with the single h1 on the page.
-    const hero = page.getByRole("region", { name: /Cyber threats\..*/i });
+    const hero = page.getByRole("region", { name: /Threat brief/i });
     await expect(hero).toBeVisible();
     await expect(page.locator("h1#hero-headline")).toBeVisible();
 
@@ -25,8 +25,8 @@ test.describe("smoke @smoke", () => {
 
     const feed = page.locator("#feed");
     await expect(feed).toBeVisible();
-    // Target the section heading specifically — every article inside also
-    // has an <h2>, so an unscoped getByRole would trip strict-mode.
+    // Target the section heading specifically — the feed also carries day
+    // headings (h3) and story headlines (h4).
     await expect(feed.locator("#feed-heading")).toBeVisible();
 
     // Healthy path: ≥1 article. Backend-empty path: an explicit status
@@ -39,7 +39,7 @@ test.describe("smoke @smoke", () => {
       await expect(emptyState).toBeVisible();
     } else {
       expect(articleCount).toBeGreaterThan(0);
-      await expect(articles.first().locator("h2")).toBeVisible();
+      await expect(articles.first().locator("h4")).toBeVisible();
     }
   });
 
@@ -74,7 +74,7 @@ test.describe("smoke @smoke", () => {
 
   test("locale toggle navigates EN → UA and back (URL only)", async ({ page }) => {
     await page.goto("/en");
-    const langSwitcher = page.getByRole("group", { name: "Language" });
+    const langSwitcher = page.getByRole("group", { name: /^(Language|Мова)$/ });
     await expect(langSwitcher).toBeVisible();
 
     // EN should be aria-current, UA should be a navigable link.
@@ -85,14 +85,14 @@ test.describe("smoke @smoke", () => {
     await langSwitcher.getByRole("link", { name: "UA" }).click();
     await expect(page).toHaveURL(/\/ua\/?$/);
     await expect(
-      page.getByRole("group", { name: "Language" }).getByRole("link", { name: "UA" }),
+      page.getByRole("group", { name: /^(Language|Мова)$/ }).getByRole("link", { name: "UA" }),
     ).toHaveAttribute("aria-current", "page");
 
     // And back to EN.
-    await page.getByRole("group", { name: "Language" }).getByRole("link", { name: "EN" }).click();
+    await page.getByRole("group", { name: /^(Language|Мова)$/ }).getByRole("link", { name: "EN" }).click();
     await expect(page).toHaveURL(/\/en\/?$/);
     await expect(
-      page.getByRole("group", { name: "Language" }).getByRole("link", { name: "EN" }),
+      page.getByRole("group", { name: /^(Language|Мова)$/ }).getByRole("link", { name: "EN" }),
     ).toHaveAttribute("aria-current", "page");
   });
 

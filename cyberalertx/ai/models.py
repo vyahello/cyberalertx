@@ -111,6 +111,21 @@ class ThreatPost:
     language: str = "en"
     source_fingerprint: str = ""
     generated_by: str = "rule_based"
+    # ----- new in v0.6: editorial review state. All defaulted, so every post
+    # cached before review existed loads as `auto` (published, never queued).
+    #
+    # `review_status` — "auto" (published without review), "pending" (the
+    #   scorecard asked for a human look), "approved" / "rejected" (a human
+    #   decided). What each status means for publishing is decided by
+    #   `CYBERALERTX_REVIEW_MODE`; see `ai/review.py`.
+    # `quality` — the scorecard summary and fact-check findings recorded
+    #   when the post was generated. An internal indicator, not a measure of
+    #   truth; see `ai/scorecard.py`.
+    # `reviewed_by` / `reviewed_at` — who decided, and when (ISO-8601 UTC).
+    review_status: str = "auto"
+    quality: Dict[str, Any] = field(default_factory=dict)
+    reviewed_by: str = ""
+    reviewed_at: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -141,7 +156,21 @@ class ThreatPost:
             language=data.get("language", "en"),
             source_fingerprint=data.get("source_fingerprint", ""),
             generated_by=data.get("generated_by", "rule_based"),
+            review_status=_review_status(data.get("review_status")),
+            quality=dict(data["quality"]) if isinstance(data.get("quality"), dict) else {},
+            reviewed_by=str(data.get("reviewed_by") or ""),
+            reviewed_at=str(data.get("reviewed_at") or ""),
         )
+
+
+#: Every value `ThreatPost.review_status` may hold. Anything else on disk
+#: (a typo in a hand edit, a future status this build doesn't know) loads as
+#: "auto" rather than failing the whole post.
+REVIEW_STATUSES: tuple[str, ...] = ("auto", "pending", "approved", "rejected")
+
+
+def _review_status(value: object) -> str:
+    return value if isinstance(value, str) and value in REVIEW_STATUSES else "auto"
 
 
 class ThreatPostResponse(BaseModel):
@@ -181,6 +210,7 @@ class ThreatPostResponse(BaseModel):
 
 
 __all__ = [
+    "REVIEW_STATUSES",
     "ThreatPost",
     "ThreatPostResponse",
     "ThreatLevel",

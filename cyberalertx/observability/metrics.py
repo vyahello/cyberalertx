@@ -63,6 +63,10 @@ _COUNTERS: tuple[str, ...] = (
     "dup_rec_rejects",
     "title_echo_rejects",
     "hallucinated_threat_level",
+    "fact_check_rejects",
+    "fact_sheet_extracted",
+    "fact_sheet_failures",
+    "fact_sheet_cache_hits",
     "relevance_rules_rej",
     "relevance_rules_acc",
     "relevance_ai_validated",
@@ -92,6 +96,8 @@ _VALIDATION_PREFIXES: Mapping[str, str] = {
     "duplicate entries": "dup_rec_rejects",
     "summary echoes title": "title_echo_rejects",
     "hallucinated threat_level": "hallucinated_threat_level",
+    # ai/fact_check.py: a CVE / hash / public IP / CVSS score not in the source.
+    "fact check": "fact_check_rejects",
 }
 
 

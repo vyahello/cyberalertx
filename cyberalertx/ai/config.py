@@ -102,6 +102,15 @@ class AISettings:
     cache_enabled: bool = _bool_env("CYBERALERTX_AI_CACHE", True)
     # Anthropic SDK retries 429/5xx automatically; this caps its retry budget.
     max_retries: int = int(os.getenv("CYBERALERTX_AI_RETRIES", "2"))
+    # --- fact-sheet stage (ai/fact_sheet.py) -------------------------------
+    # One structured extraction per STORY (fingerprint), cached here and
+    # shared by both locale renders: the whole budget of the stage is +1 LLM
+    # call per story. Only consulted when a provider is configured.
+    fact_sheet_path: Path = Path(
+        os.getenv("CYBERALERTX_FACT_SHEET_PATH", "") or (DATA_DIR / "fact_sheets.json")
+    )
+    # Kill switch. Off → renders run exactly as before the stage existed.
+    fact_sheet_enabled: bool = _bool_env("CYBERALERTX_FACT_SHEET", True)
 
 
 AI_SETTINGS = AISettings()

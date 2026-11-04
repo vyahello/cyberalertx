@@ -4,6 +4,9 @@ Usage:
     python -m cyberalertx.main once          # one fetch cycle, exit
     python -m cyberalertx.main run           # scheduled loop (default)
     python -m cyberalertx.main top --limit 10
+    python -m cyberalertx.main review list
+    python -m cyberalertx.main review approve FP:LOCALE
+    python -m cyberalertx.main review score-archive
 """
 from __future__ import annotations
 
@@ -179,6 +182,15 @@ def cmd_generate(args: argparse.Namespace) -> int:
     # the render would be paid for and then never shown.
     duplicates_skipped = sum(1 for i in in_window if getattr(i, "duplicate_of", ""))
     in_window = [i for i in in_window if not getattr(i, "duplicate_of", "")]
+    # Relevance gate: never write a brief for news classified out_of_scope
+    # (product launches, game trailers, weekly digests). The item stays in the
+    # store with its classification; an editor can override it with
+    # `python -m cyberalertx.tools.stories relevance-override`.
+    from .pipeline.relevance import is_renderable
+    out_of_scope_skipped = sum(1 for i in in_window if not is_renderable(i))
+    in_window = [i for i in in_window if is_renderable(i)]
+    if out_of_scope_skipped:
+        print(f"[generate] skipped {out_of_scope_skipped} out_of_scope item(s)")
     # Reverse-chronological — matches the homepage sort order so the
     # AI-warm set is exactly the set the reader sees.
     in_window.sort(key=lambda i: i.published_at, reverse=True)
@@ -372,6 +384,98 @@ def cmd_publish_telegram(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_review(args: argparse.Namespace) -> int:
+    """Editorial review queue: list, approve, reject, score the archive.
+
+    `list` / `approve` / `reject` go through the configured cache backend
+    (JSON, plus Postgres under dual-write), exactly like the /admin/review
+    page. `score-archive` reads the JSON files directly and never writes to
+    them — it only writes its own report.
+    """
+    from .ai.config import AI_SETTINGS
+    from .ai.review import apply_decision, parse_key, post_key, review_mode
+
+    if args.review_cmd == "score-archive":
+        return _review_score_archive(args)
+
+    from .storage import build_threat_post_cache
+    cache = build_threat_post_cache(AI_SETTINGS.cache_path)
+
+    if args.review_cmd == "list":
+        statuses = (("auto", "pending", "approved", "rejected") if args.status == "all"
+                    else (args.status,))
+        posts = [p for p in cache.all() if (p.review_status or "auto") in statuses]
+        posts.sort(key=lambda p: str((p.quality or {}).get("scored_at") or ""), reverse=True)
+        print(f"[cyberalertx review] mode={review_mode()} status={args.status} "
+              f"count={len(posts)}", file=sys.stderr)
+        for post in posts[: args.limit]:
+            q = post.quality or {}
+            reasons = "; ".join(q.get("review_reasons") or [])[:120]
+            line = "\t".join([post_key(post), post.review_status,
+                               f"score={q.get('score', '-')}", post.title[:80]])
+            print(line + (f"\n    {reasons}" if reasons else ""))
+        return 0
+
+    try:
+        fingerprint, locale = parse_key(args.key)
+    except ValueError as exc:
+        print(f"[cyberalertx review] {exc}", file=sys.stderr)
+        return 2
+    reviewer = args.by or _cli_user()
+    try:
+        post = apply_decision(cache, fingerprint, locale, args.review_cmd, reviewer)
+    except KeyError:
+        print(f"[cyberalertx review] no cached post {fingerprint}:{locale}", file=sys.stderr)
+        return 1
+    except RuntimeError as exc:  # SecondaryWriteError: JSON saved, Postgres not
+        print(f"[cyberalertx review] WARNING: {exc}", file=sys.stderr)
+        return 2
+    print(f"[cyberalertx review] {fingerprint}:{locale} -> {post.review_status} "
+          f"by {post.reviewed_by} at {post.reviewed_at}", file=sys.stderr)
+    return 0
+
+
+def _cli_user() -> str:
+    import getpass
+    try:
+        return f"cli:{getpass.getuser()}"
+    except Exception:  # pragma: no cover - no passwd entry in a container
+        return "cli"
+
+
+def _review_score_archive(args: argparse.Namespace) -> int:
+    """Score every cached post without modifying anything; write a report."""
+    from pathlib import Path
+
+    from .ai.cache import ThreatPostCache
+    from .ai.config import AI_SETTINGS
+    from .ai.fact_sheet import FactSheetCache
+    from .ai.review_report import format_summary, score_archive
+    from .ai.scorecard import review_threshold
+    from .config import DATA_DIR
+
+    # Raw JSON cache on purpose — not the dual-write factory. Read-only, so
+    # Postgres is never contacted, and nothing is ever `set` on it.
+    cache = ThreatPostCache(AI_SETTINGS.cache_path)
+    items = {i.fingerprint: i for i in JsonNewsStore(
+        SETTINGS.storage_path, max_items=SETTINGS.max_items_retained).all()}
+    sheets = FactSheetCache(AI_SETTINGS.fact_sheet_path)
+
+    def sheet_for(fp: str) -> Any:
+        entry = sheets.get(fp)
+        return entry.sheet if entry is not None and entry.status == "ok" else None
+
+    threshold = args.threshold if args.threshold is not None else review_threshold()
+    report = score_archive(cache.all(), items, threshold=threshold, sheet_for=sheet_for)
+    out = Path(args.out) if args.out else DATA_DIR / "editorial" / "archive_scores.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(format_summary(report))
+    print(f"\n[cyberalertx review] wrote {len(report['posts'])} post scores to {out}",
+          file=sys.stderr)
+    return 0
+
+
 def cmd_dedup(args: argparse.Namespace) -> int:
     """Backfill story keys over the existing store.
 
@@ -503,6 +607,26 @@ def main(argv: Sequence[str] | None = None) -> int:
              "prints the grouping it would apply.",
     )
 
+    rv_p = sub.add_parser("review", help="Editorial review queue (list / approve / reject / score)")
+    rv_sub = rv_p.add_subparsers(dest="review_cmd", required=True)
+    rv_list = rv_sub.add_parser("list", help="List posts by review status (default: pending)")
+    rv_list.add_argument("--status", default="pending",
+                         choices=["pending", "approved", "rejected", "auto", "all"])
+    rv_list.add_argument("--limit", type=int, default=50)
+    for verb in ("approve", "reject"):
+        vp = rv_sub.add_parser(verb, help=f"{verb.capitalize()} one post (FINGERPRINT:LOCALE)")
+        vp.add_argument("key", help="e.g. d33a9ec3b29273d0:ua")
+        vp.add_argument("--by", default="", help="Reviewer name (default: cli:$USER)")
+    rv_score = rv_sub.add_parser(
+        "score-archive",
+        help="Score every cached post WITHOUT modifying the cache; write a JSON report",
+    )
+    rv_score.add_argument("--out", default="",
+                          help="Report path (default: data/editorial/archive_scores.json)")
+    rv_score.add_argument("--threshold", type=int, default=None,
+                          help="needs_review threshold (default: CYBERALERTX_REVIEW_THRESHOLD "
+                               "or the scorecard default)")
+
     serve_p = sub.add_parser("serve", help="Start the HTTP API (FastAPI/uvicorn)")
     serve_p.add_argument("--host", default="127.0.0.1",
                          help="Bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
@@ -520,6 +644,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "generate": cmd_generate,
         "publish-telegram": cmd_publish_telegram,
         "dedup": cmd_dedup,
+        "review": cmd_review,
         "serve": cmd_serve,
     }[args.cmd](args)
 

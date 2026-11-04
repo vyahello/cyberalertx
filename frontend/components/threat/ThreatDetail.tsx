@@ -1,394 +1,434 @@
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, Clock, Users, FileText } from "lucide-react";
-import { ActionPanel } from "./ActionPanel";
-import { ActionabilityBadge } from "./ActionabilityBadge";
-import { CategoryIconChip } from "./CategoryIconChip";
-import { CredibilityBadge } from "./CredibilityBadge";
-import { DetailBody } from "./DetailBody";
-import { FeedbackWidget } from "./FeedbackWidget";
-import { QuickFacts } from "./QuickFacts";
-import { References } from "./References";
-import { RelativeTime } from "./RelativeTime";
+import { ArrowUpRight } from "lucide-react";
+import { ArticleMarks } from "@/components/article/ArticleMarks";
+import { InlineText, RichText } from "@/components/article/RichText";
 import { ShareBar } from "@/components/share/ShareBar";
-import { BackgroundContext } from "./BackgroundContext";
-import { SelfCheck } from "./SelfCheck";
-import { StoryCoverage } from "./StoryCoverage";
-import { ThreatBadge } from "./ThreatBadge";
-import { ThreatSnapshot } from "./ThreatSnapshot";
+import { FeedbackWidget } from "./FeedbackWidget";
 import { strings } from "@/lib/i18n";
-import { HTML_LANG, contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
+import { topicForCategory } from "@/lib/topics";
+import {
+  HTML_LANG,
+  contentFor,
+  type DetailContext,
+  type Locale,
+  type LocalizedContent,
+  type LocalizedThreatPost,
+  type ThreatReference,
+} from "@/lib/types";
 
 interface Props {
   post: LocalizedThreatPost;
   lang: Locale;
 }
 
+const H2 = "font-serif font-semibold text-ink text-[clamp(1.375rem,1.1rem+0.6vw,1.75rem)] leading-tight";
+const H3 = "font-sans text-[1rem] font-semibold text-ink";
+const SECTION = "mt-12 first:mt-0 scroll-mt-24 enter";
+
+/** Words per minute for the reading-time estimate. */
+const WPM: Record<Locale, number> = { en: 220, ua: 190 };
+
+function words(c: LocalizedContent): number {
+  return [
+    c.title,
+    c.plain_summary,
+    c.short_summary,
+    c.detail_body,
+    c.why_it_matters,
+    ...(c.affected_users ?? []),
+    ...(c.am_i_affected ?? []),
+    ...(c.if_already_affected ?? []),
+    ...(c.what_to_do ?? []),
+    ...(c.what_not_to_do ?? []),
+    ...(c.quick_facts ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
 /**
- * Detail page body. Layout philosophy:
- *
- *   Mobile (single column, stacked):
- *     hero block ↓ summary ↓ quick facts ↓ why it matters ↓ who's affected
- *     ↓ action panel ↓ original source link
- *
- *   Desktop (two columns from `lg` up):
- *     LEFT  = narrative content
- *     RIGHT = sticky action panel — stays in view as you scroll
- *
- * The sticky action panel is the productivity payoff of being on desktop:
- * you can read the analysis while the actions stay one glance away.
- *
- * Reads as a structured intelligence dossier, not a blog post — clean
- * hierarchy, badge-led header, no inline timestamps mid-paragraph.
+ * The brief as one continuous article. Field marks sit in the side-note
+ * column (sticky on desktop); the text runs on the axis at a reading
+ * measure. Each fact appears once: the plain summary is the standfirst,
+ * the attributed summary opens "What happened", the severity reason lives
+ * in the marks.
  */
 export function ThreatDetail({ post, lang }: Props) {
   const s = strings(lang);
   const c = contentFor(post, lang);
+  if (!c) return <NotAvailableInLocale lang={lang} post={post} />;
 
-  // This shouldn't happen — the page-level route already verified availability.
-  // But guard anyway so a stale link can't crash the layout.
-  if (!c) {
-    return (
-      <NotAvailableInLocale lang={lang} post={post} />
-    );
-  }
+  const plain = c.plain_summary?.trim();
+  const short = c.short_summary?.trim();
+  const standfirst = plain || short;
+  const opener = plain ? short : "";
+  const checks = (c.am_i_affected ?? []).filter((x) => x.trim());
+  const recovery = (c.if_already_affected ?? []).filter((x) => x.trim());
+  const toDo = (c.what_to_do ?? []).filter((x) => x.trim());
+  const avoid = (c.what_not_to_do ?? []).filter((x) => x.trim());
+  const facts = (c.quick_facts ?? []).filter((x) => x.trim());
+  const affected = (c.affected_users ?? []).filter((x) => x.trim());
+  const topic = topicForCategory(post.category);
+  const illustration = post.media?.illustration;
+  const readingSeconds = Math.round((words(c) / WPM[lang]) * 60);
 
   return (
-    <article lang={HTML_LANG[lang]} className="mx-auto max-w-6xl px-5 sm:px-8 py-8 sm:py-12">
-      {/* Back link — small, no chrome, lives in its own row above the title.
-          Treated like a breadcrumb rather than a button to avoid competing
-          with the hero. */}
-      <Link
-        href={`/${lang}#feed`}
-        // py/-my expand the tap area to ~40px without moving the text.
-        className="inline-flex items-center gap-1.5 text-sm text-text-secondary
-                   hover:text-text-primary transition-colors mb-6 group py-2 -my-2"
-      >
-        <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
-        {s.detail_back_to_feed}
-      </Link>
-
-      {/* Header block — badge row, title, source line. The title size jumps
-          one rung above the card to anchor the page. */}
-      <header className="mb-8 sm:mb-10">
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {/* Category chip — same small plate as the feed card so the
-              visual identity stays consistent between feed and detail.
-              No standalone hero block: a wide gradient banner above the
-              title felt too heavy for what is an information-dense page. */}
-          <CategoryIconChip category={post.category} lang={lang} />
-          <ThreatBadge level={post.threat_level} lang={lang} />
-          <ActionabilityBadge level={post.actionability_level} lang={lang} />
-          <span className="text-xs text-text-tertiary inline-flex items-center gap-1.5 ml-1">
-            <Clock className="w-3 h-3" />
-            <RelativeTime iso={post.published_at} lang={lang} />
-          </span>
-          <span className="text-xs text-text-tertiary">
-            {s.card_reading_time(c.reading_time_seconds)}
-          </span>
-        </div>
-
-        <h1 className="text-2xl sm:text-3xl lg:text-[2.125rem] font-semibold
-                       text-text-primary tracking-tight leading-[1.15] mb-4 max-w-4xl break-words">
-          {c.title}
-        </h1>
-
-        {/* Just the credibility badge in the hero. The "Read on source"
-            CTA is intentionally NOT rendered here — it appears once at
-            the bottom of the article, in the footer slot, so the reader
-            finishes the brief before deciding to leave for the source. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <CredibilityBadge
-            tier={post.source_tier}
-            source={post.source}
-            lang={lang}
-            score={post.source_credibility_score}
-          />
-        </div>
-
-        {/* Without this, the severity badge is an assertion the reader has
-            no way to weigh — "Critical" according to whom, on what basis?
-            One plain sentence naming the deciding factor turns the badge
-            from a label into a judgement they can agree or disagree with. */}
-        {c.severity_reason?.trim() && (
-          <p className="mt-4 text-sm text-text-secondary leading-relaxed measure">
-            <span className="font-medium text-text-primary">
-              {s.detail_severity_reason(s.level[post.threat_level])}:
-            </span>{" "}
-            {c.severity_reason}
-          </p>
-        )}
-      </header>
-
-      {/* Threat snapshot — the above-the-fold intelligence block. Sits
-          BETWEEN the hero (badges + title + source) and the narrative.
-          The reader sees "who's affected" and "what can happen" before
-          scrolling into the editorial summary. */}
-      <ThreatSnapshot post={post} lang={lang} className="mb-8 sm:mb-10" />
-
-      {/* "Am I affected?" sits above the narrative on purpose. It's the
-          question the reader came for, and someone whose answer is "no"
-          should be able to leave right here instead of reading an analysis
-          that was never about them. */}
-      <SelfCheck
-        checks={c.am_i_affected}
-        recovery={c.if_already_affected}
-        lang={lang}
-        className="mb-8 sm:mb-10"
-      />
-
-      {/* Who's affected — moved up from below the analysis. `am_i_affected`
-          is empty on the overwhelming majority of cached posts, so SelfCheck
-          correctly renders nothing there and the reader's first question went
-          unanswered until five blocks later. `affected_users` is populated on
-          every post with concrete labels, so it belongs in the slot SelfCheck
-          vacates. List, not paragraph — easier to scan, and the shape matches
-          the data we have. */}
-      {c.affected_users.length > 0 && (
-        <div className="surface-card p-5 sm:p-6 mb-8 sm:mb-10">
-          <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2 inline-flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5" /> {s.card_affected_users}
-          </h2>
-          <ul className="space-y-1.5">
-            {c.affected_users.map((u) => (
-              <li key={u} className="text-sm text-text-primary leading-relaxed">
-                {u}
+    <article lang={HTML_LANG[lang]} className="page pt-6 sm:pt-10">
+      <nav aria-label={s.breadcrumb_label} className="axis">
+        <ol className="on-axis flex flex-wrap items-center gap-x-2 font-sans text-small text-ink-faint">
+          <li>
+            <Link href={`/${lang}`} prefetch={false} className="hover:text-ink underline-offset-4 hover:underline">
+              {s.edition_title}
+            </Link>
+          </li>
+          {topic && (
+            <>
+              <li aria-hidden>/</li>
+              <li>
+                <Link
+                  href={`/${lang}/topic/${topic}`}
+                  prefetch={false}
+                  className="hover:text-ink underline-offset-4 hover:underline"
+                >
+                  {s.topic[topic].name}
+                </Link>
               </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Two-column grid from lg+: narrative left, sticky action panel right.
-          Below lg the action panel slots inline after the narrative — see
-          the second ActionPanel render below. */}
-      <div className="grid gap-10 lg:gap-12 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="space-y-7">
-          {/* Plain-language lead — the everyday "what this means for you"
-              line, first thing in the narrative so a non-technical reader
-              gets the point before any editorial or technical detail. Shown
-              only when the post carries one; older cached posts skip it and
-              lead with the summary below. */}
-          {c.plain_summary?.trim() && (
-            <div>
-              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
-                {s.plain_meaning_label}
-              </h2>
-              <p className="lead-text measure">{c.plain_summary}</p>
-            </div>
+            </>
           )}
+        </ol>
+      </nav>
 
-          {/* "At a glance" block — short summary + quick facts grouped, so
-              the user can decide whether to keep reading in <5 seconds. */}
-          <div>
-            <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
-              {s.detail_at_a_glance}
-            </h2>
-            <p className="text-base sm:text-lg text-text-primary leading-relaxed measure mb-4">
-              {c.short_summary}
+      <div className="axis mt-5 gap-y-8">
+        <header className="lg:col-start-2 lg:row-start-1">
+          <h1 className="t-head text-ink break-words animate-reveal">{c.title}</h1>
+          {standfirst && (
+            <p className="mt-5 font-serif text-lead text-ink-muted max-w-measure animate-rise [animation-delay:160ms]">
+              {standfirst}
             </p>
-            {c.quick_facts.length > 0 && <QuickFacts facts={c.quick_facts} />}
-          </div>
-
-          {/* Why it matters — the single line that translates technical risk
-              into human impact. Pull-quote treatment with an accent rule. */}
-          {c.why_it_matters && (
-            <div className="border-l-2 border-accent/50 pl-4 py-1">
-              <p className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-1">
-                {s.card_why_it_matters}
-              </p>
-              <p className="text-base text-text-primary leading-relaxed measure">
-                {c.why_it_matters}
-              </p>
-            </div>
           )}
-
-          {/* AI-generated operational analysis — 2-4 short paragraphs,
-              120-220 words, structured around: what happened / why this
-              matters / what's still unknown / what defenders should do.
-              Present only when the journalist layer ran (cache hits from
-              the AI path). Rule-based renders leave this empty.
-              Heading is hidden when there's no body so we don't show
-              an empty "Analysis" label. */}
-          {c.detail_body && c.detail_body.trim() && (
-            <div>
-              <h2 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
-                {s.detail_analysis_heading}
-              </h2>
-              <div className="measure">
-                <DetailBody body={c.detail_body} />
-              </div>
-            </div>
+          {illustration && (
+            <figure className="mt-8">
+              {/* Explicit width/height + aspect ratio: no layout shift. */}
+              <picture>
+                <source type="image/avif" srcSet={`/media/${illustration.asset_id}/article.avif`} />
+                <source type="image/webp" srcSet={`/media/${illustration.asset_id}/article.webp`} />
+                <img
+                  src={`/media/${illustration.asset_id}/article.png`}
+                  width={1600}
+                  height={900}
+                  alt={illustration.alt[lang] ?? ""}
+                  loading="eager"
+                  decoding="async"
+                  className="block h-auto w-full bg-ground-raised aspect-[16/9] object-cover"
+                />
+              </picture>
+              <figcaption className="mt-2 font-sans text-small text-ink-faint">
+                {s.illustration_caption}
+              </figcaption>
+            </figure>
           )}
+        </header>
 
-          {/* Action panel — mobile placement. Hidden on lg+ because the
-              sticky right column already has it. The inner panel already
-              labels its What to do / What to avoid columns; we don't need
-              an outer "Take action" heading on top of those. */}
-          <div className="lg:hidden border-t border-border-subtle pt-6">
-            <ActionPanel
-              toDo={c.what_to_do}
-              notToDo={c.what_not_to_do}
+        <aside
+          aria-label={s.mark_severity}
+          className="lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:justify-self-end lg:w-full lg:max-w-[18rem]"
+        >
+          <div className="lg:sticky lg:top-[calc(var(--header-h)+1.5rem)] bg-ground-raised p-5 lg:bg-transparent lg:p-0">
+            <ArticleMarks
+              post={post}
+              content={c}
               lang={lang}
+              readingSeconds={readingSeconds}
+              hasActions={toDo.length > 0}
             />
           </div>
+        </aside>
 
-          {/* "Read on source" link rendered again here, in mobile too, so
-              it's reachable without scrolling back up. */}
-          {post.source_url && (
-            <div className="border-t border-border-subtle pt-6">
-              <a
-                href={post.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm font-medium
-                           text-accent hover:underline"
-              >
-                <FileText className="w-4 h-4" />
-                {s.detail_original_source}
-                <ExternalLink className="w-3.5 h-3.5 text-accent/70" />
-              </a>
-            </div>
+        <div className="lg:col-start-2 lg:row-start-2 min-w-0">
+          <div className="prose-brief">
+          {(opener || c.detail_body?.trim()) && (
+            <section aria-labelledby="sec-what" className={SECTION}>
+              <h2 id="sec-what" className={H2}>
+                {s.detail_what_happened}
+              </h2>
+              <div className="mt-4">
+                {opener && (
+                  <p>
+                    <InlineText text={opener} />
+                  </p>
+                )}
+                <RichText text={c.detail_body} className="mt-4" />
+              </div>
+            </section>
           )}
 
-          {/* Share row — copy link + Telegram / WhatsApp / X intents, plus
-              the native share sheet on mobile. */}
-          <div className="border-t border-border-subtle pt-6">
+          {c.why_it_matters?.trim() && (
+            <section aria-labelledby="sec-why" className={SECTION}>
+              <h2 id="sec-why" className={H2}>
+                {s.detail_why}
+              </h2>
+              <p className="mt-4">
+                <InlineText text={c.why_it_matters} />
+              </p>
+            </section>
+          )}
+
+          {(affected.length > 0 || checks.length > 0 || recovery.length > 0) && (
+            <section aria-labelledby="sec-affected" className={SECTION}>
+              <h2 id="sec-affected" className={H2}>
+                {s.detail_affected}
+              </h2>
+              {affected.length > 0 && (
+                <>
+                  <h3 className={`${H3} mt-5`}>{s.detail_who_affected}</h3>
+                  <ul className="mt-2 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
+                    {affected.map((u) => (
+                      <li key={u}>{u}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {checks.length > 0 && (
+                <>
+                  <p className="mt-5 font-sans text-small text-ink-faint">{s.detail_checks_hint}</p>
+                  <ol className="mt-2 list-decimal pl-6 space-y-2 marker:font-sans marker:text-ink-faint">
+                    {checks.map((step) => (
+                      <li key={step} className="pl-1">
+                        <InlineText text={step} />
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+              {recovery.length > 0 && (
+                <div className="mt-6 bg-ground-raised p-5">
+                  <h3 className={`${H3} text-sev-critical`}>{s.detail_already}</h3>
+                  <ul className="mt-2 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
+                    {recovery.map((step) => (
+                      <li key={step}>
+                        <InlineText text={step} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
+          {(toDo.length > 0 || avoid.length > 0) && (
+            <section id="actions" aria-labelledby="sec-actions" className={SECTION}>
+              <h2 id="sec-actions" className={H2}>
+                {s.detail_what_to_do}
+              </h2>
+              {toDo.length > 0 && (
+                <ol className="mt-4 list-decimal pl-6 space-y-2.5 marker:font-sans marker:font-semibold marker:text-signal">
+                  {toDo.map((item) => (
+                    <li key={item} className="pl-1">
+                      <InlineText text={item} />
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {avoid.length > 0 && (
+                <>
+                  <h3 className={`${H3} mt-6`}>{s.detail_avoid}</h3>
+                  <ul className="mt-2 list-disc pl-5 space-y-1.5 marker:text-sev-critical">
+                    {avoid.map((item) => (
+                      <li key={item}>
+                        <InlineText text={item} />
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
+          )}
+
+          {facts.length > 0 && (
+            <section aria-labelledby="sec-facts" className={SECTION}>
+              <h2 id="sec-facts" className={H2}>
+                {s.detail_key_facts}
+              </h2>
+              <KeyFacts facts={facts} />
+            </section>
+          )}
+
+          <SourcesSection post={post} refs={c.references} lang={lang} />
+
+          <BackgroundSection context={post.detail_context?.[lang]} lang={lang} />
+          </div>
+
+          <div className="mt-14 max-w-measure space-y-10 font-sans">
             <ShareBar title={c.title} lang={lang} />
+            <FeedbackWidget postId={post.id} lang={lang} />
           </div>
-
-          {/* External references — CVE, CISA, vendor, CERT bulletins.
-              Compact grid, opens in new tab. Only present on detail
-              pages; cards never carry references. */}
-          <References refs={c.references} lang={lang} />
-
-          {/* Every outlet that covered this story — the visible payoff of
-              collapsing duplicates into one post. */}
-          <StoryCoverage
-            coverage={post.story_coverage}
-            lang={lang}
-            currentSource={post.source}
-            currentUrl={post.source_url}
-          />
-
-          {/* Category-level orientation, last in the narrative so a reader
-              who already knows the attack class never wades through it. */}
-          <BackgroundContext context={post.detail_context?.[lang]} lang={lang} />
-
-          {/* Internal feedback loop — collects a coarse quality signal
-              for prompt/ranking tuning. Lightweight: 5 chips, one click,
-              no public counter. Placed below "Read on source" so it
-              sits at the natural end of the reading flow. */}
-          <FeedbackWidget postId={post.id} lang={lang} />
-        </section>
-
-        {/* Right column — sticky action panel. `top-20` accounts for the
-            sticky 56px header + breathing room. Not rendered on mobile
-            (the inline copy above takes over). */}
-        <aside className="hidden lg:block">
-          {/* Same reachability cap as the feed's filter rail — a long
-              action list must not strand its own last item below the fold. */}
-          <div className="sticky top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain no-scrollbar">
-            <div className="surface-card p-5">
-              {/* The sidebar's What to do / What to avoid subheadings already
-                  identify the panel. An outer "Take action" header would be
-                  a third stacked label on top of those — visually noisy. */}
-              <SidebarActions
-                toDo={c.what_to_do}
-                notToDo={c.what_not_to_do}
-                lang={lang}
-              />
-            </div>
-          </div>
-        </aside>
+        </div>
       </div>
     </article>
   );
 }
 
-// -------------------- internals ------------------------------------------
+// ---------------------------------------------------------------- parts
 
-/**
- * Stacked action list optimized for a narrow sidebar. The full ActionPanel
- * uses a grid that's too wide here; we render two simple lists with the
- * same iconography for consistency.
- */
-function SidebarActions({
-  toDo,
-  notToDo,
-  lang,
-}: {
-  toDo: string[];
-  notToDo: string[];
-  lang: Locale;
-}) {
-  const s = strings(lang);
+/** "Label: value" facts become a definition list; anything else a list. */
+function KeyFacts({ facts }: { facts: string[] }) {
+  const pairs = facts.map((f) => {
+    const m = f.match(/^([^:]{2,40}):\s+(.+)$/);
+    return m ? { label: m[1].trim(), value: m[2].trim() } : null;
+  });
+  if (pairs.every(Boolean)) {
+    return (
+      <dl className="mt-4 grid gap-x-6 gap-y-3 font-sans text-[1rem] sm:grid-cols-[minmax(8rem,auto)_minmax(0,1fr)]">
+        {pairs.map((p) => (
+          <div key={p!.label + p!.value} className="contents">
+            <dt className="text-ink-faint">{p!.label}</dt>
+            <dd className="text-ink">
+              <InlineText text={p!.value} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
   return (
-    <div className="space-y-5">
-      {toDo.length > 0 && (
-        <div>
-          <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
-            {s.card_what_to_do}
-          </h3>
-          <ul className="space-y-2">
-            {toDo.map((t) => (
-              <li
-                key={t}
-                className="flex items-start gap-2 text-sm text-text-primary leading-relaxed"
-              >
-                <span className="w-1 h-1 rounded-full bg-trust-trusted-fg mt-2 flex-shrink-0" />
-                <span>{t}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {notToDo.length > 0 && (
-        <div>
-          <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
-            {s.card_what_not_to_do}
-          </h3>
-          <ul className="space-y-2">
-            {notToDo.map((t) => (
-              <li
-                key={t}
-                className="flex items-start gap-2 text-sm text-text-secondary leading-relaxed"
-              >
-                <span className="w-1 h-1 rounded-full bg-level-critical-fg/70 mt-2 flex-shrink-0" />
-                <span>{t}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+    <ul className="mt-4 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
+      {facts.map((f) => (
+        <li key={f}>
+          <InlineText text={f} />
+        </li>
+      ))}
+    </ul>
   );
 }
 
-/** Empty state when the post exists but doesn't have content in this locale. */
-function NotAvailableInLocale({
-  lang,
+function SourcesSection({
   post,
+  refs,
+  lang,
 }: {
-  lang: Locale;
   post: LocalizedThreatPost;
+  refs: ThreatReference[] | undefined;
+  lang: Locale;
 }) {
   const s = strings(lang);
+  const others = (post.story_coverage ?? []).filter(
+    (c) => c.url && c.url !== post.source_url && c.source !== post.source,
+  );
+  const references = (refs ?? []).filter((r) => r.url && r.label);
+
   return (
-    <div className="mx-auto max-w-2xl px-5 sm:px-8 py-16 text-center">
-      <h1 className="text-xl font-semibold text-text-primary mb-2">
-        {s.detail_not_available_in_locale}
-      </h1>
-      <p className="text-sm text-text-secondary mb-6">
-        {s.detail_not_available_hint}
-      </p>
-      {post.available_locales.length > 0 && (
-        <Link
-          href={`/${post.available_locales[0]}/threat/${post.id}`}
-          className="btn-primary"
-        >
-          {post.available_locales[0].toUpperCase()}
-        </Link>
+    <section aria-labelledby="sec-sources" className={SECTION}>
+      <h2 id="sec-sources" className={H2}>
+        {s.detail_sources}
+      </h2>
+      <p className="mt-3 font-sans text-small text-ink-faint">{s.detail_provenance(post.source)}</p>
+
+      {post.source_url && (
+        <div className="mt-5">
+          <h3 className={H3}>{s.detail_original}</h3>
+          <a
+            href={post.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-start gap-1 font-sans text-[1rem] font-semibold"
+          >
+            <span>{post.source}</span>
+            <ArrowUpRight className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+          </a>
+        </div>
       )}
+
+      {others.length > 0 && (
+        <div className="mt-5">
+          <h3 className={H3}>{s.detail_coverage}</h3>
+          <ul className="mt-1 space-y-1.5 font-sans text-[1rem]">
+            {others.map((o) => (
+              <li key={o.url}>
+                <a href={o.url} target="_blank" rel="noopener noreferrer">
+                  {o.source}
+                </a>
+                {o.title && <span className="text-ink-faint"> — {o.title}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {references.length > 0 && (
+        <div className="mt-5">
+          <h3 className={H3}>{s.detail_references}</h3>
+          <ul className="mt-1 flex flex-wrap gap-x-5 gap-y-1.5 font-sans text-[1rem]">
+            {references.map((r, i) => (
+              <li key={`${r.label}-${i}`}>
+                <a href={r.url} target="_blank" rel="noopener noreferrer" className="whitespace-nowrap">
+                  {r.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BackgroundSection({
+  context,
+  lang,
+}: {
+  context: DetailContext | undefined;
+  lang: Locale;
+}) {
+  if (!context) return null;
+  const s = strings(lang);
+  const blocks = [
+    { label: s.context_how_it_works, body: context.how_it_works },
+    { label: s.context_who_is_affected, body: context.who_is_affected },
+    { label: s.context_attacker_motivation, body: context.attacker_motivation },
+    { label: s.context_realistic_impact, body: context.realistic_impact },
+  ].filter((b) => b.body?.trim());
+  if (blocks.length === 0) return null;
+
+  return (
+    <section aria-labelledby="sec-context" className={`${SECTION} bg-ground-raised p-5 sm:p-7`}>
+      <h2 id="sec-context" className={H2}>
+        {s.context_heading}
+      </h2>
+      <div className="mt-4 space-y-5">
+        {blocks.map((b) => (
+          <div key={b.label}>
+            <h3 className={H3}>{b.label}</h3>
+            <p className="mt-1 text-ink-muted">{b.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NotAvailableInLocale({ lang, post }: { lang: Locale; post: LocalizedThreatPost }) {
+  const s = strings(lang);
+  const other = post.available_locales[0];
+  return (
+    <div className="page py-section">
+      <div className="axis">
+        <div className="on-axis">
+          <h1 className="t-head text-ink">{s.detail_not_available_in_locale}</h1>
+          <p className="mt-4 text-ink-muted max-w-measure">{s.detail_not_available_hint}</p>
+          <div className="mt-8 flex flex-wrap gap-4">
+            {other && (
+              <Link href={`/${other}/threat/${post.id}`} prefetch={false} className="btn-primary">
+                {other === "ua" ? "Українською" : "In English"}
+              </Link>
+            )}
+            <Link href={`/${lang}`} prefetch={false} className="btn-quiet">
+              {s.detail_back_home}
+            </Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
