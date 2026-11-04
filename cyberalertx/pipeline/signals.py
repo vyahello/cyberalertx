@@ -27,6 +27,7 @@ from dataclasses import asdict, dataclass
 from typing import Mapping, Sequence
 
 from ..models import NewsItem
+from .evidence import assess
 
 
 # =========================================================================
@@ -79,6 +80,10 @@ _PHRASES_ENTERPRISE = (
     "industrial control", "ics network", "scada",
     "kubernetes", "okta", "single sign-on", "sso",
     "edr", "siem", "soc team",
+    # Workplace accounts: a corporate Google/Microsoft session is an
+    # organisation's problem, not only the employee's.
+    "google workspace", "workspace account", "microsoft 365", "corporate account",
+    "corporate google", "corporate users", "employees", "admin console", "oauth",
 )
 _PHRASES_EMAIL = (
     "email account", "mailbox", "inbox", "microsoft 365", "m365",
@@ -156,10 +161,12 @@ def extract_signals(item: NewsItem) -> ThreatSignals:
     audiences = set(item.audience_targets)
     platforms_lower = {p.lower() for p in item.affected_platforms}
 
-    active = (
-        item.actionability_level == "urgent_action"
-        or _contains_any(blob, _PHRASES_ACTIVE_EXPLOIT)
-    )
+    # Exploitation is a matter of evidence in the source, not of action
+    # priority: an "act now" vendor warning about suspicious activity is not
+    # an exploited flaw (pipeline/evidence.py). `requires_immediate_action`
+    # below still carries the urgency.
+    evidence = assess(item)
+    active = evidence.exploitation_confirmed
 
     cred_theft = (
         category in _CRED_THEFT_CATEGORIES
@@ -217,7 +224,7 @@ def extract_signals(item: NewsItem) -> ThreatSignals:
     data_exposure = (
         category in _DATA_EXPOSURE_CATEGORIES
         or _contains_any(blob, _PHRASES_DATA_EXPOSURE)
-    )
+    ) and evidence.compromise != "not_confirmed"
 
     malware = (
         category in _MALWARE_CATEGORIES
@@ -290,18 +297,18 @@ _PLATFORM_AUDIENCE_LABELS_UK: Mapping[str, str] = {
 # Audience-only fallbacks when the item has no platform but does have an
 # audience tag. Less specific than platform names but still concrete.
 _AUDIENCE_LABELS_EN: Mapping[str, str] = {
-    "normal_users": "Everyday internet users",
+    "normal_users": "Private internet users",
     "developers": "Software developers",
     "sysadmins": "IT administrators",
-    "enterprise": "Enterprise IT teams",
+    "enterprise": "Organisations and their IT teams",
     "mobile_users": "Mobile device users",
     "crypto_users": "Cryptocurrency users",
 }
 _AUDIENCE_LABELS_UK: Mapping[str, str] = {
-    "normal_users": "Звичайні користувачі інтернету",
+    "normal_users": "Приватні користувачі",
     "developers": "Розробники ПЗ",
     "sysadmins": "ІТ-адміністратори",
-    "enterprise": "Корпоративні ІТ-команди",
+    "enterprise": "Організації та їхні ІТ-команди",
     "mobile_users": "Користувачі мобільних пристроїв",
     "crypto_users": "Користувачі криптовалют",
 }
@@ -309,7 +316,7 @@ _AUDIENCE_LABELS_UK: Mapping[str, str] = {
 # Signal → impact label. Returned in priority order; the renderer picks
 # the top 2-3 so the card doesn't drown in tags.
 _IMPACT_LADDER_EN: tuple[tuple[str, str], ...] = (
-    ("active_exploitation", "Active exploitation"),
+    ("active_exploitation", "Exploitation confirmed"),
     ("affects_email_accounts", "Email account takeover"),
     ("credential_theft_risk", "Credential compromise"),
     ("financial_risk", "Financial theft"),
@@ -318,12 +325,12 @@ _IMPACT_LADDER_EN: tuple[tuple[str, str], ...] = (
     ("malware_delivery", "Malware infection"),
 )
 _IMPACT_LADDER_UK: tuple[tuple[str, str], ...] = (
-    ("active_exploitation", "Активна експлуатація"),
-    ("affects_email_accounts", "Захоплення поштового акаунта"),
+    ("active_exploitation", "Експлуатацію підтверджено"),
+    ("affects_email_accounts", "Доступ до поштового облікового запису"),
     ("credential_theft_risk", "Крадіжка облікових даних"),
-    ("financial_risk", "Фінансова крадіжка"),
+    ("financial_risk", "Крадіжка коштів"),
     ("steals_sessions", "Перехоплення сесії"),
-    ("data_exposure_risk", "Розкриття персональних даних"),
+    ("data_exposure_risk", "Витік даних"),
     ("malware_delivery", "Зараження шкідливим ПЗ"),
 )
 
@@ -365,7 +372,9 @@ def who_should_care(
         return audience_labels["enterprise"]
     if signals.consumer_risk:
         return audience_labels["normal_users"]
-    return "Cybersecurity professionals" if language != "ua" else "Фахівці з кібербезпеки"
+    # No honest audience label: say nothing rather than a catch-all that
+    # would mislabel a consumer product story as a professionals' one.
+    return ""
 
 
 def potential_impact(

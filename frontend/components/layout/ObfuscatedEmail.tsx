@@ -31,7 +31,7 @@ export function ObfuscatedEmail({ className }: { className?: string }) {
       rel="nofollow"
     >
       <Mail className="w-4 h-4" aria-hidden="true" />
-      <span>{label}</span>
+      <span className="min-w-0 break-all">{label}</span>
     </a>
   );
 }

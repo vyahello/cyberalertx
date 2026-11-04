@@ -59,6 +59,11 @@ is a translation of the other. Evidence and counts: `CONTENT_AUDIT.md`.
   if it is in the fact sheet or the reference list, and then with
   attribution ("CISA said in 2024…"). Otherwise cut it.
 
+Sponsored research: when the source's byline is "Sponsored by X", the
+findings are X's. Name X ("Material Security, which sponsored the article,
+says ...") and keep the disclosure; the article page also shows it under
+Sources. Do not present a secondary publication as the researcher.
+
 ## 5. Confirmed vs claimed
 
 | Status | Wording | Use when |
@@ -75,6 +80,30 @@ is a translation of the other. Evidence and counts: `CONTENT_AUDIT.md`.
   is a guess; say what is reported, then advise).
 - Do not predict timelines ("exploits will appear within days") unless the
   source does.
+
+### 5.1. Evidence status is not severity (Nov 2026)
+
+Severity is potential impact; action priority is urgency. Neither says that
+attacks happened. The site shows evidence separately, from the source text
+only (`pipeline/evidence.py`), in fixed wording: "Exploitation confirmed",
+"Attacks observed", "Suspicious activity reported", "Data exposure not
+confirmed", "Activity appears to have declined", "Attack infrastructure
+taken down", "Campaign status unknown". Brief text must never outrun it:
+
+- Vendor advice is advice, not proof. "mSeven advises customers to change
+  their passwords", not "passwords were stolen".
+- An unconfirmed compromise is a condition: "If the vault data was
+  accessed, ...". Hedged sentences (if, whether, may, could) are not
+  counted as claims by the quality gate.
+- Campaign status only as the source states it, and a takedown is not an end
+  ("infrastructure taken down" is not "the campaign is over").
+- Name the gap where it changes what the reader does: "The company has not
+  said whether stored data was exposed."
+
+The scorecard puts a brief in the review queue when it asserts exploitation,
+theft/exposure or an active campaign that the source does not support
+(`unsupported_exploitation`, `unsupported_compromise`,
+`campaign_status_conflict`).
 
 ## 6. Explaining terms once, without condescension
 
@@ -132,6 +161,32 @@ What happened → who is affected → why it matters → what to do → what is
 unknown. Each field adds a fact; none repeats the headline. If the source
 gives nothing to analyse, leave `detail_body` empty rather than pad it. If
 there is no reader action, leave `what_to_do` empty.
+
+### 9.1. The article page (Nov 2026)
+
+The page is built around reader questions, and empty blocks are not shown:
+headline → plain lead → evidence strip (with a "What to do" anchor) → What
+happened (with "Why it matters") → Key details (facts not already in the
+prose) → Who is affected (+ How to check) → What to do (+ If you're already
+affected, What to avoid; each step appears once) → What is not yet known →
+Sources (attribution, author or sponsorship disclosure, other coverage) →
+usefulness vote → Report a problem (factual error, outdated, translation).
+The generic "Background: this kind of attack" block was removed: it
+described the attack family, not the incident, and could contradict it.
+
+What each category should cover, where the source supports it:
+
+| Category | Cover |
+|---|---|
+| Vulnerability | CVE and type; affected products and exact versions; prerequisites; impact; exploitation status; patch or mitigation; action |
+| Malware / ransomware | delivery; target platforms; infection chain; behaviour; persistence and C2 if documented; detection and mitigation; verified indicators |
+| Phishing / scams | lure and impersonated service; the actual mechanism (e.g. AitM session theft vs password capture); what is stolen; who is targeted; what to do if exposed; prevention |
+| Data breach | organisation; confirmed data types; verified numbers; timeframe; whether exfiltration is confirmed; consequences; protective actions; what is unknown |
+| APT / targeted | attributed group and confidence; sectors and regions; initial access; TTPs; observed activity; sourced indicators; defences |
+| Incident | what happened; affected services; operational impact; timeline; current status; the organisation's response; actions |
+
+Audience: workplace accounts concern employees and their admins. Employees
+report to IT; only admins revoke sessions or change organisation settings.
 
 ## 10. Rewrites from the archive
 

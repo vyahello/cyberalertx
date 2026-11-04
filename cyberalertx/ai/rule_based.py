@@ -36,16 +36,16 @@ from .templates import TemplateRegistry, default_template_registry
 
 # Short, descriptive audience labels (kept in sync with audience.AUDIENCES keys).
 _HUMAN_AUDIENCE_EN: Mapping[str, str] = {
-    "normal_users": "Everyday users",
+    "normal_users": "Private users",
     "developers": "Developers",
     "sysadmins": "IT / sysadmins",
-    "enterprise": "Enterprise IT teams",
+    "enterprise": "Organisations and their IT teams",
     "mobile_users": "Mobile users",
     "crypto_users": "Crypto users",
 }
 
 _HUMAN_AUDIENCE_UK: Mapping[str, str] = {
-    "normal_users": "Звичайні користувачі",
+    "normal_users": "Приватні користувачі",
     "developers": "Розробники",
     "sysadmins": "ІТ-адміністратори",
     "enterprise": "Корпоративні ІТ-команди",
@@ -820,7 +820,7 @@ _TARGET_PLATFORM_UK: str = " проти {platforms}"
 # Generic audience modifiers used when no platform is known but we DO
 # know the targeted reader group.
 _AUDIENCE_MODIFIER_EN: Mapping[str, str] = {
-    "normal_users": " aimed at everyday users",
+    "normal_users": " aimed at private users",
     "developers": " aimed at developers",
     "sysadmins": " hitting IT and sysadmins",
     "enterprise": " against enterprise IT environments",
@@ -828,7 +828,7 @@ _AUDIENCE_MODIFIER_EN: Mapping[str, str] = {
     "crypto_users": " targeting crypto users",
 }
 _AUDIENCE_MODIFIER_UK: Mapping[str, str] = {
-    "normal_users": " щодо звичайних користувачів",
+    "normal_users": " щодо приватних користувачів",
     "developers": " щодо розробників",
     "sysadmins": " проти ІТ-адміністраторів",
     "enterprise": " проти корпоративного ІТ",

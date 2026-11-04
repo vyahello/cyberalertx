@@ -20,6 +20,8 @@ fingerprint are essentially free.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 import base64
 import binascii
 import json
@@ -74,6 +76,8 @@ from .admin import (
 from ..models import NewsItem
 from ..observability import get_quality_metrics, get_source_health
 from ..pipeline.dedup import collapse_duplicates
+from ..pipeline.audience import classify_audience
+from ..pipeline.evidence import assess as assess_evidence
 from ..pipeline.signals import extract_signals, potential_impact, who_should_care
 from ..storage.json_store import JsonNewsStore
 
@@ -407,6 +411,10 @@ class _PostService:
         # never requires a storage migration. The two derived UX fields
         # (who_should_care, potential_impact) collapse the signal bundle
         # into something a reader can scan in a glance.
+        # Audience is derived metadata: re-derive it with the current rules
+        # (pure, microseconds) so an item ingested under older rules is not
+        # shown with a stale label. The stored item is not modified.
+        item = replace(item, audience_targets=classify_audience(item)[0])
         signals = extract_signals(item)
         who_care = {
             "en": who_should_care(item, signals, language="en"),
@@ -460,6 +468,13 @@ class _PostService:
             # field names; UI binds directly. Powers ranking, filtering, and
             # future personalization.
             "signals": signals.to_dict(),
+            # What the SOURCE establishes, separate from severity and action
+            # priority: exploitation, campaign and compromise status, the
+            # sponsored-content flag, and the gaps the reporting leaves open
+            # (codes; the UI localizes them, so EN and UA always agree).
+            "evidence": assess_evidence(item).to_dict(),
+            # The feed's author line ("Sponsored by …", a reporter's name).
+            "source_byline": getattr(item, "byline", "") or "",
             # One-liner answering "does this affect me?" — keyed by locale.
             "who_should_care": who_care,
             # Ranked list of realistic-impact labels (e.g. "Account takeover",

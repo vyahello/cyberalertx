@@ -35,6 +35,10 @@ export function slimForFeed(
         available_locales: p.available_locales,
         story_source_count: p.story_source_count,
         signals: p.signals?.active_exploitation ? { active_exploitation: true } : undefined,
+        // Only the status fields the feed rows show (not the unknowns list).
+        evidence: p.evidence
+          ? { ...p.evidence, unknowns: [] }
+          : undefined,
         translations: {
           [lang]: {
             title: c.title,

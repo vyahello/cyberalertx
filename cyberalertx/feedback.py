@@ -50,6 +50,9 @@ VOTES: frozenset[str] = frozenset({"up", "down", "none"})
 #: aggregate into one breakdown.
 REASONS: frozenset[str] = frozenset({
     "too_vague", "too_technical", "incorrect", "not_relevant",
+    # "Report a problem" on the article page (independent of the vote):
+    # a factual error is `incorrect`; these two are new.
+    "outdated", "translation",
 })
 LOCALES: frozenset[str] = frozenset({"en", "ua"})
 

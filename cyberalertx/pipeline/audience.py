@@ -114,6 +114,10 @@ AUDIENCES: Mapping[str, AudienceProfile] = {
             "business email compromise", "bec attack", "bec scam",
             "ransom paid", "ransom payment", "regulatory fine", "gdpr fine",
             "sec filing", "8-k filing", "shareholder", "subsidiary",
+            # Workplace accounts and admin surfaces.
+            "google workspace", "workspace account", "corporate google", "corporate users",
+            "corporate account", "corporate accounts", "employees", "admin console",
+            "oauth grant", "oauth access", "microsoft 365 tenant", "entra id",
         }),
         platforms=frozenset({"Microsoft 365"}),
         # Corp-scale breaches & leaks default to enterprise framing; the
@@ -193,6 +197,15 @@ def classify_audience(
         for name, profile in AUDIENCES.items()
     }
     targets = sorted(name for name, score in scores.items() if score >= _TARGET_THRESHOLD)
+    # A phishing/scam story is tagged `normal_users` by category alone. When
+    # the story is plainly about workplace accounts (enterprise matched) and
+    # no consumer keyword or platform fired, that category default is wrong:
+    # the people to warn are employees and their admins, not the public.
+    if "normal_users" in targets and "enterprise" in targets:
+        consumer = AUDIENCES["normal_users"]
+        if not (any(k in text for k in consumer.keywords)
+                or any(p in consumer.platforms for p in item.affected_platforms)):
+            targets.remove("normal_users")
     confidence = max(scores.values()) if targets else 0.0
     return targets, confidence
 

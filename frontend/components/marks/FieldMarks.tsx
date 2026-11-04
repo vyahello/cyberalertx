@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { strings } from "@/lib/i18n";
+import { TONE_CLASS, evidenceRows } from "@/lib/evidence";
 import type { Locale, LocalizedThreatPost } from "@/lib/types";
 import { SeverityMark } from "./SeverityMark";
 import { TimeAgo } from "./TimeAgo";
@@ -24,7 +25,9 @@ interface Props {
 export function FieldMarks({ post, lang, variant = "row", className }: Props) {
   const s = strings(lang);
   const outlets = post.story_source_count ?? (post.corroborating_sources?.length ?? 0) + 1;
-  const exploited = Boolean(post.signals?.active_exploitation);
+  // The one status worth a feed reader's glance; muted states ("not
+  // confirmed", "no exploitation reported") belong on the article page.
+  const status = evidenceRows(post, lang).find((r) => r.tone !== "muted");
   // Who it hits: the pipeline's audiences, most specific first.
   const audience =
     (post.audience_targets[0] && s.audience[post.audience_targets[0]]) ||
@@ -42,8 +45,8 @@ export function FieldMarks({ post, lang, variant = "row", className }: Props) {
     >
       <span className="inline-flex flex-wrap items-center gap-x-2">
         <SeverityMark level={post.threat_level} lang={lang} />
-        {exploited && (
-          <span className="text-sev-critical font-medium">{s.mark_exploited}</span>
+        {status && (
+          <span className={`${TONE_CLASS[status.tone]} font-medium`}>{status.value}</span>
         )}
       </span>
       <span>

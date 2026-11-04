@@ -2,6 +2,7 @@ import { ArrowUpRight } from "lucide-react";
 import { SeverityMark } from "@/components/marks/SeverityMark";
 import { TimeAgo } from "@/components/marks/TimeAgo";
 import { strings } from "@/lib/i18n";
+import { TONE_CLASS, evidenceRows } from "@/lib/evidence";
 import type { LocalizedContent, Locale, LocalizedThreatPost } from "@/lib/types";
 
 interface Props {
@@ -20,7 +21,7 @@ interface Props {
  */
 export function ArticleMarks({ post, content, lang, readingSeconds, hasActions }: Props) {
   const s = strings(lang);
-  const exploited = Boolean(post.signals?.active_exploitation);
+  const evidence = evidenceRows(post, lang);
   const outlets = post.story_source_count ?? (post.corroborating_sources?.length ?? 0) + 1;
   const whoShouldCare =
     post.who_should_care?.[lang]?.trim() ||
@@ -34,11 +35,11 @@ export function ArticleMarks({ post, content, lang, readingSeconds, hasActions }
           <SeverityMark level={post.threat_level} lang={lang} />
           {reason && <p className="mt-1.5 text-ink-muted leading-relaxed">{reason}</p>}
         </Row>
-        {exploited && (
-          <Row label={s.mark_status}>
-            <span className="font-semibold text-sev-critical">{s.mark_exploited}</span>
+        {evidence.map((r) => (
+          <Row key={r.key} label={r.label}>
+            <span className={`font-semibold ${TONE_CLASS[r.tone]}`}>{r.value}</span>
           </Row>
-        )}
+        ))}
         {post.affected_platforms.length > 0 && (
           <Row label={s.mark_affects}>
             <span className="text-ink">{post.affected_platforms.join(", ")}</span>
@@ -76,11 +77,7 @@ export function ArticleMarks({ post, content, lang, readingSeconds, hasActions }
           <span className="text-ink">{s.reading_time(readingSeconds)}</span>
         </Row>
       </dl>
-      {hasActions && (
-        <a href="#actions" className="link mt-6 hidden lg:inline-block font-semibold">
-          {s.detail_jump_actions}
-        </a>
-      )}
+      {/* The "What to do" anchor sits under the standfirst (all widths). */}
     </div>
   );
 }

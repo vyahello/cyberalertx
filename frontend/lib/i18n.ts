@@ -1,10 +1,14 @@
 import type {
   ActionabilityLevel,
   Audience,
+  CampaignStatus,
   Category,
+  CompromiseStatus,
+  ExploitationStatus,
   Locale,
   SourceTier,
   ThreatLevel,
+  UnknownCode,
 } from "./types";
 import type { TopicSlug } from "./topics";
 
@@ -187,6 +191,20 @@ type StringTable = {
   // Metadata
   meta_title: string;
   meta_description: string;
+  mark_campaign: string;
+  status_exploitation: Record<ExploitationStatus, string>;
+  status_campaign: Record<Exclude<CampaignStatus, "">, string>;
+  status_compromise: Record<Exclude<CompromiseStatus, "">, string>;
+  detail_unknowns: string;
+  detail_unknowns_hint: string;
+  unknown: Record<UnknownCode, string>;
+  detail_byline: string;
+  detail_sponsored: (sponsor: string) => string;
+  report_prompt: string;
+  report_factual: string;
+  report_outdated: string;
+  report_translation: string;
+  report_thanks: string;
 };
 
 // ---------------------------------------------------------------- helpers
@@ -296,9 +314,8 @@ const EN: StringTable = {
   language_label: "Language",
   telegram: "Telegram",
 
-  edition_title: "Threat brief",
-  edition_standfirst:
-    "What attackers are exploiting, who is affected and what to do, written from trusted security reporting with a link to every source.",
+  edition_title: "Cyber threat briefing",
+  edition_standfirst: "Cyberattacks, vulnerabilities, malware and data breaches — what happened, who is affected and what to do.",
   edition_latest: "Latest brief",
   edition_count: (n) => (n === 1 ? "1 brief in this edition" : `${n} briefs in this edition`),
 
@@ -309,11 +326,11 @@ const EN: StringTable = {
   overview_heading: "Last 7 days",
   overview_total: (n) => (n === 1 ? "1 brief" : `${n} briefs`),
   overview_by_severity: "By severity",
-  overview_exploited: "Exploited in attacks",
+  overview_exploited: "Exploitation confirmed",
   overview_by_topic: "By topic",
   overview_show: (label, n) => `Show ${n} ${label.toLowerCase()} ${n === 1 ? "brief" : "briefs"}`,
 
-  section_priority: "Also significant now",
+  section_priority: "Other significant stories",
   section_feed: "Every brief, newest first",
   feed_count: (shown, total) => (shown === total ? `${total} briefs` : `${shown} of ${total} briefs`),
 
@@ -332,15 +349,15 @@ const EN: StringTable = {
   preset_label: "Quick views",
   preset_all: "Everything",
   preset_critical: "Critical and high",
-  preset_exploited: "Under active attack",
-  preset_everyday: "Everyday users",
+  preset_exploited: "Exploitation confirmed",
+  preset_everyday: "Private users",
   preset_it: "IT and security teams",
   preset_developers: "Developers",
   preset_mobile: "Phones",
 
   mark_severity: "Severity",
-  mark_status: "Status",
-  mark_exploited: "Exploited in attacks",
+  mark_status: "Evidence",
+  mark_exploited: "Exploitation confirmed",
   mark_affects: "Affects",
   mark_for: "Who should care",
   mark_source: "Reported by",
@@ -354,8 +371,7 @@ const EN: StringTable = {
   },
 
   method_heading: "How CyberAlertX works",
-  method_body:
-    "We read security reporting from established outlets and official advisories, group coverage of the same incident, and rate each story's severity by rule. An AI editorial pipeline then writes a short brief from the source facts: what happened, who is affected, how serious it is and what to do. Every brief links to the original reporting. The Ukrainian edition is written separately for Ukrainian readers, not translated from English.",
+  method_body: "We follow security reporting from established outlets and official advisories, group coverage of the same incident and rate each story's severity by rule. Every brief says what happened, who is affected and what to do, keeps confirmed facts apart from claims and open questions, and links to the reporting behind it.",
   method_sources: "Outlets in this edition",
   method_sources_value: (n) => `${n}`,
   method_editions: "Editions",
@@ -367,8 +383,7 @@ const EN: StringTable = {
   footer_editions: "Editions",
   footer_follow: "Follow",
   footer_contact: "Contact",
-  footer_note:
-    "Briefs are written by an AI editorial pipeline from the linked reporting. Check the original source before acting on critical systems.",
+  footer_note: "CyberAlertX tracks cyberattacks, vulnerabilities, malware and data breaches. Every brief links to the reporting behind it.",
   footer_rights: "© 2026 CyberAlertX",
   subscribe_telegram: "Telegram channel",
   subscribe_rss: "RSS feed",
@@ -376,21 +391,20 @@ const EN: StringTable = {
   breadcrumb_label: "Breadcrumb",
   detail_what_happened: "What happened",
   detail_why: "Why it matters",
-  detail_affected: "Are you affected?",
-  detail_who_affected: "Who is affected",
-  detail_checks_hint: "Each check ends in a yes or a no.",
+  detail_affected: "Who is affected",
+  detail_who_affected: "Affected groups",
+  detail_checks_hint: "How to check",
   detail_what_to_do: "What to do",
   detail_avoid: "What to avoid",
   detail_already: "If you're already affected",
-  detail_key_facts: "Key facts",
+  detail_key_facts: "Key details",
   detail_sources: "Sources",
   detail_original: "Original report",
   detail_coverage: "Also covered by",
   detail_references: "Advisories and identifiers",
   detail_related: "More on this topic",
-  detail_jump_actions: "Skip to what to do",
-  detail_provenance: (source) =>
-    `Written by the CyberAlertX AI editorial pipeline from ${source}'s reporting, linked below. If something looks wrong, tell us with the feedback buttons.`,
+  detail_jump_actions: "What to do",
+  detail_provenance: (source) => `Source: ${source}. Read the original report for full context.`,
   illustration_caption:
     "Illustration created for CyberAlertX. It is not a photograph or a screenshot of the incident.",
   detail_not_available_in_locale: "This brief isn't available in English.",
@@ -398,8 +412,7 @@ const EN: StringTable = {
     "Stories from Ukrainian outlets are published in the Ukrainian edition only. You can read it there.",
   detail_not_found_title: "Brief not found",
   detail_not_found_hint: "It may have been merged into another story or removed.",
-  detail_back_home: "Back to the threat brief",
-
+  detail_back_home: "Back to the briefing",
   context_heading: "Background: this kind of attack",
   context_how_it_works: "How it works",
   context_who_is_affected: "Who is usually affected",
@@ -449,10 +462,10 @@ const EN: StringTable = {
     other: "Other",
   },
   audience: {
-    normal_users: "Everyday users",
+    normal_users: "Private users",
     developers: "Developers",
     sysadmins: "System administrators",
-    enterprise: "Enterprise IT",
+    enterprise: "Organisations and IT teams",
     mobile_users: "Phone users",
     crypto_users: "Crypto holders",
   },
@@ -491,6 +504,44 @@ const EN: StringTable = {
   meta_title: "CyberAlertX — Cyber threat brief",
   meta_description:
     "Which vulnerabilities are being exploited, which breaches matter and what to do about them. Short, sourced cybersecurity briefs, updated hourly.",
+  mark_campaign: "Campaign",
+  status_exploitation: {
+    confirmed: "Exploitation confirmed",
+    attacks_observed: "Attacks observed",
+    suspected: "Suspicious activity reported",
+    not_reported: "No exploitation reported",
+  },
+  status_campaign: {
+    active: "Campaign active",
+    declined: "Activity appears to have declined",
+    disrupted: "Attack infrastructure taken down",
+    unknown: "Campaign status unknown",
+  },
+  status_compromise: {
+    confirmed: "Data exposure confirmed",
+    not_confirmed: "Data exposure not confirmed",
+  },
+  detail_unknowns: "What is not yet known",
+  detail_unknowns_hint: "Not established by the reporting this brief is based on.",
+  unknown: {
+    exposure_unconfirmed: "Whether any data was exposed has not been confirmed.",
+    exploitation_unconfirmed: "The reporting does not say whether the flaw is being exploited.",
+    scope_undisclosed: "The affected systems and the scope of the incident have not been disclosed.",
+    timeline_undisclosed: "When the activity took place has not been disclosed.",
+    attribution_unconfirmed: "No group has been publicly identified as responsible.",
+    campaign_end_unconfirmed:
+      "Activity has slowed or infrastructure was taken down, but that does not confirm the campaign has ended.",
+  },
+  detail_byline: "Author",
+  detail_sponsored: (sponsor) =>
+    sponsor
+      ? `Sponsored content: the original article was written and paid for by ${sponsor}, whose research it reports.`
+      : "Sponsored content: the original article was paid for by the company whose research it reports.",
+  report_prompt: "Report a problem with this brief",
+  report_factual: "Factual error",
+  report_outdated: "Outdated information",
+  report_translation: "Translation problem",
+  report_thanks: "Thank you. We will check it.",
 };
 
 // ---------------------------------------------------------------- Ukrainian
@@ -506,9 +557,8 @@ const UK: StringTable = {
   language_label: "Мова",
   telegram: "Telegram",
 
-  edition_title: "Зведення загроз",
-  edition_standfirst:
-    "Що зараз атакують, кого це зачіпає і що робити. Кожен матеріал спирається на звіти перевірених видань і має посилання на першоджерело.",
+  edition_title: "Огляд кіберзагроз",
+  edition_standfirst: "Кібератаки, вразливості, шкідливе ПЗ та витоки даних: що сталося, кого це стосується і як діяти.",
   edition_latest: "Останній матеріал",
   edition_count: (n) =>
     `${n} ${plural3(n, "матеріал", "матеріали", "матеріалів")} у зведенні`,
@@ -520,12 +570,12 @@ const UK: StringTable = {
   overview_heading: "За останні 7 днів",
   overview_total: (n) => `${n} ${plural3(n, "матеріал", "матеріали", "матеріалів")}`,
   overview_by_severity: "За рівнем загрози",
-  overview_exploited: "Уже використовують в атаках",
+  overview_exploited: "З підтвердженою експлуатацією",
   overview_by_topic: "За темою",
   overview_show: (label, n) =>
     `Показати ${n} ${plural3(n, "матеріал", "матеріали", "матеріалів")}: ${label.toLowerCase()}`,
 
-  section_priority: "Також важливо зараз",
+  section_priority: "Інші важливі кіберподії",
   section_feed: "Усі матеріали, від найновіших",
   feed_count: (shown, total) =>
     shown === total
@@ -547,15 +597,15 @@ const UK: StringTable = {
   preset_label: "Швидкі добірки",
   preset_all: "Усе",
   preset_critical: "Критичні й високі",
-  preset_exploited: "Уже атакують",
-  preset_everyday: "Звичайним користувачам",
+  preset_exploited: "Експлуатацію підтверджено",
+  preset_everyday: "Приватним користувачам",
   preset_it: "ІТ та безпековим командам",
   preset_developers: "Розробникам",
   preset_mobile: "Смартфони",
 
   mark_severity: "Рівень загрози",
-  mark_status: "Стан",
-  mark_exploited: "Уже використовують в атаках",
+  mark_status: "Що підтверджено",
+  mark_exploited: "Експлуатацію підтверджено",
   mark_affects: "Зачіпає",
   mark_for: "Кого стосується",
   mark_source: "Повідомляє",
@@ -569,8 +619,7 @@ const UK: StringTable = {
   },
 
   method_heading: "Як працює CyberAlertX",
-  method_body:
-    "Ми стежимо за публікаціями відомих видань і офіційними бюлетенями з безпеки, обʼєднуємо повідомлення про той самий інцидент і визначаємо рівень загрози за чіткими правилами. Потім редакційна система на основі ШІ пише стислий матеріал з фактів першоджерела: що сталося, кого це зачіпає, наскільки це серйозно і що робити. До кожного матеріалу додаємо посилання на оригінальну публікацію. Українська версія пишеться окремо для українських читачів, а не перекладається з англійської.",
+  method_body: "Ми стежимо за публікаціями відомих видань і офіційними бюлетенями з безпеки, об’єднуємо матеріали про той самий інцидент і визначаємо рівень загрози за чіткими правилами. Кожен матеріал пояснює, що сталося, кого це стосується і як діяти, відділяє підтверджені факти від заяв і відкритих питань та містить посилання на джерела.",
   method_sources: "Видань у зведенні",
   method_sources_value: (n) => `${n}`,
   method_editions: "Версії",
@@ -582,8 +631,7 @@ const UK: StringTable = {
   footer_editions: "Версії",
   footer_follow: "Стежити",
   footer_contact: "Звʼязок",
-  footer_note:
-    "Матеріали готує редакційна система на основі ШІ з публікацій, на які ми посилаємося. Перш ніж змінювати критичні системи, звірте дані з першоджерелом.",
+  footer_note: "CyberAlertX відстежує кібератаки, вразливості, шкідливе ПЗ та витоки даних. Кожен матеріал містить посилання на джерела, на яких він ґрунтується.",
   footer_rights: "© 2026 CyberAlertX",
   subscribe_telegram: "Канал у Telegram",
   subscribe_rss: "RSS-стрічка",
@@ -591,21 +639,20 @@ const UK: StringTable = {
   breadcrumb_label: "Навігаційний ланцюжок",
   detail_what_happened: "Що сталося",
   detail_why: "Чому це важливо",
-  detail_affected: "Чи стосується це вас?",
-  detail_who_affected: "Кого це зачіпає",
-  detail_checks_hint: "Кожна перевірка закінчується відповіддю «так» або «ні».",
+  detail_affected: "Кого це стосується",
+  detail_who_affected: "Під загрозою",
+  detail_checks_hint: "Як перевірити",
   detail_what_to_do: "Що робити",
   detail_avoid: "Чого не робити",
   detail_already: "Якщо вас це вже зачепило",
-  detail_key_facts: "Ключові факти",
+  detail_key_facts: "Ключові деталі",
   detail_sources: "Джерела",
   detail_original: "Першоджерело",
   detail_coverage: "Також писали",
   detail_references: "Бюлетені та ідентифікатори",
   detail_related: "Більше на цю тему",
-  detail_jump_actions: "Одразу до порад",
-  detail_provenance: (source) =>
-    `Матеріал підготувала редакційна система CyberAlertX на основі ШІ за публікацією ${source}; посилання нижче. Якщо помітили неточність, повідомте нам кнопками відгуку.`,
+  detail_jump_actions: "Що робити",
+  detail_provenance: (source) => `Джерело: ${source}. В оригінальній публікації — повний контекст і подробиці.`,
   illustration_caption:
     "Ілюстрацію створено для CyberAlertX. Це не фото й не знімок екрана з інциденту.",
   detail_not_available_in_locale: "Цей матеріал недоступний українською.",
@@ -613,8 +660,7 @@ const UK: StringTable = {
     "Ми не публікуємо частково перекладених матеріалів. Його можна прочитати англійською.",
   detail_not_found_title: "Матеріал не знайдено",
   detail_not_found_hint: "Можливо, його обʼєднали з іншою новиною або вилучили.",
-  detail_back_home: "До зведення загроз",
-
+  detail_back_home: "До огляду кіберзагроз",
   context_heading: "Контекст: такі атаки загалом",
   context_how_it_works: "Як це працює",
   context_who_is_affected: "Кого зачіпає найчастіше",
@@ -664,10 +710,10 @@ const UK: StringTable = {
     other: "Інше",
   },
   audience: {
-    normal_users: "Звичайні користувачі",
+    normal_users: "Приватні користувачі",
     developers: "Розробники",
     sysadmins: "Системні адміністратори",
-    enterprise: "Корпоративні ІТ",
+    enterprise: "Організації та ІТ-команди",
     mobile_users: "Власники смартфонів",
     crypto_users: "Власники криптовалют",
   },
@@ -706,6 +752,44 @@ const UK: StringTable = {
   meta_title: "CyberAlertX — Зведення кіберзагроз",
   meta_description:
     "Які вразливості вже використовують в атаках, які витоки важливі і що з цим робити. Стислі матеріали з посиланнями на джерела, оновлення щогодини.",
+  mark_campaign: "Кампанія",
+  status_exploitation: {
+    confirmed: "Експлуатацію підтверджено",
+    attacks_observed: "Атаки зафіксовано",
+    suspected: "Повідомлено про підозрілу активність",
+    not_reported: "Про експлуатацію не повідомлялося",
+  },
+  status_campaign: {
+    active: "Кампанія триває",
+    declined: "Активність, схоже, спала",
+    disrupted: "Інфраструктуру зловмисників заблоковано",
+    unknown: "Стан кампанії невідомий",
+  },
+  status_compromise: {
+    confirmed: "Витік даних підтверджено",
+    not_confirmed: "Витік даних не підтверджено",
+  },
+  detail_unknowns: "Чого ще не відомо",
+  detail_unknowns_hint: "Цього не встановлено в публікаціях, на яких ґрунтується матеріал.",
+  unknown: {
+    exposure_unconfirmed: "Чи були розкриті дані, не підтверджено.",
+    exploitation_unconfirmed: "У джерелі не сказано, чи вразливість уже використовують в атаках.",
+    scope_undisclosed: "Які системи постраждали і наскільки масштабний інцидент, не розголошується.",
+    timeline_undisclosed: "Коли відбувалася ця активність, не повідомляється.",
+    attribution_unconfirmed: "Відповідальне угруповання публічно не назване.",
+    campaign_end_unconfirmed:
+      "Активність спала або інфраструктуру заблоковано, але це ще не означає, що кампанію завершено.",
+  },
+  detail_byline: "Автор",
+  detail_sponsored: (sponsor) =>
+    sponsor
+      ? `Спонсорований матеріал: оригінальну статтю написала й оплатила компанія ${sponsor}, чиє дослідження в ній описано.`
+      : "Спонсорований матеріал: оригінальну статтю оплатила компанія, чиє дослідження в ній описано.",
+  report_prompt: "Повідомити про проблему в матеріалі",
+  report_factual: "Фактична помилка",
+  report_outdated: "Застаріла інформація",
+  report_translation: "Проблема з перекладом",
+  report_thanks: "Дякуємо. Ми перевіримо.",
 };
 
 const TABLES: Record<Locale, StringTable> = { en: EN, ua: UK };

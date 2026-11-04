@@ -92,7 +92,7 @@ def test_affected_users_combines_platforms_and_audiences():
     post = RuleBasedGenerator().generate(item)
     assert any("Windows" in s for s in post.affected_users)
     # The internal audience id should be converted to a human label.
-    assert any("Everyday users" in s for s in post.affected_users)
+    assert any("Private users" in s for s in post.affected_users)
 
 
 def test_phishing_category_produces_phishing_specific_actions():

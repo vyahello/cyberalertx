@@ -27,6 +27,8 @@ REASON_LABELS: dict[str, str] = {
     "too_technical": "Too technical",
     "incorrect": "Inaccurate",
     "not_relevant": "Not relevant to them",
+    "outdated": "Outdated",
+    "translation": "Translation problem",
 }
 
 #: Validator rejections, in the reader's terms rather than the counter's.

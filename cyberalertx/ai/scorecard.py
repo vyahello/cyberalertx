@@ -287,6 +287,96 @@ def _accuracy_issues(report: FactCheckReport | None,
     return issues
 
 
+# --- evidence: the brief may not say more than the source does ----------------------
+# Claims are matched in the brief; support is judged from the SOURCE alone
+# (pipeline/evidence.py), so a confident sentence in the brief never counts as
+# its own evidence. Hard issues: they put the post in the editor's queue
+# whatever the score (no AI retry, so no added cost).
+_CLAIM_EXPLOITED = re.compile(
+    r"actively exploited|exploited in the wild|in the wild|under active (?:attack|exploitation)|"
+    r"(?:is|are) being exploited|attackers are exploiting|"
+    r"активно експлуат|експлуатують в атаках|уже використовують в атаках|вже використовують в атаках",
+    re.I)
+_CLAIM_STOLEN = re.compile(
+    r"\b(?:data|records|information|details|passwords?|credentials?|secrets?|files|emails|"
+    r"vault(?: data| contents)?) (?:were|was|have been|has been) (?:stolen|exfiltrated|leaked|exposed|accessed)\b|"
+    r"\b(?:attackers|hackers|the (?:gang|group|attacker|hacker)) stole\b|"
+    r"\b(?:all|every) (?:saved |stored )?(?:passwords?|secrets?|credentials?|vault)\b[^.]{0,40}"
+    r"\b(?:stolen|exposed|compromised|leaked)\b|"
+    r"\b(?:вкрали|викрали|злили|витекли|викрадено|розкрито всі)\b",
+    re.I)
+_CLAIM_CAMPAIGN_ACTIVE = re.compile(
+    r"\b(?:is|remains|still) (?:ongoing|active)\b|\bcontinues to (?:target|spread|send)\b|"
+    r"\bкампанія (?:триває|досі активна)\b",
+    re.I)
+# Self-referential authorship only; news ABOUT AI tools is fine.
+_AI_AUTHORSHIP = re.compile(
+    r"\b(?:this|the) (?:brief|article|summary|post) (?:was |is )?(?:written|generated|produced|prepared) by\b|"
+    r"\b(?:written|generated) by (?:an? |the )?(?:AI|artificial intelligence|language model|CyberAlertX)\b|"
+    r"\bCyberAlertX AI\b|\bAI[- ]generated (?:brief|summary|article)\b|"
+    r"\b(?:матеріал|огляд|довідк\w*) (?:підготувал\w*|згенерувал\w*|написал\w*|створен\w*)[^.]{0,40}\bШІ\b|"
+    r"\bредакційн\w* систем\w*[^.]{0,30}\bШІ\b|\bзгенерован\w* (?:ШІ|штучним інтелектом)\b",
+    re.I)
+_EVIDENCE_CODES = frozenset({"unsupported_exploitation", "unsupported_compromise",
+                            "campaign_status_conflict", "ai_authorship"})
+_SHOUT_FIELDS = ("title", "short_summary", "plain_summary", "why_it_matters", "severity_reason",
+                 "detail_body")
+
+
+def _claim_text(post: Any) -> str:
+    parts = [_str(post, f) for f in _SHOUT_FIELDS]
+    parts += [x for f in ("quick_facts", "affected_users") for x in _list(post, f)]
+    return "\n".join(p for p in parts if p)
+
+
+# A claim under a condition or a question is the hedged wording we ask for,
+# not an assertion: "if the vault was accessed", "чи не викрали", "plan as if".
+_CONDITIONAL = re.compile(
+    r"(?:\bif\b|\bwhether\b|\bas if\b|\bin case\b|\bcould\b|\bmay\b|\bmight\b|\bunless\b|"
+    r"\bякщо\b|\bчи\b|\bможливо\b|\bнібито\b|\bначебто\b|\bначе\b)[^.;:]{0,60}$",
+    re.I)
+
+
+def _asserts(pattern: re.Pattern[str], text: str) -> bool:
+    """True when at least one match is stated outright (not hedged)."""
+    for m in pattern.finditer(text):
+        before = text[max(0, m.start() - 80):m.start()]
+        if not _CONDITIONAL.search(before):
+            return True
+    return False
+
+
+def _norm_action(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", text.lower()).strip()
+
+
+def _evidence_issues(post: Any, *, item: Any) -> list[Issue]:
+    issues: list[Issue] = []
+    text = _claim_text(post)
+    if _AI_AUTHORSHIP.search(text + "\n" + "\n".join(
+            x for f in _ACTION_FIELDS for x in _list(post, f))):
+        issues.append(Issue("ai_authorship", "accuracy", "hard",
+                            "public text mentions AI authorship"))
+    actions = [_norm_action(a) for f in _ACTION_FIELDS + ("am_i_affected",) for a in _list(post, f)]
+    if len(actions) != len(set(actions)):
+        issues.append(Issue("duplicate_recommendation", "structure", "minor",
+                            "the same recommendation appears twice"))
+    if item is None:
+        return issues
+    from ..pipeline.evidence import assess
+    ev = assess(item)
+    if _asserts(_CLAIM_EXPLOITED, text) and ev.exploitation != "confirmed":
+        issues.append(Issue("unsupported_exploitation", "accuracy", "hard",
+                            f"brief says exploitation is happening; source: {ev.exploitation}"))
+    if _asserts(_CLAIM_STOLEN, text) and ev.compromise != "confirmed":
+        issues.append(Issue("unsupported_compromise", "accuracy", "hard",
+                            "brief says data was stolen/exposed; the source does not confirm it"))
+    if _asserts(_CLAIM_CAMPAIGN_ACTIVE, text) and ev.campaign in ("declined", "disrupted"):
+        issues.append(Issue("campaign_status_conflict", "accuracy", "hard",
+                            f"brief says the campaign is active; source: {ev.campaign}"))
+    return issues
+
+
 def _structure_issues(post: Any) -> list[Issue]:
     issues: list[Issue] = []
 
@@ -543,8 +633,10 @@ def score_post(
 
     by_dim: dict[str, list[Issue]] = {
         "language": _language_issues(post, language),
-        "accuracy": _accuracy_issues(fact_report if source_known else None, cross_locale),
-        "structure": _structure_issues(post),
+        "accuracy": _accuracy_issues(fact_report if source_known else None, cross_locale)
+        + [i for i in _evidence_issues(post, item=item) if i.dimension == "accuracy"],
+        "structure": _structure_issues(post)
+        + [i for i in _evidence_issues(post, item=item) if i.dimension == "structure"],
         "originality": _originality_issues(
             post, language=language, source_title=source_title,
             source_body=source_body, source_known=source_known),
@@ -566,7 +658,8 @@ def score_post(
         reasons.append(f"score {score} is below {threshold}")
     for i in issues:
         if i.severity == "hard":
-            reasons.append(f"not in source: {i.message}")
+            reasons.append(f"evidence: {i.message}" if i.code in _EVIDENCE_CODES
+                           else f"not in source: {i.message}")
         elif i.code == "cross_locale_conflict":
             reasons.append(f"editions disagree: {i.message}")
     return Scorecard(

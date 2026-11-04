@@ -24,12 +24,13 @@ export function LeadStory({ lead, total, lang, now }: Props) {
   const c = lead ? contentFor(lead, lang) : null;
   const plain = c ? c.plain_summary?.trim() || c.short_summary?.trim() || "" : "";
   const reason = c?.severity_reason?.trim();
+  const firstStep = c?.what_to_do?.find((x) => x.trim())?.trim().replace(/`/g, "");
 
   return (
     <section aria-labelledby="hero-headline" className="page pt-8 sm:pt-12 lg:pt-16">
       <div className="axis gap-y-10">
         <div className="flex flex-col gap-5 lg:pr-6">
-          <h1 id="hero-headline" className="t-display text-ink animate-rise">
+          <h1 id="hero-headline" className="t-display text-ink animate-rise break-words hyphens-auto">
             {s.edition_title}
           </h1>
           <p className="font-sans text-small text-ink-faint tnum animate-rise [animation-delay:80ms]">
@@ -99,6 +100,11 @@ export function LeadStory({ lead, total, lang, now }: Props) {
                   {s.severity_reason(s.level[lead.threat_level])}.
                 </span>{" "}
                 {reason}
+              </p>
+            )}
+            {firstStep && (
+              <p className="mt-3 font-sans text-[1rem] leading-relaxed text-ink-muted max-w-measure animate-rise [animation-delay:340ms]">
+                <span className="font-semibold text-ink">{s.detail_what_to_do}:</span> {firstStep}
               </p>
             )}
             <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-4 animate-rise [animation-delay:400ms]">
