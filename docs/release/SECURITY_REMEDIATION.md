@@ -198,7 +198,7 @@ Applied exactly as in §3:
 |---|---|---|
 | GHSA-f3mh-rxg3-f5g2: HttpOnly cookie exposure via `x-middleware-set-cookie` on Edge routes | 15.0.0–15.5.28 | 15.5.29 is outside the range. Also not applicable: 0 Edge-runtime routes, no cookies set; `middleware.ts` only redirects `/` (live headers show no `x-middleware-set-cookie`). |
 | GHSA-7qx7-33qx-rqx2: SVG rejection bypass in image optimization | 15.0.0–15.5.28 | 15.5.29 is outside the range, and the optimizer is removed (`/_next/image` → 404) |
-| GHSA-pc58-hwjq-p385: cross-client response injection in self-hosted App Router / fetch cache behind a pipelining HTTP/1.1 proxy | listed as all versions; **no patched version** | **Residual (O25).** Precondition absent: all 3 route handlers (`card`, `media`, `feed.xml`) build their own `Response`, and none returns a fetched upstream response unchanged. nginx proxies with HTTP/1.1 but does not pipeline upstream requests. Monitor for a fix. |
+| GHSA-pc58-hwjq-p385 (CVE-2026-119348, CVSS 4.0 6.3 Moderate): cross-client response injection in self-hosted App Router / fetch cache behind a pipelining HTTP/1.1 proxy | Advisory record says "< 16.0.0" with an **empty** patched-versions field; the v15.5.29 release notes list it as fixed | **Fixed in 15.5.29, and not applicable here anyway (O25, closed).** Evidence in §7.1. |
 | GHSA-rhh4, GHSA-vvgp, GHSA-vc7v, GHSA-mfr8 | 16.x only (`use cache`, Cache Components, root params) | Not applicable to 15.x |
 
 ### Image compatibility [verified; before = previous RC on Next 15.5.18 with the optimizer, after = remediated build, same API and data]
@@ -258,3 +258,33 @@ release candidate exactly: 39 passed, 1 skipped, and 2 failed (the
 environmental `/healthz` only). For the backend, frontend and build results of
 release candidate 3, see its `RELEASE` and `RELEASE-INVENTORY.txt`.
 
+
+### 7.1 GHSA-pc58-hwjq-p385 reconciled (O25) [verified, 4 Nov 2026]
+
+**Conflicting upstream information:**
+- The repository advisory (`/repos/vercel/next.js/security-advisories/GHSA-pc58-hwjq-p385`, published 2026-11-03 18:39 UTC) lists `>= 16.0.0` and `< 16.0.0`, both with an **empty `patched_versions`**.
+- It is not yet in the global reviewed database (`/advisories/GHSA-pc58-hwjq-p385` → 404), which is why `npm audit` is silent.
+- The v15.5.29 release (tag commit `17014e9cf7891cc353ebfd8fb4a407f9e4cbbf47`, published 18:38 UTC, one minute earlier) lists it under "This release contains security fixes".
+
+The empty field reads as missing metadata, not a missing fix. The evidence:
+
+1. **The fix is in the tag.** `compare/v15.5.28...v15.5.29` has seven commits. One is `848ec29a3` "Fix stale compressed framing for forwarded fetch responses (#273)". It adds `test/e2e/app-dir/stale-compressed-framing/`, a route that does `return fetch(<gzip upstream>)`, which is exactly the advisory's scenario. The code change:
+   - `send-response.ts` adds `FORBIDDEN_HEADERS = ['content-length', 'content-encoding', 'transfer-encoding']`, dropped when a web `Response` is written to the Node response;
+   - `next-server.ts` filters the same three headers on the second response path, where it previously filtered only `content-encoding`.
+
+   Cause: `fetch` transparently decodes gzip but keeps the upstream `Content-Length` of the *compressed* body, so the decoded bytes overrun the declared frame.
+2. **The fix is in the installed build.**
+   - The release candidate's `node_modules/next/dist/server/send-response.js` contains `FORBIDDEN_HEADERS` with the three names.
+   - `next-server.js` contains `key !== 'content-length' && key !== 'content-encoding' && key !== 'transfer-encoding'`.
+   - Production's 15.5.18 has neither; it has only `key !== 'content-encoding'`.
+   - The lockfile integrity (`sha512-93AMszTC…`) equals the registry's for `next@15.5.29`, and the registry entry carries provenance attestations.
+3. **Behaviour reproduced (scratch app, not CyberAlertX code).**
+   - Setup: a two-route app (`return fetch(upstream)`, with `no-store` and with `revalidate: 3600`), built with each version. The upstream serves a gzip body whose 116 decoded bytes end in a complete `HTTP/1.1 200 OK … injected` response; the compressed body is 70 bytes. The `next/dist` used is byte-identical to the release candidate's.
+   - **15.5.18:** `content-length: 70`, `content-encoding: gzip`, then 116 raw bytes. A proxy reading by Content-Length sees 46 trailing bytes that begin `HTTP/1.1 200 OK` as the next response. Reproduced on both routes, including the fetch-cache hit.
+   - **15.5.29:** no `content-length` and no `content-encoding`; `transfer-encoding: chunked` with the decoded body. The framing is consistent on both routes and on the cache hit.
+4. **The deployment lacks the preconditions anyway.**
+   - **Route handlers:** all three (`[locale]/feed.xml`, `[locale]/threat/[id]/card/[file]`, `media/[asset]/[file]`) return `new Response(<own bytes>, {headers: <own headers>})`. Upstream responses are consumed with `.json()` or `.arrayBuffer()` and never returned. No `rewrites`; `middleware.ts` only redirects.
+   - **Upstream:** the only fetched upstream is the CyberAlertX API on localhost (gzip comes from nginx, not the API), so no attacker controls the upstream response.
+   - **nginx:** the CyberAlertX site uses bare `proxy_pass` with no `upstream {}` block, so there is no `keepalive` and no upstream connection reuse. `location /` also sends `Connection: upgrade`. nginx never pipelines upstream requests. Clients reach nginx over HTTP/2 from Cloudflare.
+
+**Conclusion:** fixed in the installed Next.js version, and not applicable to this deployment. O25 is closed. One follow-up: if GitHub later imports the advisory into the reviewed database without a patched version, `npm audit` will start flagging 15.5.29. That would be a metadata false positive; this section is the evidence for dismissing it.

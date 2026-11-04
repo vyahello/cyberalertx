@@ -90,8 +90,9 @@ ln -s /home/cax/cax/data "$R/data"
 chmod -R a-w "$R/cyberalertx" "$R/frontend/app" "$R/frontend/lib"   # optional: immutable code
 ```
 
-Also, before Stage C, apply the O1 fix (frontend dependency upgrade) in the
-commit used for the release.
+The O1 fix (frontend dependency upgrade) is applied (F5, release candidate 3).
+For Stage C, build the production release as in STAGE_C_RUNBOOK.md C2: it prerenders
+against a staging API over a data snapshot, then points `data` at the live data.
 
 ## 4. Verify the release candidate (still no service impact)
 
@@ -112,10 +113,10 @@ commit used for the release.
 
    ```bash
    cd "$R" && set -a && . /home/cax/cax/.env && set +a
-   CYBERALERTX_STORAGE_BACKEND=json venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8100 &
-   (cd frontend && API_URL=http://127.0.0.1:8100 PORT=3100 npx next start -p 3100 -H 127.0.0.1 &)
-   curl -sf 127.0.0.1:8100/healthz; curl -sf -o /dev/null -w '%{http_code}\n' 127.0.0.1:3100/en
-   curl -s -u admin:"$CYBERALERTX_ADMIN_TOKEN" -o /dev/null -w '%{http_code}\n' 127.0.0.1:8100/admin/system
+   CYBERALERTX_STORAGE_BACKEND=json venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8190 &
+   (cd frontend && API_URL=http://127.0.0.1:8190 PORT=3190 npx next start -p 3190 -H 127.0.0.1 &)
+   curl -sf 127.0.0.1:8190/healthz; curl -sf -o /dev/null -w '%{http_code}\n' 127.0.0.1:3190/en
+   curl -s -u admin:"$CYBERALERTX_ADMIN_TOKEN" -o /dev/null -w '%{http_code}\n' 127.0.0.1:8190/admin/system
    ```
 
    Then stop both (`kill %1 %2`, or kill by port). Never stop
@@ -153,6 +154,9 @@ venv/bin/python -m cyberalertx.tools.pg_migrate --status # 005 ✓
 - **Failure:** the file is one transaction, so nothing changes. Fix it and re-run.
 
 ## 6. Switch services to the release (Stage C — controlled, needs sudo)
+
+> **The step-by-step Stage C procedure, with pause points, verification and
+> rollback per step, is STAGE_C_RUNBOOK.md.** This section is the summary.
 
 Choose a quiet slot, just after a generate run (for example hh:05) and not
 near hh:15 Telegram fires.
