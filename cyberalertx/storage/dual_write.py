@@ -156,6 +156,12 @@ class DualWriteThreatPostCache:
         post = self._json.get(fingerprint, locale)
         if post is not None:
             return post
+        # JSON is authoritative. If its file is unreadable, a miss proves
+        # nothing, and PG may hold an older editorial decision (the API runs
+        # JSON-only during Stage C, O28): fail closed rather than resurrect it.
+        if getattr(self._json, "unreadable", False):
+            logger.warning("JSON post cache unreadable; not falling back to PG for %s/%s", fingerprint, locale)
+            return None
         # JSON miss — try PG. Costs a Supabase round-trip but rare:
         # JSON has every entry that dual-write produced. A miss here means
         # PG has something JSON doesn't (peer instance, manual import).
