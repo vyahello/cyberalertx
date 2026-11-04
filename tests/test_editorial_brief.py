@@ -131,7 +131,7 @@ def test_brief_falls_back_to_audience_when_no_platform():
     """No platform but an audience tag → use the audience modifier."""
     gen = RuleBasedGenerator()
     post = gen.generate(_item(audience=["normal_users"]), language="en")
-    assert "everyday users" in post.short_summary.lower()
+    assert "private users" in post.short_summary.lower()
 
 
 def test_brief_works_with_only_source_and_category():

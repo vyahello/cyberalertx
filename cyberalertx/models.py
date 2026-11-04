@@ -87,6 +87,10 @@ class NewsItem:
     relevance_reason: str = ""
     # Manual editor decision; when set it wins over `relevance_status`.
     relevance_override: str = ""
+    # The feed's author line, verbatim ("Sponsored by Material Security",
+    # "Bill Toulas"). Used only for attribution and sponsored-content
+    # disclosure (pipeline/evidence.py). Empty for items ingested earlier.
+    byline: str = ""
 
     @property
     def fingerprint(self) -> str:
@@ -177,6 +181,7 @@ class NewsItem:
             relevance_status=data.get("relevance_status", "") or "",
             relevance_reason=data.get("relevance_reason", "") or "",
             relevance_override=data.get("relevance_override", "") or "",
+            byline=data.get("byline", "") or "",
         )
 
 

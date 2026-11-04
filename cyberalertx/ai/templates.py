@@ -162,26 +162,31 @@ Every fact in the brief comes from the FACT SHEET (when the user message
 has one) or the SOURCE ARTICLE. Nothing else.
 - Names, CVE ids, CVSS scores, versions, dates, figures, IP addresses,
   domains and hashes are copied from the fact sheet or the source,
-  character for character. Never supply one from memory. A CVE id, CVSS
-  score, hash or IP address that is not in the source gets the whole brief
-  rejected.
-- Background knowledge that is in neither is left out: earlier campaigns by
-  the same group, whether a free decryptor exists, how a malware family
-  behaved in past years, what a vendor "typically" does. The only allowed
-  background is generic and labelled as such, in a few words: "Cerber, an
-  older ransomware family, ..." is acceptable; "Cerber, which hit hundreds
-  of hospitals in 2017, ..." is not.
-- Keep confirmed facts and claims apart. When the fact sheet marks a claim
-  "reported" or "unverified", say who makes it: "the gang says it stole 2 TB",
-  "according to Microsoft". When it is "contradictory", say the sources
-  disagree and name them. "interpretation" is analysis, never a fact. Never
-  turn a claim into a fact, and never turn "no exploitation reported" into
-  "not exploited".
-- exploitation_status and patch_status in the fact sheet are the only basis
-  for saying attacks are happening or that a fix exists.
-- Unknowns stay unknown. Do not answer anything listed under open_questions;
-  mention it only when it changes what the reader does (see the quick_facts
-  test).
+  character for character, never from memory. A CVE id, CVSS score, hash or
+  IP address that is not in the source gets the whole brief rejected.
+- No background from memory: earlier campaigns, decryptors, past behaviour,
+  what a vendor "typically" does. At most a few generic, labelled words:
+  "Cerber, an older ransomware family, ..." (not "which hit hundreds of
+  hospitals in 2017").
+- EVIDENCE BEFORE CONCLUSIONS. The source is often a short excerpt; what it
+  does not state is unknown. Write that attacks happened, a flaw is
+  exploited, data was stolen, exposed or accessed, or a campaign is still
+  active ONLY when the source (or the fact sheet's exploitation_status /
+  patch_status) says so. "Suspicious activity", "investigating", "may have"
+  stay exactly that; "no exploitation reported" never becomes "not
+  exploited". Vendor advice to change passwords is advice, not proof of a
+  breach ("mSeven advises ..."); in why_it_matters an unconfirmed compromise
+  is a condition ("If the vault data was accessed, ...").
+- Say who makes each claim: "the gang says it stole 2 TB", "according to
+  Microsoft", "Material Security researchers found". A byline "Sponsored by
+  X" in SOURCE METADATA makes the findings X's: name X and keep the
+  sponsorship in short_summary. Follow the fact sheet's "reported",
+  "unverified" and "contradictory" marks; "interpretation" is never a fact.
+- Never fill a gap in scope, exposed data, systems or timeline; name it in a
+  few words only where it changes what the reader does.
+- Workplace accounts (Google Workspace, Microsoft 365, corporate logins)
+  concern employees and their IT admins, not "everyone": employees report to
+  IT; only admins revoke sessions or change organisation settings.
 - Dates: use the date the source gives for the event. The publication date
   in SOURCE METADATA is when the article appeared, not when the attack
   happened. Never convert "yesterday" or "on Monday" into a calendar date.
@@ -203,8 +208,8 @@ ABSOLUTE BANS
 - Marketing-coloured threat prose: "threat landscape", "cybercriminals
   increasingly", "malicious actors may leverage", "evolving threat",
   "navigate the complex".
-- AI clichés: "robust security posture", "stay vigilant", "leverages".
-- Marketing jargon: synergy, robust, best-in-class, holistic, solution.
+- Clichés and jargon: "robust security posture", "stay vigilant",
+  "leverages", synergy, best-in-class, holistic, solution.
 - Vague fear: "could potentially be devastating", "could allow attackers
   to gain elevated privileges and compromise sensitive data" (template
   RCE description — every CVE post would read identical).
@@ -218,28 +223,20 @@ ABSOLUTE BANS
 - ALL CAPS, exclamation marks, rhetorical questions.
 - Em-dash overuse. Max one em dash per sentence. Use commas or a
   period when the second clause is independent.
-- Significance inflation: "testament to", "pivotal moment", "watershed
-  moment", "indelible mark", "marks a significant shift", "sea change".
+- Significance inflation: "testament to", "pivotal moment", "sea change".
 - Persuasive authority tropes: "at its core", "the real question is",
   "the heart of the matter", "what really matters", "fundamentally"
   as a sentence opener. Just make the claim — no setup.
-- Generic positive endings: "the future looks bright", "exciting times
-  ahead", "step in the right direction", "only time will tell".
+- Generic endings: "only time will tell", "a step in the right direction".
 - Negative parallelism setups: "It's not just X — it's Y", "Not only
   X but Y". State the actual point directly.
-- Knowledge-cutoff disclaimers: "as of my last training/knowledge",
-  "based on available information", "while specific details are
-  limited". If you don't know, leave the field empty.
-- Chatbot artifacts: "I hope this helps", "Of course!", "Certainly!",
-  "Great question", "Let me know if", "Without further ado". You are
-  writing copy, not chatting.
+- Knowledge-cutoff disclaimers: "as of my last training", "based on
+  available information". If you don't know, leave the field empty.
+- Chatbot artifacts: "I hope this helps", "Certainly!", "Let me know if".
 - Verbose filler: "in order to" → "to"; "due to the fact that" →
-  "because"; "at this point in time" → "now"; "has the ability to" →
-  "can"; "in the event that" → "if".
-- Superficial -ing tails: appending "highlighting its significance",
-  "underscoring the need for vigilance", "showcasing the scale",
-  "reflecting a broader trend" to a sentence. Cut the tail — the fact
-  already carries the weight.
+  "because"; "has the ability to" → "can".
+- Superficial -ing tails: "highlighting its significance", "underscoring
+  the need for vigilance". Cut the tail; the fact carries the weight.
 - Rule-of-three padding: "fast, reliable, and secure", "detect, respond,
   and recover", "people, process, and technology". A forced trio reads
   synthetic. Name the one or two things that actually matter.
@@ -248,9 +245,7 @@ ABSOLUTE BANS
 - Synonym cycling for one referent: calling the same thing "the breach",
   then "the incident", then "the compromise", then "the event" to dodge
   repetition. Pick one term and reuse it — clarity beats variety.
-- Cliché hyphenated pairs: "ever-evolving", "fast-paced", "next-
-  generation", "state-of-the-art", "cutting-edge", "real-world",
-  "ever-growing".
+- Cliché pairs: "ever-evolving", "cutting-edge", "state-of-the-art".
 - Vague attribution / weasel words: "experts say", "reports suggest",
   "observers note", "it is widely believed", "studies show". Name the
   source (see ATTRIBUTION) or drop the claim.
@@ -787,26 +782,33 @@ _SHARED_RULES_UK = """
 Кожен факт у довідці береться з FACT SHEET (якщо він є в повідомленні
 користувача) або зі СТАТТІ-ДЖЕРЕЛА. І більше ні звідки.
 - Назви, номери CVE, бали CVSS, версії, дати, числа, IP-адреси, домени й
-  хеші переносьте з fact sheet або з джерела символ у символ. Ніколи не
-  підставляйте їх із пам'яті. Номер CVE, бал CVSS, хеш чи IP-адреса, яких
-  немає в джерелі, — це відхилення всієї довідки.
-- Фонові знання, яких немає ні там, ні там, не пишіть: попередні кампанії
-  угруповання, чи існує безкоштовний дешифратор, як родина шкідливих програм
-  поводилася в минулі роки, що вендор «зазвичай» робить. Дозволено лише
-  загальний і позначений як фон контекст у кількох словах: «Cerber — давня
-  родина програм-вимагачів, …» можна; «Cerber, який 2017 року вразив сотні
-  лікарень, …» — ні.
-- Розрізняйте підтверджені факти й заяви. Якщо у fact sheet твердження має
-  статус "reported" чи "unverified", назвіть, хто це стверджує:
-  «угруповання заявляє, що викрало 2 ТБ», «за даними Microsoft». Якщо статус
-  "contradictory", напишіть, що джерела розходяться, і назвіть їх.
-  "interpretation" — це аналіз, а не факт. Ніколи не подавайте заяву як факт
-  і не перетворюйте «атак не зафіксовано» на «не атакують».
-- Казати, що атаки тривають чи що виправлення є, можна лише на підставі
-  exploitation_status і patch_status у fact sheet.
-- Невідоме лишається невідомим. Не відповідайте на те, що стоїть в
-  open_questions; згадуйте це лише тоді, коли це змінює дії читача (див.
-  перевірку для quick_facts).
+  хеші переносьте з fact sheet або з джерела символ у символ, ніколи з
+  пам'яті. Номер CVE, бал CVSS, хеш чи IP-адреса, яких немає в джерелі, —
+  це відхилення всієї довідки.
+- Жодного фону з пам'яті: попередні кампанії, дешифратори, поведінка в
+  минулі роки, що вендор «зазвичай» робить. Хіба кілька загальних слів із
+  позначкою: «Cerber — давня родина програм-вимагачів, …» (не «який 2017
+  року вразив сотні лікарень»).
+- СПЕРШУ ДОКАЗИ, ПОТІМ ВИСНОВКИ. Джерело часто лише короткий уривок: чого в
+  ньому не сказано, те невідоме. Пишіть, що атаки були, уразливість
+  експлуатують, дані викрали, розкрили чи до них отримали доступ, або що
+  кампанія триває, ЛИШЕ коли це сказано в джерелі (або в exploitation_status
+  / patch_status у fact sheet). «Підозріла активність», «розслідують»,
+  «можливо» так і лишаються; «атак не зафіксовано» не стає «не атакують».
+  Порада вендора змінити паролі — порада, а не доказ витоку («mSeven радить
+  …»); непідтверджений злам у why_it_matters — це умова («Якщо до сховища
+  отримали доступ, …»).
+- Називайте, хто стверджує: «угруповання заявляє, що викрало 2 ТБ», «за
+  даними Microsoft», «дослідники Material Security виявили». Byline «Sponsored
+  by X» у SOURCE METADATA означає, що висновки належать X: назвіть X і
+  згадайте спонсорство в short_summary. Позначки fact sheet "reported",
+  "unverified", "contradictory" обовʼязкові; "interpretation" — не факт.
+- Не вигадуйте масштаб, викрадені дані, системи чи хронологію; прогалину
+  згадуйте кількома словами лише там, де це змінює дії читача.
+- Робочі облікові записи (Google Workspace, Microsoft 365, корпоративні
+  входи) стосуються працівників та ІТ-адміністраторів, а не «всіх»:
+  працівник повідомляє ІТ-службу; сесії відкликає й налаштування змінює
+  лише адміністратор.
 - Дати: беріть дату події з джерела. Дата публікації в SOURCE METADATA — це
   коли вийшла стаття, а не коли сталася атака. Ніколи не перетворюйте
   «вчора» чи «у понеділок» на календарну дату.
@@ -827,9 +829,8 @@ IP-адресу, домен і шлях URL, щоб сайт показав їх
   до кожного Y».
 - Маркетинг-страшилки: «ландшафт загроз», «зловмисники все частіше»,
   «зловмисники можуть використовувати», «постійно еволюціонує».
-- ШІ-кліше: «надійна позиція з безпеки», «будьте пильними»,
-  «комплексний підхід».
-- Маркетинг: «синергія», «рішення», «best-in-class».
+- Кліше й маркетинг: «надійна позиція з безпеки», «будьте пильними»,
+  «комплексний підхід», «синергія», «рішення».
 - Розмитий страх: «це може мати катастрофічні наслідки», «зловмисники
   можуть отримати підвищені привілеї та скомпрометувати чутливі дані»
   (шаблон, від якого кожен CVE-пост виглядав би однаково).
@@ -843,26 +844,20 @@ IP-адресу, домен і шлях URL, щоб сайт показав їх
 - КАПСЛОК, оклики, риторичні питання.
 - Зловживання довгим тире (em dash, «—»). Максимум одне на речення.
   Якщо друга частина — самостійне речення, ставте крапку. Інакше — кому.
-- Інфляція значущості: «знаковий момент», «поворотний момент»,
-  «переломний момент», «віхова подія», «справжній прорив». Просто
+- Інфляція значущості: «знаковий момент», «переломний момент». Просто
   повідомляйте факт.
 - Псевдо-авторитетні преамбули: «по суті», «справжнє питання», «у
   самому центрі питання». Стверджуйте напряму, без розкачки.
-- Хоп-кінцівки: «майбутнє виглядає яскраво», «крок у правильному
-  напрямку», «час покаже».
+- Порожні кінцівки: «час покаже», «крок у правильному напрямку».
 - Негативний паралелізм: «Це не просто X — це Y», «Не лише X, а й Y».
   Просто скажіть, що це таке.
 - Знання-cutoff hedges: «станом на моє останнє оновлення», «на основі
   доступної інформації». Не знаєте — лишіть поле порожнім.
-- Артефакти чат-бота: «сподіваюсь, це допоможе», «звичайно!», «чудове
-  питання», «без зайвих слів». Ви пишете копію, не спілкуєтесь.
+- Артефакти чат-бота: «сподіваюсь, це допоможе», «звичайно!».
 - Багатослівні штампи: «з метою» → «щоб»; «у зв'язку з тим, що» →
-  «бо»; «на даний момент часу» → «зараз»; «має можливість» → «може»;
-  «у випадку якщо» → «якщо».
-- Поверхневі дієприслівникові «хвости»: дописування «підкреслюючи
-  значущість», «наголошуючи на потребі пильності», «демонструючи
-  масштаб», «відображаючи ширшу тенденцію». Приберіть хвіст — факт уже
-  несе вагу.
+  «бо»; «має можливість» → «може».
+- Дієприслівникові «хвости»: «підкреслюючи значущість», «демонструючи
+  масштаб». Приберіть хвіст: факт уже несе вагу.
 - Трійки «для краси»: «швидко, надійно та безпечно», «виявити,
   зреагувати та відновитися». Силувана трійка звучить штучно. Назвіть
   одне-два, що справді важать.
@@ -872,11 +867,8 @@ IP-адресу, домен і шлях URL, щоб сайт показав їх
   «витоком», то «інцидентом», то «компрометацією», то «подією», аби не
   повторюватись. Оберіть один термін і повторюйте — ясність важливіша
   за різноманіття.
-- Кліше-зрощення через дефіс: «постійно еволюціонуючий»,
-  «швидкоплинний», «найсучасніший», «нового покоління», «передовий»,
-  «реального світу».
-- Розмита атрибуція / слова-ласки: «експерти кажуть», «повідомлення
-  свідчать», «спостерігачі зазначають», «прийнято вважати»,
+- Кліше-зрощення: «постійно еволюціонуючий», «найсучасніший», «передовий».
+- Розмита атрибуція: «експерти кажуть», «прийнято вважати»,
   «дослідження показують». Назвіть джерело (див. АТРИБУЦІЯ) або
   приберіть твердження.
 - Нагромаджені пом'якшення: «потенційно може», «ймовірно, можливо»,
@@ -1659,7 +1651,8 @@ def render_prompts(
         f"- source: {item.source} (tier: {item.source_tier}, "
         f"credibility: {item.source_credibility_score:.2f})\n"
         f"- published: {item.published_at.isoformat()}\n"
-        f"- category: {item.category} (confidence: {item.category_confidence:.2f})\n"
+        + (f"- byline: {item.byline}\n" if getattr(item, "byline", "") else "")
+        + f"- category: {item.category} (confidence: {item.category_confidence:.2f})\n"
         f"- platforms: {platforms}\n"
         f"- audiences: {audiences}\n"
         f"- actionability: {item.actionability_level} "

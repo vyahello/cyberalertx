@@ -41,9 +41,11 @@ def _item(**overrides) -> NewsItem:
 
 # --------------------- active_exploitation -------------------------------
 
-def test_active_exploitation_from_urgent_actionability():
+def test_urgent_actionability_is_not_evidence_of_exploitation():
+    """Action priority and exploitation are separate dimensions: an "act
+    now" vendor notice is urgent, but nothing says a flaw is exploited."""
     sig = extract_signals(_item(actionability_level="urgent_action"))
-    assert sig.active_exploitation is True
+    assert sig.active_exploitation is False
     assert sig.requires_immediate_action is True
 
 
@@ -171,15 +173,18 @@ def test_who_should_care_falls_back_to_audience_when_no_platform():
 def test_who_should_care_falls_back_to_signal_for_bare_items():
     item = _item(category="phishing")  # no platform, no audience
     sig = extract_signals(item)
-    # phishing → consumer_risk → "Everyday internet users"
-    assert who_should_care(item, sig, language="en") == "Everyday internet users"
+    # phishing → consumer_risk → "Private internet users"
+    assert who_should_care(item, sig, language="en") == "Private internet users"
+    assert who_should_care(item, sig, language="ua") == "Приватні користувачі"
 
 
-def test_who_should_care_final_fallback():
+def test_who_should_care_final_fallback_is_silent():
+    """No audience evidence → no label, never a catch-all that mislabels a
+    consumer product story as one for security professionals."""
     item = _item()  # nothing — neither consumer nor enterprise risk
     sig = extract_signals(item)
-    assert who_should_care(item, sig, language="en") == "Cybersecurity professionals"
-    assert who_should_care(item, sig, language="ua") == "Фахівці з кібербезпеки"
+    assert who_should_care(item, sig, language="en") == ""
+    assert who_should_care(item, sig, language="ua") == ""
 
 
 # --------------------- potential_impact ----------------------------------
@@ -192,7 +197,7 @@ def test_potential_impact_orders_by_severity():
         credential_theft_risk=True,
     )
     labels = potential_impact(sig, language="en")
-    assert labels[0] == "Active exploitation"
+    assert labels[0] == "Exploitation confirmed"
     assert "Email account takeover" in labels
     assert "Credential compromise" in labels
 
@@ -219,5 +224,5 @@ def test_potential_impact_uk_labels_are_ukrainian():
     sig = ThreatSignals(active_exploitation=True, credential_theft_risk=True)
     labels = potential_impact(sig, language="ua")
     # Must NOT contain English fallbacks.
-    assert "Active exploitation" not in labels
-    assert "Активна експлуатація" in labels
+    assert "Exploitation confirmed" not in labels
+    assert "Експлуатацію підтверджено" in labels

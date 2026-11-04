@@ -98,6 +98,7 @@ class RssSource(Source):
             raw_content = _strip_html(
                 getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
             )
+            byline = _strip_html(str(getattr(entry, "author", "") or ""))[:120].strip()
             items.append(
                 NewsItem(
                     title=title,
@@ -105,6 +106,7 @@ class RssSource(Source):
                     url=url,
                     published_at=published,
                     raw_content=raw_content,
+                    byline=byline,
                 )
             )
         return items
