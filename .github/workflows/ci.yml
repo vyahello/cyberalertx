@@ -83,37 +83,12 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
 
   # ------------------------------------------------------------------
-  # Deploy — SSH to the VPS and run server/deploy.sh. Runs ONLY when both
-  # test jobs pass AND this is a push to main (never on PRs or other
-  # branches; forked-PR runs can't see secrets anyway). Serialized via its
-  # own concurrency group so two deploys never overlap.
+  # No deploy job. The former "Deploy to VPS" job SSHed in and ran
+  # server/deploy.sh: `git reset --hard origin/main` in the old ~/cax
+  # checkout, pip/npm into the old environment and a restart of the live
+  # API and frontend. Production now runs from immutable release
+  # directories (/home/cax/cyberalertx/releases, `current` symlink), and
+  # that job would overwrite the rollback checkout and restart services
+  # outside the release procedure (OPEN_ISSUES O33). Deploy with
+  # docs/release/STAGE_C_RUNBOOK.md; release-aware automation is future work.
   # ------------------------------------------------------------------
-  deploy:
-    name: Deploy to VPS
-    needs: [backend, frontend]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    concurrency:
-      group: vps-deploy
-      cancel-in-progress: false
-    steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          # sshd does not listen on 22 on this box. Carried as a secret rather
-          # than written here: this repository is public, and publishing the
-          # port would undo the reason it was moved. Falls back to 22 so a fork
-          # or a box that never moved it still works without the secret set.
-          port: ${{ secrets.VPS_PORT || 22 }}
-          # Fail the job if any deploy command exits non-zero.
-          script_stop: true
-          # npm ci + next build can take a few minutes.
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
-            cd ~/cax
-            ./server/deploy.sh
