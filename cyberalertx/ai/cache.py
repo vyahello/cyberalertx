@@ -52,6 +52,10 @@ class ThreatPostCache:
         # holds a stale in-memory dict and every request pays the LLM cost
         # again. See `_maybe_reload()`.
         self._mtime_seen: float = 0.0
+        # True while the file on disk exists but could not be parsed. Reads
+        # then miss (as before); writes refuse, so a flush can never replace
+        # every post with an almost empty store (O28).
+        self._unreadable = False
         self._load()
 
     def _current_mtime(self) -> float:
@@ -74,6 +78,7 @@ class ThreatPostCache:
         if not self._path.exists():
             self._store = {}
             self._mtime_seen = 0.0
+            self._unreadable = False
             return
         try:
             with self._path.open("r", encoding="utf-8") as fh:
@@ -98,12 +103,26 @@ class ThreatPostCache:
                 normalized[key] = v
             self._store = normalized
             self._mtime_seen = self._current_mtime()
+            self._unreadable = False
         except (json.JSONDecodeError, OSError, ValueError) as exc:
-            logger.warning("Corrupt threat-post cache at %s (%s) — starting empty.", self._path, exc)
+            logger.warning("Corrupt threat-post cache at %s (%s) — reads miss, writes refused.", self._path, exc)
             self._store = {}
             self._mtime_seen = 0.0
+            self._unreadable = True
+
+    @property
+    def unreadable(self) -> bool:
+        """True while the file exists but cannot be parsed. Dual-write readers
+        use it to fail closed instead of serving Postgres's possibly stale copy."""
+        self._maybe_reload()
+        return self._unreadable
 
     def _flush(self) -> None:
+        if self._unreadable:
+            raise RuntimeError(
+                f"refusing to overwrite unreadable threat-post cache {self._path}; "
+                "repair or restore it from a backup first"
+            )
         payload = {"posts": self._store}
         tmp_fd, tmp_path = tempfile.mkstemp(
             prefix=".threat-posts-", suffix=".json", dir=str(self._path.parent)

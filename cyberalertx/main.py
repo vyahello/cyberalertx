@@ -301,15 +301,33 @@ def cmd_generate(args: argparse.Namespace) -> int:
         locales_by_item.setdefault(fingerprint, []).append(pending_locale)
 
     for index, item in enumerate(missing_items, start=1):
+        # Editor decisions survive a refresh (O28): a rejected edition is not
+        # deleted (so it is not re-rendered), an approved one keeps its
+        # approval on the new text, and is restored if the re-render fails.
+        previous: dict[str, Any] = {}
         if refresh and cache is not None:
+            from .ai.review import keep_on_refresh
             for locale in locales_by_item.get(item.fingerprint, []):
+                old = cache.get(item.fingerprint, locale)
+                if keep_on_refresh(old):
+                    continue
+                previous[locale] = old
                 if cache.delete(item.fingerprint, locale):
                     refresh_dropped += 1
         try:
             payload = svc.render(item)
         except Exception as exc:
             print(f"  render failed for {item.fingerprint}: {exc}", file=sys.stderr)
+            if cache is not None:
+                for locale, old in previous.items():
+                    if old is not None and (old.review_status or "auto") == "approved" \
+                            and cache.get(item.fingerprint, locale) is None:
+                        cache.set(item.fingerprint, locale, old)
             continue
+        if previous and cache is not None:
+            from .ai.review import carry_review_decision
+            for locale, old in previous.items():
+                carry_review_decision(cache, item.fingerprint, locale, old)
         if refresh:
             # Progress matters here: a full refresh is a multi-hour run and
             # an operator watching a silent terminal cannot tell it apart

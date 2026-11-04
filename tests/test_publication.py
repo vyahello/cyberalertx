@@ -631,6 +631,7 @@ def test_prune_archives_finished_jobs_and_they_are_not_replanned(tmp_path: Path)
 def test_bot_token_never_reaches_the_logs(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """httpx logs full request URLs at INFO; the Bot API puts the token in the path."""
     caplog.set_level("DEBUG")
+    caplog.set_level("DEBUG", logger="httpx")   # main.py lowers httpx to WARNING on import; don't depend on test order
     bot = Bot()
     store, src, d, _ = setup(tmp_path, item(1), bot=bot)
     go(store, src, d)

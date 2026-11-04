@@ -122,6 +122,35 @@ def apply_decision(
     return updated
 
 
+def keep_on_refresh(post: ThreatPost | None) -> bool:
+    """`generate --refresh` must not delete an edition the editor rejected.
+    Re-rendering it would bring it back as a fresh `pending`/`auto` post
+    (visible in `flag` mode) and spend an AI call on text nobody may see."""
+    return post is not None and (post.review_status or "auto") == "rejected"
+
+
+def carry_review_decision(
+    cache: _PostStore, fingerprint: str, locale: str, previous: ThreatPost | None,
+) -> ThreatPost | None:
+    """After a `--refresh` re-render, keep the editor's approval on the new
+    text instead of resetting it to the scorecard's initial status (which in
+    `hold` mode would put an approved article back on hold). Only the review
+    fields change; written like a decision (strict under dual-write)."""
+    if previous is None or (previous.review_status or "auto") != "approved":
+        return None
+    post = cache.get(fingerprint, locale)
+    if post is None:
+        return None
+    updated = replace(post, review_status=previous.review_status,
+                      reviewed_by=previous.reviewed_by, reviewed_at=previous.reviewed_at)
+    strict = getattr(cache, "set_strict", None)
+    if callable(strict):
+        strict(fingerprint, locale, updated)
+    else:
+        cache.set(fingerprint, locale, updated)
+    return updated
+
+
 def posts_with_status(cache: _PostStore, statuses: Iterable[str]) -> list[ThreatPost]:
     wanted = set(statuses) & set(REVIEW_STATUSES)
     return [p for p in cache.all() if (p.review_status or "auto") in wanted]
@@ -133,6 +162,8 @@ __all__ = [
     "MODE_ENV",
     "REVIEW_MODES",
     "apply_decision",
+    "carry_review_decision",
+    "keep_on_refresh",
     "hidden_statuses",
     "initial_status",
     "is_publicly_visible",
