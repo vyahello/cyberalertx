@@ -48,7 +48,7 @@ export interface CardSpec {
   illustration?: string;
 }
 
-// Design tokens (mirrors tailwind.config.ts / DESIGN.md).
+// Design tokens (mirrors tailwind.config.ts / docs/design/DESIGN_SYSTEM.md).
 const T = {
   ground: "#0E1116",
   raised: "#161B22",

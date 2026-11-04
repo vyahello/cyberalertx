@@ -43,8 +43,7 @@ components (cards, chips, badges, hero, trending, old filters).
 
 ## UI/UX
 
-**6. Design system.** `docs/design/DESIGN_SYSTEM.md` (+ `DESIGN.md` from
-Impeccable). Graphite ground with two tone steps, near-white ink, cyan as the
+**6. Design system.** `docs/design/DESIGN_SYSTEM.md`. Graphite ground with two tone steps, near-white ink, cyan as the
 single signal colour, severity colours re-stepped and validated for colour-blind
 separation; Literata (reading) + Fira Sans Condensed (interface), both with
 Cyrillic; five type steps, nothing below 14px; one vertical axis at 42%.

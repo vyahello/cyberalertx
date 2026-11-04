@@ -26,7 +26,7 @@ glows, glass, outlined boxes, tiny uppercase labels.
 |---|---|---|
 | **UI UX Pro Max** | Design-system research and UX rules | Recommended an *Editorial Grid / Swiss* style and an editorial serif + sans pairing for news. Its first recommendation (Cyberpunk UI, Matrix green) and its palettes were **rejected** as contradicting the brief and the brand. Its UX/accessibility rules (4.5:1 contrast, 44px targets, visible focus, reduced motion, deep links) are applied throughout. |
 | **Taste** | Art direction and visual implementation | Dealt the *"printed annual" (editorial-report)* direction: one fixed vertical axis at 42%, side notes left of it, text right of it, solid colour fields instead of decoration. Its house rules (no eyebrows, no hairlines, no gradients, no shadows at rest, two typefaces, sentence-case labels, ≥13px text) are enforced. Its inspector measured before/after. |
-| **Impeccable** | Product record, direction contract, critique and refinement | PRODUCT.md, the direction contract (`.impeccable/surfaces/…`), the Read-mode rule that the world owns the frame while the reading column stays calm, the craft floor, the mechanical detector (0 findings at the end) and the finish review. |
+| **Impeccable** | Product record, direction contract, critique and refinement | The product record and direction contract (local tool files, not in the repository), the Read-mode rule that the world owns the frame while the reading column stays calm, the craft floor, the mechanical detector (0 findings at the end) and the finish review. |
 
 Where the skills conflicted, the order of precedence was: **the owner's brief
 and brand commitments → accessibility → Taste house rules → dealt blueprints**.
