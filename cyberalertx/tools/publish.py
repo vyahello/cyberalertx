@@ -102,14 +102,16 @@ def _run(args: argparse.Namespace, *, with_plan: bool) -> int:
     settings = build_telegram_settings()
     store = JobStore(Path(args.jobs))
     dests = _destinations(settings)
+    # Refuse BEFORE anything is written: a refused --send must leave the job
+    # store exactly as it was (found in the Stage B rehearsal).
+    if args.send and "telegram" in dests and not settings.bot_token:
+        print("refusing --send: Telegram channels are configured but no bot token is set", file=sys.stderr)
+        return 2
     source = _source()
     if with_plan:
         res = plan(source, store, now=_now(), settings=settings, destinations=dests,
                    ledger_has=_ledger_has(), dry_run=not args.send)
         print(f"[plan] {json.dumps(res.summary(), ensure_ascii=False)}", file=sys.stderr)
-    if args.send and "telegram" in dests and not settings.bot_token:
-        print("refusing --send: Telegram channels are configured but no bot token is set", file=sys.stderr)
-        return 2
     if args.send and any(k.startswith("threads@") for k in dests):
         # Keep tokens fresh and settle what the API can settle, before sending.
         from ..threads.client import ThreadsClient

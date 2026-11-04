@@ -129,3 +129,16 @@ def test_cycle_without_send_is_a_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert cli.main(["--jobs", str(tmp_path / "jobs.json"), "cycle", "--limit", "1"]) == 0
     assert not (tmp_path / "jobs.json").exists() and not bot.calls
     assert "preview only" in capsys.readouterr().err
+
+
+def test_refused_send_writes_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Stage B finding: `cycle --send` without a bot token used to plan (and
+    write jobs) before refusing. A refused command must not write."""
+    import cyberalertx.tools.publish as cli
+    from tests.test_publication import item, source_for
+    monkeypatch.setenv("CYBERALERTX_TELEGRAM_CHANNEL_EN", "@fake_en")
+    monkeypatch.delenv("CYBERALERTX_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "_source", lambda: source_for(item(1)))
+    monkeypatch.setattr(cli, "_ledger_has", lambda: (lambda fp, loc: False))
+    assert cli.main(["--jobs", str(tmp_path / "jobs.json"), "cycle", "--send", "--limit", "1"]) == 2
+    assert not (tmp_path / "jobs.json").exists() and not (tmp_path / "jobs.lock").exists()

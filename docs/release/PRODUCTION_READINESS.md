@@ -29,7 +29,10 @@ New automated publishing (Stage D) and Threads (Stage E) each still need
 real-world verification that only the administrator can authorize.
 
 **Conditions:**
-1. Upgrade the frontend dependencies (O1) in the release candidate.
+1. Upgrade the frontend dependencies (O1) in the release candidate. **This is
+   critical, not cosmetic.** The Next.js critical advisories are RCEs in the
+   live, public image optimizer's decoders, not Server Actions; this
+   corrects §11 below. See SECURITY_REMEDIATION.md.
 2. Build the release venv from `requirements.lock` (O2, O3).
 3. Back up `data/` and Supabase before switching.
 4. Accept that audit attribution is unverified while there is a single shared
