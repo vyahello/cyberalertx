@@ -27,6 +27,17 @@ for this: no brief is ever described as "approved by an editor" unless
    Any hard factual finding sets `needs_review` whatever the score.
 5. **Review status**: `auto` (clean) or `pending` (needs a human).
 
+### Evidence gate (Nov 2026)
+
+Every brief is also checked against what its source establishes
+(`ai/scorecard.py: _evidence_issues`, using `pipeline/evidence.py`). A brief
+that states exploitation, data theft/exposure or an active campaign the
+source does not support, or that mentions AI authorship, gets a hard issue
+and goes to the queue with the reason "evidence: …", whatever its score.
+Hedged wording is not flagged. The gate never rejects or regenerates (no
+extra AI calls); the editor decides. Measured on the 4 Nov archive: 7 of 256
+editions with a stored source were flagged.
+
 ## 2. Review modes (`CYBERALERTX_REVIEW_MODE`) — as implemented
 
 Read from the environment on every call (`ai/review.py`), so a restart is not
