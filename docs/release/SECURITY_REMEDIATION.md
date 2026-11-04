@@ -1,7 +1,9 @@
 # Frontend dependency remediation plan (O1)
 
-**Status:** plan, verified by a trial; **not yet applied** to the release
-candidate. **Must be applied before Stage C.**
+**Status: APPLIED** on `redesign/cti-platform` (the remediation commit) and
+built into release candidate 3. Sections 1–6 are the original plan and trial.
+§7 records what was applied and verified, including the advisories Next.js
+published on 3 November 2026.
 
 **Correction of Phase 7.** PRODUCTION_READINESS.md first described the
 `next` critical finding as a Server Actions issue. That was wrong. `npm audit`
@@ -151,3 +153,108 @@ as a second layer in production.
 
 The production checkout (`/home/cax/cax`, same vulnerable versions) is
 fixed by deploying RC3, not by patching it in place.
+
+## 7. Applied and verified (release candidate 3)
+
+### Change
+
+Applied exactly as in §3:
+- `next` 15.5.29;
+- `sharp` 0.35.5 as a direct dependency;
+- `postcss ^8.5.32` with the `$postcss` override, plus `nanoid ^3.3.20` and
+  `source-map-js ^1.2.2`;
+- the lockfile from the trial (including the non-forced `npm audit fix`);
+- `images: { unoptimized: true }` in `next.config.ts`.
+
+### Installed after `npm ci` [verified]
+
+| Package | Version |
+|---|---|
+| next | 15.5.29 (one copy) |
+| sharp | 0.35.5: direct, plus Next's, deduplicated to one install |
+| Bundled image libraries | libvips 8.18.7, libheif 1.23.5, librsvg 2.63.2 |
+| postcss | 8.5.32 (all 8 copies; no 8.4.31 left) |
+| nanoid | 3.3.20 |
+| source-map-js | 1.2.2 |
+
+### `npm audit` [verified]
+
+- Full tree: **0** (critical 0, high 0, moderate 0, low 0, info 0).
+- `--omit=dev`: **0**.
+
+### Upstream advisories re-checked [verified, GitHub advisory API and vercel/next.js repository advisories]
+
+- **`next`, GitHub reviewed database:** every 15.x range ends at ≤ 15.5.27 or
+  < 15.5.24, so all are patched in 15.5.28 and 15.5.29. The newest entries
+  (22 Oct: GHSA-2464, GHSA-p3m5, and the 16.x-only GHSA-673q / GHSA-h694) are
+  covered.
+- **`sharp`:** GHSA-wq5f (< 0.35.5), GHSA-rgj7 (< 0.35.4), GHSA-f88m (< 0.35.0),
+  all patched in 0.35.5.
+- **3 November 2026, vercel/next.js repository advisories.** These are not yet
+  in the reviewed database, so `npm audit` does not report them. 15.5.29 was
+  released the same day.
+
+| Advisory | Affects | Status for this app |
+|---|---|---|
+| GHSA-f3mh-rxg3-f5g2: HttpOnly cookie exposure via `x-middleware-set-cookie` on Edge routes | 15.0.0–15.5.28 | 15.5.29 is outside the range. Also not applicable: 0 Edge-runtime routes, no cookies set; `middleware.ts` only redirects `/` (live headers show no `x-middleware-set-cookie`). |
+| GHSA-7qx7-33qx-rqx2: SVG rejection bypass in image optimization | 15.0.0–15.5.28 | 15.5.29 is outside the range, and the optimizer is removed (`/_next/image` → 404) |
+| GHSA-pc58-hwjq-p385: cross-client response injection in self-hosted App Router / fetch cache behind a pipelining HTTP/1.1 proxy | listed as all versions; **no patched version** | **Residual (O25).** Precondition absent: all 3 route handlers (`card`, `media`, `feed.xml`) build their own `Response`, and none returns a fetched upstream response unchanged. nginx proxies with HTTP/1.1 but does not pipeline upstream requests. Monitor for a fix. |
+| GHSA-rhh4, GHSA-vvgp, GHSA-vc7v, GHSA-mfr8 | 16.x only (`use cache`, Cache Components, root params) | Not applicable to 15.x |
+
+### Image compatibility [verified; before = previous RC on Next 15.5.18 with the optimizer, after = remediated build, same API and data]
+
+- **Six pages, five widths, 60 browser loads:**
+  - pages: home, article and topic, in EN and UA;
+  - widths: 375, 390, 768, 1440 and 1920;
+  - results: all 200, 0 `/_next/image` requests (none before either), 0
+    failed responses, 0 broken `<img>`, 0 `<img>` without width/height, no
+    horizontal overflow.
+- **No raster images on these pages.** Icons and marks are inline SVG, so
+  the image set is identical (empty) before and after.
+- **Page weight:** 0.6–0.8 % lower (the newer Next runtime bundle).
+- **Editorial illustration** (a temporary local test fixture on a fresh
+  article, removed afterwards; data checksum restored):
+  - both builds load the pre-generated `/media/<id>/article.avif` through
+    `<picture>` (AVIF, WebP, PNG fallback);
+  - natural size 1600×900, matching the `width`/`height` attributes;
+  - identical rendered size at every width (335×188 at 375 px up to 762×429
+    at 1440 px), a 16:9 ratio, no overflow, no optimizer request.
+- **All seven card variants** (5 PNG + WebP + AVIF) return 200 in both
+  locales. PNG and WebP are byte-identical before and after; AVIF is
+  re-encoded by the new libheif.
+- **Built output:** 0 source references to `next/image` or `/_next/image`.
+  The only mention in the built output is Next's default client image config,
+  now carrying `unoptimized: true`.
+
+### Performance impact [verified, local]
+
+- **Disabling the optimizer: no transfer or latency impact.** No page ever
+  requested it (0 requests before and after). Every image is a pre-generated
+  variant from its own route.
+- **AVIF transfer (new libheif encoder):**
+  - real cards are **13–21 % smaller**: `og.avif` 18,812 → 15,984 B,
+    `threads-square.avif` 22,028 → 17,644 B;
+  - all 15 card files together: 507,811 → 491,915 B (−3.1 %);
+  - the flat synthetic illustration's AVIF variants are 7–17 % larger
+    (+190 to +440 B);
+  - PNG and WebP are unchanged.
+- **Server-side cold render, median of 5** (cached by HTTP and Cloudflare
+  after the first request):
+
+  | Variant | Before | After | Change |
+  |---|---|---|---|
+  | Card PNG | 89 ms | 99 ms | +11 % |
+  | Card WebP | 120 ms | 148 ms | +23 % |
+  | Card AVIF | 668 ms | 713 ms | +7 % |
+  | Media `article.avif` | 1.33 s | 1.60 s | +20 % |
+
+  Cached page responses were unchanged or faster (2.5–3.5 ms after, vs
+  3.8–4.2 ms before).
+
+### Tests
+
+The Playwright result on the remediated build matches the pre-remediation
+release candidate exactly: 39 passed, 1 skipped, and 2 failed (the
+environmental `/healthz` only). For the backend, frontend and build results of
+release candidate 3, see its `RELEASE` and `RELEASE-INVENTORY.txt`.
+
