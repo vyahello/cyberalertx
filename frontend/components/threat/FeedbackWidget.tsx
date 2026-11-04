@@ -101,15 +101,15 @@ export function FeedbackWidget({ postId, lang }: Props) {
   const current = state?.vote ?? "none";
 
   return (
-    <div className="border-t border-border-subtle pt-6 text-center">
+    <div>
       <div
         role="group"
         aria-labelledby={promptId}
-        className="flex flex-wrap items-center justify-center gap-x-4 gap-y-3"
+        className="flex flex-wrap items-center gap-x-5 gap-y-3"
       >
-        <p id={promptId} className="text-sm font-medium text-text-secondary">
+        <h2 id={promptId} className="font-sans text-[1rem] font-semibold text-ink">
           {s.feedback_prompt}
-        </p>
+        </h2>
         <div className="flex gap-2">
           <ThumbButton
             icon={ThumbsUp}
@@ -129,27 +129,19 @@ export function FeedbackWidget({ postId, lang }: Props) {
       {/* One live region holding only text, so a screen reader announces the
           outcome of whichever button was pressed. The reason buttons sit
           outside it — controls inside a live region get read out wholesale. */}
-      <p role="status" aria-live="polite" className="mt-3 min-h-[1.25rem] text-sm text-text-secondary">
+      <p role="status" aria-live="polite" className="mt-3 min-h-[1.35rem] text-small text-ink-muted">
         {current === "up" && s.feedback_thanks}
         {current === "down" && (state?.reasoned ? s.feedback_thanks_reason : s.feedback_follow_up)}
       </p>
 
       {current === "down" && !state?.reasoned && (
-        <ul className="mt-3 flex flex-wrap justify-center gap-2" aria-label={s.feedback_follow_up}>
+        <ul className="mt-3 flex flex-wrap gap-1.5" aria-label={s.feedback_follow_up}>
           {REASONS.map(({ reason, key: labelKey }) => (
             <li key={reason}>
               <button
                 type="button"
                 onClick={() => giveReason(reason)}
-                className={cn(
-                  "inline-flex items-center rounded-full",
-                  "border border-border-subtle bg-bg-elevated-2",
-                  "min-h-[40px] sm:min-h-0 px-3.5 sm:px-3 py-1.5",
-                  "text-xs font-medium text-text-secondary",
-                  "transition-colors duration-150",
-                  "hover:text-text-primary hover:border-border-strong",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
-                )}
+                className="toggle"
               >
                 {s[labelKey]}
               </button>
@@ -178,14 +170,11 @@ function ThumbButton({
       aria-pressed={pressed}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border",
-        // 40px tap lane on phones, compact from sm+.
-        "min-h-[40px] sm:min-h-[34px] px-4 text-sm font-medium",
-        "transition-colors duration-150",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
+        "inline-flex items-center gap-2 min-h-[44px] px-4 font-sans text-small font-semibold",
+        "transition-colors duration-150 active:translate-y-px",
         pressed
-          ? "border-accent/50 bg-accent-soft text-accent"
-          : "border-border-subtle bg-bg-elevated-2 text-text-secondary hover:text-text-primary hover:border-border-strong",
+          ? "bg-ink text-ground"
+          : "bg-ground-raised text-ink-muted hover:bg-ground-high hover:text-ink",
       )}
     >
       <Icon

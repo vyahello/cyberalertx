@@ -22,7 +22,7 @@ from typing import Any
 
 from ..config import DATA_DIR
 from .config import LEVEL_WEIGHT, TelegramSettings, build_telegram_settings
-from .format import deep_link, notify, quality_problem, render_message
+from .format import deep_link, notify, quality_problem, render_caption, render_message
 from .ledger import PublishLedger
 from .telegram import TelegramError, TelegramPublisher
 
@@ -75,6 +75,22 @@ def qualifies(payload: dict[str, Any], settings: TelegramSettings) -> bool:
     )
     urgent = payload.get("actionability_level") == "urgent_action"
     return level_ok or urgent
+
+
+def photo_for(payload: dict[str, Any], locale: str) -> str | None:
+    """Public URL of the story's Telegram card in this edition, versioned by
+    the card's content hash; None when the edition has no card. The card
+    embeds the editorial illustration when one is validated, so one URL
+    covers both modes."""
+    try:
+        from ..media.cards import card_inputs, card_url, content_hash
+        inputs = card_inputs(payload, locale)
+        if inputs is None:
+            return None
+        return card_url(locale, str(payload["id"]), "telegram", "png", content_hash(inputs))
+    except Exception as exc:  # media must never block a post
+        logger.warning("no card for %s/%s: %s", payload.get("id"), locale, exc)
+        return None
 
 
 def publish_once(
@@ -145,6 +161,11 @@ def publish_once(
         # Drop later coverage of stories we already have. Without this the
         # channel posts the same zero-day once per outlet that reported it.
         items = [i for i in items if not getattr(i, "duplicate_of", "")]
+        # Optional: keep out_of_scope news off the channels too (see
+        # pipeline.relevance.hide_out_of_scope_publicly; off by default).
+        from ..pipeline.relevance import hide_out_of_scope_publicly, is_renderable
+        if hide_out_of_scope_publicly():
+            items = [i for i in items if is_renderable(i)]
         # Newest first — channels should lead with the freshest threat.
         items.sort(key=lambda i: i.published_at, reverse=True)
 
@@ -214,11 +235,29 @@ def publish_once(
                     result.errors += 1
                     continue
 
+                photo = photo_for(payload, locale) if settings.attach_images else None
+                caption = None
+                if photo:
+                    try:
+                        caption = render_caption(
+                            payload, locale=locale, base_url=settings.public_base_url,
+                        )
+                    except (KeyError, ValueError) as exc:
+                        logger.warning("caption failed for %s/%s: %s — sending text",
+                                       item.fingerprint, locale, exc)
+                        photo = None
+
                 if dry_run:
-                    logger.info(
-                        "[dry-run] would send to %s (%s):\n%s",
-                        chat_id, locale, message,
-                    )
+                    if photo:
+                        logger.info(
+                            "[dry-run] would send photo to %s (%s): %s\ncaption:\n%s",
+                            chat_id, locale, photo, caption,
+                        )
+                    else:
+                        logger.info(
+                            "[dry-run] would send to %s (%s):\n%s",
+                            chat_id, locale, message,
+                        )
                     result.sent += 1
                     result.by_channel[locale] = result.by_channel.get(locale, 0) + 1
                     sent_here += 1
@@ -227,20 +266,46 @@ def publish_once(
                 # Not a dry-run past this point, so `publisher` was built
                 # above (owns_publisher) or passed in — never None here.
                 assert publisher is not None
+                message_id = None
+                if photo and caption:
+                    try:
+                        message_id = publisher.send_photo(
+                            chat_id, photo, caption,
+                            disable_notification=not notify(payload),
+                        )
+                    except TelegramError as exc:
+                        if getattr(exc, "is_channel_fatal", False):
+                            result.errors += 1
+                            logger.error("channel %r (%s) is misconfigured: %s — skipping "
+                                         "the rest of this channel.", chat_id, locale, exc)
+                            break
+                        if getattr(exc, "accepted_possible", False):
+                            # The photo may already be in the channel. A text
+                            # fallback now could post the story twice; leave it
+                            # unrecorded and say so loudly instead.
+                            result.errors += 1
+                            logger.error("sendPhoto outcome unknown for %s/%s (%s) — NOT "
+                                         "falling back to text; check the channel before "
+                                         "it is retried.", item.fingerprint, locale, exc)
+                            continue
+                        # The image is optional: fall back to the text post.
+                        logger.warning("sendPhoto failed for %s/%s (%s) — sending text",
+                                       item.fingerprint, locale, exc)
                 try:
-                    message_id = publisher.send_message(
-                        chat_id,
-                        message,
-                        # Pin the preview to our own page. The body linkifies
-                        # CVE ids first, so Telegram would otherwise build the
-                        # card from nvd.nist.gov.
-                        preview_url=deep_link(
-                            settings.public_base_url, locale, item.fingerprint,
-                        ),
-                        # Routine advisories arrive silently; only Critical
-                        # or urgent-action posts are worth a notification.
-                        disable_notification=not notify(payload),
-                    )
+                    if message_id is None:
+                        message_id = publisher.send_message(
+                            chat_id,
+                            message,
+                            # Pin the preview to our own page. The body linkifies
+                            # CVE ids first, so Telegram would otherwise build the
+                            # card from nvd.nist.gov.
+                            preview_url=deep_link(
+                                settings.public_base_url, locale, item.fingerprint,
+                            ),
+                            # Routine advisories arrive silently; only Critical
+                            # or urgent-action posts are worth a notification.
+                            disable_notification=not notify(payload),
+                        )
                 except TelegramError as exc:
                     result.errors += 1
                     # A channel-level failure (bad chat id, bot not admin, bad

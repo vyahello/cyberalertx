@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { JetBrains_Mono, Literata, Fira_Sans_Condensed, Space_Grotesk } from "next/font/google";
 import "../globals.css";
 import { Header } from "@/components/layout/Header";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -11,36 +11,45 @@ import { SITE_URL, localeAlternates } from "@/lib/site";
 import { HTML_LANG, SUPPORTED_LOCALES, isLocale } from "@/lib/types";
 
 /**
- * Type stack:
- *   - Inter as the single workhorse (body, headings, badges).
- *   - Space Grotesk for the brand wordmark only — its tight tracking and
- *     uppercase "X" pair with the Aperture mark in the header lockup.
- *     Loaded with weight 600 only to keep the second-font cost small.
- *   - JetBrains Mono for monospace contexts — CVE IDs inside titles via
- *     natural inheritance and any future code samples / fingerprints.
- *
- * `display: "swap"` keeps the first paint instant (system fallback) and
- * swaps the custom font in once it loads — matters on mobile data.
+ * Type system (docs/design/DESIGN_SYSTEM.md):
+ *   - Literata: the reading face. Headlines, standfirsts, article text.
+ *     Variable with an optical-size axis, so one family is a crisp display
+ *     face at 88px and a sturdy text face at 17px. Latin + Cyrillic.
+ *   - Fira Sans Condensed: field marks, navigation, controls. Narrow enough
+ *     to keep a story's metadata on one line; standard (Russian/Ukrainian)
+ *     Cyrillic forms. Sofia Sans was dropped: its default Cyrillic draws
+ *     Bulgarian shapes (т as "m", д as "g"), wrong for Ukrainian readers.
+ *   - Space Grotesk 600: the logotype only ("cyberalert"). Latin, one weight.
+ *   - JetBrains Mono: code, commands and indicators only. Not preloaded;
+ *     most pages never show code.
  */
-const sans = Inter({
-  subsets: ["latin", "cyrillic"],
+const serif = Literata({
+  subsets: ["latin", "latin-ext", "cyrillic"],
   display: "swap",
-  variable: "--font-sans",
-  weight: ["400", "500", "600", "700"],
+  variable: "--font-serif",
+  axes: ["opsz"],
 });
 
-const display = Space_Grotesk({
+const sans = Fira_Sans_Condensed({
+  subsets: ["latin", "latin-ext", "cyrillic"],
+  display: "swap",
+  variable: "--font-sans",
+  weight: ["400", "500", "600"],
+});
+
+const logo = Space_Grotesk({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-display",
+  variable: "--font-logo",
   weight: ["600"],
 });
 
 const mono = JetBrains_Mono({
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
   display: "swap",
   variable: "--font-mono",
-  weight: ["400", "500"],
+  weight: ["400"],
+  preload: false,
 });
 
 // Per-locale Open Graph card. The image, OG locale tag, and social
@@ -55,30 +64,14 @@ const OG_BY_LOCALE: Record<
   en: {
     image: "/brand/og-image.png",
     ogLocale: "en_US",
-    description: "We see — and we surface what matters.",
-    alt: "CyberAlertX — We see and we surface what matters",
+    description: "Which vulnerabilities are being exploited, which breaches matter and what to do about them.",
+    alt: "CyberAlertX — cyber threat brief",
   },
   ua: {
     image: "/brand/og-image-ua.png",
     ogLocale: "uk_UA",
-    description: "Ми бачимо — і показуємо те, що важливо.",
-    alt: "CyberAlertX — Ми бачимо і показуємо те, що важливо",
-  },
-};
-
-// Browser-tab title + search-snippet description, per locale. A UA reader's
-// tab and Google result should read in Ukrainian — mirrors the hero copy so
-// the promise in search matches the promise on the page.
-const META_BY_LOCALE: Record<string, { title: string; description: string }> = {
-  en: {
-    title: "CyberAlertX — Cyber threats. Before they hit you.",
-    description:
-      "Today's cybersecurity threats in plain English. What happened, who it hits, and what to do — without the panic or the jargon.",
-  },
-  ua: {
-    title: "CyberAlertX — Кіберзагрози. Перш ніж вони дістануться вас.",
-    description:
-      "Сьогоднішні кіберзагрози простою мовою. Що сталося, кого це стосується і що робити — без паніки та жаргону.",
+    description: "Які вразливості вже використовують в атаках, які витоки важливі і що з цим робити.",
+    alt: "CyberAlertX — зведення кіберзагроз",
   },
 };
 
@@ -89,10 +82,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale } = await params;
   const og = OG_BY_LOCALE[locale] ?? OG_BY_LOCALE.en;
-  const meta = META_BY_LOCALE[locale] ?? META_BY_LOCALE.en;
+  const meta = strings(isLocale(locale) ? locale : "en");
   return {
-  title: meta.title,
-  description: meta.description,
+  title: meta.meta_title,
+  description: meta.meta_description,
   applicationName: "CyberAlertX",
   authors: [{ name: "CyberAlertX" }],
   // Required by Next.js to convert relative OG / Twitter image URLs into
@@ -169,7 +162,7 @@ export async function generateMetadata({
 export const viewport: Viewport = {
   // Matches `--brand-bg` in globals.css. Used by mobile browsers for the
   // status-bar tint and the PWA splash background.
-  themeColor: "#0E1116",
+  themeColor: "#0e1116",
   width: "device-width",
   initialScale: 1,
   // Allow user zoom; never trap accessibility for visual control.
@@ -202,7 +195,7 @@ export default async function LocaleRootLayout({
   return (
     <html
       lang={HTML_LANG[locale]}
-      className={`${sans.variable} ${display.variable} ${mono.variable}`}
+      className={`${serif.variable} ${sans.variable} ${logo.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">

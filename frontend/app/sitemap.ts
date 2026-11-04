@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { fetchPosts } from "@/lib/api";
 import { SITE_URL } from "@/lib/site";
+import { TOPIC_SLUGS } from "@/lib/topics";
 import { SUPPORTED_LOCALES, contentFor, type Locale } from "@/lib/types";
 
 /**
@@ -43,6 +44,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Fetch both locales in parallel, then union by post id. An EN-sourced
   // story appears in both responses; a UA-sourced one only in the UA feed.
+  // Topic sections: one URL per locale, declared as each other's translation.
+  for (const slug of TOPIC_SLUGS) {
+    for (const locale of SUPPORTED_LOCALES) {
+      entries.push({
+        url: `${SITE_URL}/${locale}/topic/${slug}`,
+        lastModified: now,
+        changeFrequency: "hourly",
+        priority: 0.8,
+        alternates: {
+          languages: {
+            "en-US": `${SITE_URL}/en/topic/${slug}`,
+            uk: `${SITE_URL}/ua/topic/${slug}`,
+          },
+        },
+      });
+    }
+  }
+
   const perLocale = await Promise.all(
     SUPPORTED_LOCALES.map(async (locale) => ({
       locale,

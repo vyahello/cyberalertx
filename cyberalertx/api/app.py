@@ -30,11 +30,12 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import parse_qs, quote, urlencode
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasicCredentials
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -42,17 +43,33 @@ from ..ai.detail_context import detail_context_for
 from ..ai.generator import ContentGenerator, build_default_generator
 from ..ai.hygiene import clean_localized_content
 from ..ai.models import ThreatPost
+from ..ai.review import (
+    DECISIONS,
+    apply_decision,
+    is_publicly_visible,
+    parse_key,
+    post_key,
+    review_mode,
+)
+from ..ai.scorecard import review_threshold
 from ..config import DATA_DIR, SETTINGS
 from ..feedback import FeedbackError, append_record, parse_submission, read_records, summarize
+from .admin.guard import client_address
 from .admin import (
     CSP as ADMIN_CSP,
+    CSP_FORMS as ADMIN_CSP_FORMS,
+    REVIEW_TABS,
     AdminGuard,
     FeedStatus,
+    ReviewEntry,
     render_feedback,
+    render_intel,
     render_not_found,
     render_overview,
     render_quality,
+    render_review,
     render_sources,
+    same_origin,
 )
 from ..models import NewsItem
 from ..observability import get_quality_metrics, get_source_health
@@ -117,6 +134,14 @@ def _within_homepage_window(
 
 
 # ---------- service -----------------------------------------------------
+
+class PostHidden(RuntimeError):
+    """Every locale of an item is withheld by editorial review.
+
+    Distinct from "all renders failed" so `/posts/{id}` can answer 404 and the
+    list endpoints can skip the item without logging it as a failure.
+    """
+
 
 class _PostService:
     """Reads NewsItems + generates ThreatPosts on demand.
@@ -200,10 +225,19 @@ class _PostService:
         if cache is None:
             return True
         if locale is not None:
-            return cache.get(item.fingerprint, locale) is not None
+            return self._cached_visible(cache, item.fingerprint, locale)
         source_lang = item.language if item.language in ("en", "ua") else "en"
         required = ("ua",) if source_lang == "ua" else ("en", "ua")
-        return all(cache.get(item.fingerprint, loc) is not None for loc in required)
+        return all(self._cached_visible(cache, item.fingerprint, loc) for loc in required)
+
+    @staticmethod
+    def _cached_visible(cache: Any, fingerprint: str, locale: str) -> bool:
+        """A cached render readers may see. Under CYBERALERTX_REVIEW_MODE a
+        post held for review counts as not rendered, so the feed, trending,
+        dedup survivor choice and Telegram all skip it the same way they skip
+        a post that was never generated."""
+        post = cache.get(fingerprint, locale)
+        return post is not None and is_publicly_visible(post)
 
     def render_if_cached(
         self, item: NewsItem, *, required_locale: str | None = None,
@@ -234,15 +268,30 @@ class _PostService:
 
         if required_locale is not None:
             # Just check the one locale the caller cares about.
-            if cache.get(item.fingerprint, required_locale) is None:
+            if not self._cached_visible(cache, item.fingerprint, required_locale):
                 return None
         else:
             source_lang = item.language if item.language in ("en", "ua") else "en"
             required = ("ua",) if source_lang == "ua" else ("en", "ua")
             for locale in required:
-                if cache.get(item.fingerprint, locale) is None:
+                if not self._cached_visible(cache, item.fingerprint, locale):
                     return None
-        return self.render(item)
+        try:
+            return self.render(item)
+        except PostHidden:
+            return None
+
+    def _media_block(self, item: NewsItem) -> dict[str, Any]:
+        """`{"media": {"illustration": …}}` when the story has a VALIDATED
+        editorial illustration; otherwise nothing (additive, optional field).
+        Branded cards need no field: their URL derives from the post id."""
+        try:
+            from ..media.engine import illustration_payload
+            store = _media_store()
+            block = illustration_payload(store, item.fingerprint) if store else None
+        except Exception:  # media must never break a post render
+            return {}
+        return {"media": {"illustration": block}} if block else {}
 
     def render(self, item: NewsItem) -> dict[str, Any]:
         """Merge a NewsItem's metadata with its localized ThreatPost(s).
@@ -285,6 +334,7 @@ class _PostService:
         # (threat_level, emotional_weight, generated_by). For UA-only items
         # we use the UA post; for EN-source items we use the EN post.
         primary_post = None
+        hidden = 0
         for lang in locales:
             try:
                 post = self._generator.generate(item, language=lang)
@@ -293,6 +343,12 @@ class _PostService:
                     "locale %s generation failed for %s: %s",
                     lang, item.fingerprint, exc,
                 )
+                continue
+            # Editorial review gate (CYBERALERTX_REVIEW_MODE). A held or
+            # rejected locale is dropped here — the one funnel the site, RSS
+            # and Telegram all share — rather than in each endpoint.
+            if not is_publicly_visible(post):
+                hidden += 1
                 continue
             # Half-translated quality gate: if this locale is a TRANSLATION
             # (not the source language) AND the renderer fell back to
@@ -336,6 +392,8 @@ class _PostService:
                 primary_post = post
             translations[lang] = _localized_content_dict(post, lang)
 
+        if primary_post is None and hidden:
+            raise PostHidden(f"{item.fingerprint} is withheld by editorial review")
         if primary_post is None:
             # Every render failed — surface a clear error rather than
             # returning a half-empty dict. The /posts endpoint catches
@@ -395,6 +453,7 @@ class _PostService:
             # lists locales we actually rendered metadata in.
             "source_language": source_lang,
             "available_locales": sorted(translations.keys()),
+            **self._media_block(item),
             "translations": translations,
             # --- intelligence layer (post-architecture-stable refinement) ---
             # Boolean signals describing the *shape* of the threat. Stable
@@ -604,6 +663,12 @@ def build_app(
                 seen[item.fingerprint] = cached
             return cached
 
+        # Optional public relevance gate (off by default; see
+        # pipeline.relevance.hide_out_of_scope_publicly). Feed paths only —
+        # `/posts/{id}` does not come through here, so links keep working.
+        from ..pipeline.relevance import hide_out_of_scope_publicly, is_renderable
+        if hide_out_of_scope_publicly():
+            items = [i for i in items if is_renderable(i)]
         return collapse_duplicates(items, prefer=_renderable)
 
     def _render_many(
@@ -656,6 +721,8 @@ def build_app(
                 if extra_sources is not None:
                     _merge_story_sources(payload, extra_sources.get(item.fingerprint))
                 rendered.append(payload)
+            except PostHidden:
+                continue  # held for review — not a failure
             except Exception as exc:
                 # One bad item must not break the response. Log it and
                 # skip — the frontend gets the remaining valid posts.
@@ -843,7 +910,12 @@ def build_app(
         if target is None:
             raise HTTPException(status_code=404, detail="post not found")
 
-        payload = svc.render(target)
+        try:
+            payload = svc.render(target)
+        except PostHidden as exc:
+            # Held or rejected in review: the same answer as an unknown id,
+            # so a withheld post can't be read by guessing its URL.
+            raise HTTPException(status_code=404, detail="post not found") from exc
 
         # Sibling articles = same story, different article. Items without a
         # story key have no siblings by definition.
@@ -938,7 +1010,12 @@ def build_app(
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
         response.headers["Referrer-Policy"] = "no-referrer"
         if response.headers.get("content-type", "").startswith("text/html"):
-            response.headers["Content-Security-Policy"] = ADMIN_CSP
+            # Only the review queue and the Threads account page carry forms;
+            # everywhere else forms stay forbidden outright.
+            response.headers["Content-Security-Policy"] = (
+                ADMIN_CSP_FORMS if request.url.path.startswith(("/admin/review", "/admin/threads"))
+                else ADMIN_CSP
+            )
         return response
 
     @app.exception_handler(StarletteHTTPException)
@@ -985,6 +1062,19 @@ def build_app(
     def _now() -> datetime:
         return datetime.now(timezone.utc)
 
+    def _post_cache() -> Any:
+        return getattr(getattr(svc, "_generator", None), "_cache", None)
+
+    def _review_posts() -> list[ThreatPost]:
+        cache = _post_cache()
+        if cache is None:
+            return []
+        try:
+            return list(cache.all())
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("review queue: cache scan failed (%s)", exc)
+            return []
+
     @app.get("/admin", tags=["admin"], response_class=HTMLResponse, include_in_schema=False)
     @app.get("/admin/", tags=["admin"], response_class=HTMLResponse)
     def admin_overview() -> HTMLResponse:
@@ -997,7 +1087,192 @@ def build_app(
             logins=guard.stats(),
             title_for=_title_for,
             now=_now(),
+            pending_review=sum(1 for p in _review_posts() if p.review_status == "pending"),
+            review_mode=review_mode(),
+            sections=_overview_sections(),
         ))
+
+    # ---- Phase 6 control room helpers -------------------------------------------
+
+    def _ops_src() -> Any:
+        from ..ops.readmodel import OpsSources
+        return OpsSources(items=svc.list_items, posts=_review_posts, post_cache=_post_cache(),
+                          data_dir=_ops_data_dir())
+
+    def _jobs() -> list[Any]:
+        from ..publish.jobs import JobStore
+        try:
+            return JobStore(_publish_jobs_path()).all()
+        except RuntimeError:
+            return []
+
+    def _audit() -> Any:
+        from ..ops.audit import AuditLog
+        return AuditLog(_ops_data_dir() / "admin_audit.jsonl")
+
+    def _actor(request: Request) -> tuple[str, str]:
+        creds = _basic_credentials(request)
+        name = (creds.username.strip() if creds and creds.username else "") or "admin"
+        return name[:60], client_address(request)
+
+    def _record(request: Request, action: str, target: str, result: str, **meta: Any) -> None:
+        actor, address = _actor(request)
+        try:
+            _audit().record(actor=actor, address=address, action=action, target=target, result=result, **meta)
+        except OSError as exc:                     # auditing must not hide the action's outcome
+            logger.error("audit log write failed for %s %s: %s", action, target, exc)
+
+    async def _admin_form(request: Request, limit: int = 4096) -> tuple[dict[str, str], Response | None]:
+        """Parsed POST form after same-origin + CSRF checks (as the review queue)."""
+        if not same_origin(request):
+            return {}, PlainTextResponse("Cross-site request refused.", status_code=403)
+        body = await request.body()
+        if len(body) > limit:
+            return {}, PlainTextResponse("Request too large.", status_code=413)
+        form = {k: (v[0] if v else "").strip() for k, v in
+                parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True).items()}
+        if not guard.csrf_ok(form.get("csrf", "")):
+            return {}, PlainTextResponse("This form has expired. Reload the page and try again.", status_code=403)
+        return form, None
+
+    def _threads_state() -> tuple[Any, dict[str, Any]]:
+        ts, accounts, _ = _threads()
+        return ts, {a.slot: a for a in accounts.all()}
+
+    def _overview_sections() -> str:
+        from ..ops import readmodel as rm
+        from .admin.ops_pages import overview_sections
+        try:
+            src, now = _ops_src(), _now()
+            res, jobs = rm.intel_view(src, now), _jobs()
+            from ..publish.config import build_telegram_settings
+            ts, accounts = _threads_state()
+            return overview_sections(
+                m=rm.overview_metrics(src, res, jobs, now),
+                stages=rm.pipeline(src, res, jobs, now, health=get_source_health().as_dict(),
+                                   metrics=get_quality_metrics().as_dict()),
+                dests=rm.destinations(src, jobs, telegram=build_telegram_settings(), threads_settings=ts,
+                                      threads_accounts=accounts),
+                res=res, rows=rm.story_rows(res),
+                events=rm.activity(src, jobs, audit=_audit().recent(100), res=res, now=now), now=now)
+        except Exception as exc:                   # noqa: BLE001 - the health view above still renders
+            logger.exception("overview sections failed")
+            return (f'<div class="banner bad full"><span class="dot bad"></span><p>Control-room sections '
+                    f'unavailable ({type(exc).__name__}). The checks above are unaffected.</p></div>')
+
+    # ----- review queue ------------------------------------------------------
+    # Reads and writes go through the generator's cache backend, so a
+    # decision lands in JSON and — under dual-write — in Postgres too.
+
+    _REVIEW_PAGE_LIMIT = 60
+    _review_statuses = {key for key, _ in REVIEW_TABS}
+
+    def _review_selection(status: str) -> tuple[list[ReviewEntry], dict[str, int], int]:
+        posts = _review_posts()
+        counts: dict[str, int] = {}
+        for p in posts:
+            counts[p.review_status or "auto"] = counts.get(p.review_status or "auto", 0) + 1
+        chosen = [p for p in posts if (p.review_status or "auto") == status]
+        chosen.sort(
+            key=lambda p: (str((p.quality or {}).get("scored_at") or p.reviewed_at or ""),
+                           post_key(p)),
+            reverse=True,
+        )
+        total = len(chosen)
+        items = {i.fingerprint: i for i in svc.list_items()}
+        entries: list[ReviewEntry] = []
+        for p in chosen[:_REVIEW_PAGE_LIMIT]:
+            item = items.get(p.source_fingerprint)
+            entries.append(ReviewEntry(
+                key=post_key(p),
+                post=p,
+                source_title=item.title if item else "",
+                source_url=item.url if item else "",
+                source_name=item.source if item else "",
+                published_at=item.published_at if item else None,
+            ))
+        return entries, counts, total
+
+    @app.get("/admin/review", tags=["admin"], response_class=HTMLResponse)
+    def admin_review_page(
+        status: str = Query("pending"), done: str = Query(""),
+    ) -> HTMLResponse:
+        """Posts waiting for the editor, with the evidence and Approve / Reject."""
+        status = status if status in _review_statuses else "pending"
+        entries, counts, total = _review_selection(status)
+        notice = ""
+        verb, _, key = done.partition(":")
+        if verb in ("approved", "rejected") and key:
+            notice = f"{verb.capitalize()} {key}."
+        return HTMLResponse(render_review(
+            entries, status=status, counts=counts, csrf=guard.csrf_token(),
+            mode=review_mode(), threshold=review_threshold(), now=_now(),
+            notice=notice, total=total,
+        ))
+
+    @app.get("/admin/review.json", tags=["admin"])
+    def admin_review_json(status: str = Query("pending")) -> dict[str, Any]:
+        """The same queue, for scripts."""
+        status = status if status in _review_statuses else "pending"
+        entries, counts, total = _review_selection(status)
+        return {
+            "mode": review_mode(),
+            "threshold": review_threshold(),
+            "status": status,
+            "counts": counts,
+            "total": total,
+            "posts": [
+                {
+                    "key": e.key, "title": e.post.title, "review_status": e.post.review_status,
+                    "reviewed_by": e.post.reviewed_by, "reviewed_at": e.post.reviewed_at,
+                    "source_url": e.source_url, "quality": e.post.quality,
+                }
+                for e in entries
+            ],
+        }
+
+    @app.post("/admin/review/decide", tags=["admin"], include_in_schema=False)
+    async def admin_review_decide(request: Request) -> Response:
+        """Approve or reject one post. Form POST from the review page only:
+        same-origin check + CSRF token (see admin/guard.py)."""
+        if not same_origin(request):
+            return PlainTextResponse("Cross-site request refused.", status_code=403)
+        body = await request.body()
+        if len(body) > 4096:
+            return PlainTextResponse("Request too large.", status_code=413)
+        form = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
+
+        def field(name: str) -> str:
+            return (form.get(name) or [""])[0].strip()
+
+        if not guard.csrf_ok(field("csrf")):
+            return PlainTextResponse("This form has expired. Reload the page and try again.",
+                                     status_code=403)
+        decision = field("decision")
+        if decision not in DECISIONS:
+            return PlainTextResponse("Unknown decision.", status_code=400)
+        try:
+            fingerprint, locale = parse_key(field("key"))
+        except ValueError:
+            return PlainTextResponse("Unknown post.", status_code=400)
+        cache = _post_cache()
+        if cache is None:
+            return PlainTextResponse("No post cache configured.", status_code=503)
+        credentials = _basic_credentials(request)
+        reviewer = (credentials.username.strip() if credentials and credentials.username
+                    else "") or "editor"
+        previous = getattr(cache.get(fingerprint, locale), "review_status", "") if hasattr(cache, "get") else ""
+        try:
+            apply_decision(cache, fingerprint, locale, decision, f"admin:{reviewer}")
+        except KeyError:
+            _record(request, f"review.{decision}", f"{fingerprint}:{locale}", "not_found")
+            return PlainTextResponse("Unknown post.", status_code=404)
+        _record(request, f"review.{decision}", f"{fingerprint}:{locale}", "ok", previous=previous)
+        logger.info("review: %s %s:%s by admin:%s", decision, fingerprint, locale, reviewer)
+        back = field("back")
+        back = back if back in _review_statuses else "pending"
+        done = quote(f"{DECISIONS[decision]}:{fingerprint}:{locale}", safe=":")
+        return RedirectResponse(f"/admin/review?status={back}&done={done}", status_code=303)
 
     @app.get("/admin/feedback", tags=["admin"], response_class=HTMLResponse)
     def admin_feedback_page() -> HTMLResponse:
@@ -1036,9 +1311,50 @@ def build_app(
         return get_quality_metrics().as_dict()
 
     @app.get("/admin/sources", tags=["admin"], response_class=HTMLResponse)
-    def admin_sources_page() -> HTMLResponse:
-        """Every feed the site ingests, worst first."""
-        return HTMLResponse(render_sources(get_source_health().as_dict(), now=_now()))
+    def admin_sources_page(done: str = Query("", max_length=200), failed: str = Query("", max_length=200)) -> HTMLResponse:
+        """Every feed the site ingests, worst first — feed health, connector,
+        the Intelligence Core reliability profile and stored-content health."""
+        from urllib.parse import urlparse as _up
+
+        from ..intel.sources import SourceTable
+        table = SourceTable()
+        health = get_source_health().as_dict()
+        names = set((health.get("sources") or {}).keys()) | {c.name for c in SETTINGS.sources}
+        items = svc.list_items()
+        extra: dict[str, dict[str, Any]] = {}
+        for name in names:
+            mine = [i for i in items if i.source == name]
+            cfg = next((c for c in SETTINGS.sources if c.name == name), None)
+            prof = table.get(name)
+            extra[name] = {
+                "connector": f"{cfg.kind} feed" if cfg else "", "host": _up(cfg.url).netloc if cfg else "",
+                "kind": prof.kind, "reliability": prof.reliability, "note": prof.note,
+                "stored": len(mine),
+                "thin": (sum(1 for i in mine if len((i.raw_content or "").strip()) < 300) / len(mine)) if mine else None,
+            }
+        return HTMLResponse(render_sources(health, now=_now(), extra=extra, csrf=guard.csrf_token(),
+                                           notice=done, error=failed))
+
+    @app.post("/admin/sources/test", tags=["admin"], include_in_schema=False)
+    async def admin_sources_test(request: Request) -> Response:
+        """One live fetch through the existing RSS connector; nothing is stored."""
+        from ..sources.registry import build_sources
+        form, refused = await _admin_form(request)
+        if refused is not None:
+            return refused
+        name = form.get("source", "")
+        cfg = next((c for c in SETTINGS.sources if c.name == name), None)
+        if cfg is None or form.get("confirm") != "yes":
+            return PlainTextResponse("Unknown source or not confirmed.", status_code=400)
+        try:
+            fetched = build_sources([cfg])[0].fetch()
+        except Exception as exc:                   # noqa: BLE001 - report, never raise
+            _record(request, "source.test_fetch", name, "failed", error=type(exc).__name__)
+            return RedirectResponse("/admin/sources?" + urlencode({"failed": f"{name}: fetch failed ({type(exc).__name__})"}),
+                                    status_code=303)
+        _record(request, "source.test_fetch", name, "ok", items=len(fetched))
+        return RedirectResponse("/admin/sources?" + urlencode({"done": f"{name}: fetch returned {len(fetched)} items (nothing stored)"}),
+                                status_code=303)
 
     @app.get("/admin/sources.json", tags=["admin"])
     def admin_sources() -> dict[str, Any]:
@@ -1048,12 +1364,396 @@ def build_app(
     # Registered last so every real admin route wins. Only reachable after
     # the gate, so an unknown path is a 404 for the editor and a 401 for
     # everyone else.
+    @app.get("/admin/intel", tags=["admin"], response_class=HTMLResponse)
+    def admin_intel_page() -> HTMLResponse:
+        """Shadow intelligence run: Top 10 / Trending / Breaking candidates,
+        scores with explanations, relevance and failures. Read-only."""
+        from ..intel.engine import load_latest, load_scores
+
+        return HTMLResponse(render_intel(load_latest(), load_scores(), now=_now()))
+
+    @app.get("/admin/intel.json", tags=["admin"])
+    def admin_intel_json() -> dict[str, Any]:
+        from ..intel.engine import load_latest, load_scores
+
+        return {"latest": dict(load_latest()), "scores": dict(load_scores())}
+
+    @app.get("/media/{asset_id}", include_in_schema=False)
+    def media_file(asset_id: str) -> Response:
+        """Validated illustration bytes, for the website's /media route only.
+        Not routed by nginx (only posts|healthz|admin|feedback reach the API),
+        so the public URL is always the website's, which re-validates."""
+        store = _media_store()
+        found = store.open_file(asset_id) if store else None
+        if found is None:
+            return PlainTextResponse("Not found", status_code=404)
+        data, mime = found
+        return Response(content=data, media_type=mime,
+                        headers={"Cache-Control": "private, max-age=3600",
+                                 "X-Content-Type-Options": "nosniff"})
+
+    @app.get("/admin/media", tags=["admin"], response_class=HTMLResponse)
+    def admin_media_page(q: str = Query("", max_length=120), done: str = Query("", max_length=200),
+                         failed: str = Query("", max_length=200)) -> HTMLResponse:
+        """Media Engine assets: status, variants, errors, retries, usage."""
+        from .admin.media_page import render_media
+        store = _media_store()
+        return HTMLResponse(render_media(store.all() if store else [], _media_usage(store), now=_now(),
+                                         q=q.strip(), csrf=guard.csrf_token(), notice=done, error=failed))
+
+    @app.post("/admin/media/regenerate", tags=["admin"], include_in_schema=False)
+    async def admin_media_regenerate(request: Request) -> Response:
+        """Queue a story's illustration for the next media run — exactly what
+        `tools.media regenerate` does. No provider is called from here."""
+        form, refused = await _admin_form(request)
+        if refused is not None:
+            return refused
+        story = form.get("story", "")
+        store = _media_store()
+        asset = store.get(f"illus:{story}") if store and story else None
+        if asset is None or form.get("confirm") != "yes":
+            return PlainTextResponse("Unknown illustration or not confirmed.", status_code=400)
+        asset.status, asset.content_hash, asset.attempts, asset.last_error = "pending", "", 0, ""
+        store.put(asset)
+        _record(request, "media.regenerate", story, "ok")
+        return RedirectResponse("/admin/media?" + urlencode({"q": story, "done": f"{story}: queued for the next media run"}),
+                                status_code=303)
+
+    @app.get("/admin/media.json", tags=["admin"])
+    def admin_media_json() -> dict[str, Any]:
+        store = _media_store()
+        return {"assets": [a.to_dict() for a in (store.all() if store else [])],
+                "usage": _media_usage(store)}
+
+    # ---- Threads accounts (connect / callback / verify / disconnect) ----------
+
+    def _threads() -> tuple[Any, Any, Any]:
+        from ..threads import accounts as acc_mod
+        from ..threads.config import ThreadsSettings
+        ts = ThreadsSettings.from_env()
+        return (ts, acc_mod.AccountStore(acc_mod.ACCOUNTS_PATH, key=ts.token_key, mapping=ts.accounts),
+                acc_mod.StateStore(acc_mod.STATES_PATH))
+
+    def _threads_page(notice: str = "", error: str = "", status_code: int = 200) -> HTMLResponse:
+        from .admin.threads_page import render_threads
+        ts, accounts, _ = _threads()
+        import importlib.util
+        crypto = importlib.util.find_spec("cryptography") is not None
+        status = {"app_id_set": bool(ts.app_id), "app_secret_set": bool(ts.app_secret),
+                  "redirect_ok": ts.redirect_uri.startswith("https://"), "redirect_uri": ts.redirect_uri,
+                  "key_set": bool(ts.token_key), "crypto_available": crypto, "publish_enabled": ts.publish_enabled}
+        from ..publish.config import build_telegram_settings
+        tg = build_telegram_settings()
+        telegram = {   # safe view only: never the token, numeric chat ids shown as "configured"
+            "token_set": bool(tg.bot_token),
+            "channels": {loc: ((tg.channels[loc] if tg.channels[loc].startswith("@") else "configured")
+                               if loc in tg.channels else "not configured") for loc in ("en", "ua")},
+            "attach_images": tg.attach_images, "min_level": tg.min_level, "limit": tg.limit,
+        }
+        return HTMLResponse(render_threads([a.to_public(_now()) for a in accounts.all()], status,
+                                           csrf=guard.csrf_token(), now=_now(), notice=notice, error=error,
+                                           telegram=telegram),
+                            status_code=status_code)
+
+    async def _threads_form(request: Request) -> tuple[str, Response | None]:
+        if not same_origin(request):
+            return "", PlainTextResponse("Cross-site request refused.", status_code=403)
+        body = await request.body()
+        if len(body) > 2048:
+            return "", PlainTextResponse("Request too large.", status_code=413)
+        form = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
+        if not guard.csrf_ok((form.get("csrf") or [""])[0]):
+            return "", PlainTextResponse("This form has expired. Reload the page and try again.", status_code=403)
+        slot = (form.get("slot") or [""])[0].strip().lower()
+        ts, _, _ = _threads()
+        if slot not in ts.accounts:
+            return "", PlainTextResponse("Unknown Threads slot.", status_code=400)
+        return slot, None
+
+    @app.get("/admin/threads", tags=["admin"], response_class=HTMLResponse)
+    def admin_threads_page(done: str = Query("", max_length=40)) -> HTMLResponse:
+        return _threads_page(notice=f"Slot {done} updated." if done else "")
+
+    @app.get("/admin/threads.json", tags=["admin"])
+    def admin_threads_json() -> dict[str, Any]:
+        ts, accounts, _ = _threads()
+        return {"publish_enabled": ts.publish_enabled, "accounts": [a.to_public(_now()) for a in accounts.all()]}
+
+    @app.post("/admin/threads/connect", tags=["admin"], include_in_schema=False)
+    async def admin_threads_connect(request: Request) -> Response:
+        from ..threads.oauth import OAuthError, start_connect
+        from .admin.threads_page import render_connect
+        slot, refused = await _threads_form(request)
+        if refused is not None:
+            return refused
+        ts, _, states = _threads()
+        try:
+            url = start_connect(slot, settings=ts, states=states, now=_now())
+        except OAuthError as exc:
+            _record(request, "threads.connect_start", slot, "refused", reason=str(exc))
+            return _threads_page(error=str(exc), status_code=400)
+        _record(request, "threads.connect_start", slot, "ok")
+        logger.info("threads: connect started for slot %s", slot)
+        return HTMLResponse(render_connect(slot, url, now=_now()))
+
+    @app.get("/admin/threads/callback", tags=["admin"], include_in_schema=False)
+    def admin_threads_callback(request: Request) -> Response:
+        """OAuth redirect target. The slot comes from the one-time state, never
+        from the request; the code is used once and never logged or echoed."""
+        from ..threads.client import ThreadsClient
+        from ..threads.oauth import OAuthError, complete_callback
+        params = {k: v for k, v in request.query_params.items()
+                  if k in ("code", "state", "error", "error_reason", "error_description")}
+        ts, accounts, states = _threads()
+        api = _threads_client_factory()
+        try:
+            acc = complete_callback(params, settings=ts, states=states, accounts=accounts, client=api, now=_now())
+        except OAuthError as exc:
+            _record(request, "threads.connect", "callback", "refused", reason=str(exc))
+            return _threads_page(error=str(exc), status_code=400)
+        finally:
+            api.close()
+        _record(request, "threads.connect", acc.slot, "ok", username=acc.username)
+        return RedirectResponse(f"/admin/threads?done={quote(acc.slot)}", status_code=303)
+
+    @app.post("/admin/threads/verify", tags=["admin"], include_in_schema=False)
+    async def admin_threads_verify(request: Request) -> Response:
+        from ..threads.oauth import verify
+        slot, refused = await _threads_form(request)
+        if refused is not None:
+            return refused
+        _, accounts, _ = _threads()
+        api = _threads_client_factory()
+        try:
+            acc = verify(slot, accounts, api, _now())
+        finally:
+            api.close()
+        _record(request, "threads.verify", slot, "failed" if acc.last_error else "ok", status=acc.status)
+        if acc.last_error:
+            return _threads_page(error=f"Slot {slot}: {acc.last_error}", status_code=200)
+        return RedirectResponse(f"/admin/threads?done={quote(slot)}", status_code=303)
+
+    @app.post("/admin/threads/disconnect", tags=["admin"], include_in_schema=False)
+    async def admin_threads_disconnect(request: Request) -> Response:
+        slot, refused = await _threads_form(request)
+        if refused is not None:
+            return refused
+        _, accounts, _ = _threads()
+        accounts.disconnect(slot, _now())
+        logger.info("threads: slot %s disconnected by admin", slot)
+        _record(request, "threads.disconnect", slot, "ok")
+        return RedirectResponse(f"/admin/threads?done={quote(slot)}", status_code=303)
+
+    @app.get("/admin/publishing", tags=["admin"], response_class=HTMLResponse)
+    def admin_publishing_page(request: Request) -> HTMLResponse:
+        """Publication jobs for all six destinations, filtered and paginated."""
+        from .admin.publishing_page import JobQuery, render_publishing
+        params = {k: v[:120] for k, v in request.query_params.items()}
+        return HTMLResponse(render_publishing(_jobs(), now=_now(), query=JobQuery.from_params(params),
+                                              csrf=guard.csrf_token(), notice=params.get("done", ""),
+                                              error=params.get("failed", "")))
+
+    @app.post("/admin/publishing/action", tags=["admin"], include_in_schema=False)
+    async def admin_publishing_action(request: Request) -> Response:
+        """retry / cancel / reconcile through the existing Publication Engine."""
+        import re as _re
+
+        from ..publish.jobs import JobStore
+        from ..publish.orchestrator import ActionError, cancel_job, reconcile_job, retry_job
+        form, refused = await _admin_form(request)
+        if refused is not None:
+            return refused
+        jid, action, back = form.get("job", ""), form.get("action", ""), form.get("back", "")
+        back = back if back.startswith("/admin/publishing") and "//" not in back else "/admin/publishing"
+        if form.get("confirm") != "yes":
+            return PlainTextResponse("Please tick 'confirm' to change a delivery state.", status_code=400)
+        if action not in ("retry", "cancel", "reconcile_sent", "reconcile_not_sent") or len(jid) > 300:
+            return PlainTextResponse("Unknown action.", status_code=400)
+        store, now = JobStore(_publish_jobs_path()), _now()
+        sep = "&" if "?" in back else "?"
+        try:
+            if action == "retry":
+                job = retry_job(store, jid, now)
+            elif action == "cancel":
+                job = cancel_job(store, jid, now, reason="cancelled by admin")
+            elif action == "reconcile_not_sent":
+                job = reconcile_job(store, jid, now, not_sent=True)
+            else:
+                ext = form.get("external_id", "")
+                if not _re.fullmatch(r"[A-Za-z0-9_:.-]{1,64}", ext):
+                    raise ActionError("give the delivered post / message id")
+
+                def ledger(j: Any, mid: str) -> None:
+                    if j.destination == "telegram" and mid.isdigit():
+                        from ..publish.config import build_telegram_settings
+                        from ..publish.ledger import PublishLedger
+                        from ..publish.service import DEFAULT_LEDGER_PATH
+                        PublishLedger(DEFAULT_LEDGER_PATH).record(
+                            fingerprint=j.fingerprint, locale=j.locale,
+                            channel=build_telegram_settings().chat_id_for(j.locale) or "", message_id=int(mid))
+                job = reconcile_job(store, jid, now, sent_id=ext, ledger_record=ledger)
+        except ActionError as exc:
+            _record(request, f"publication.{action}", jid, "refused", reason=str(exc))
+            return RedirectResponse(back + sep + urlencode({"failed": str(exc)}), status_code=303)
+        _record(request, f"publication.{action}", jid, "ok", status=job.status)
+        return RedirectResponse(back + sep + urlencode({"done": f"{jid}: now {job.status}"}), status_code=303)
+
+    @app.get("/admin/publishing.json", tags=["admin"])
+    def admin_publishing_json() -> dict[str, Any]:
+        from ..publish.jobs import JobStore
+        from ..publish.orchestrator import status_counts
+        jobs = JobStore(_publish_jobs_path()).all()
+        return {"counts": status_counts(jobs), "jobs": [j.to_dict() for j in jobs]}
+
+    @app.get("/admin/assets/{name}", include_in_schema=False)
+    def admin_asset(name: str) -> Response:
+        """The site's interface font (Fira Sans Condensed, OFL) for the admin shell."""
+        file = _FONTS.get(name)
+        path = _FONT_DIR / file if file else None
+        if path is None or not path.is_file():
+            return PlainTextResponse("Not found", status_code=404)
+        return Response(path.read_bytes(), media_type="font/ttf",
+                        headers={"Cache-Control": "private, max-age=604800"})
+
+    @app.get("/admin/stories", tags=["admin"], response_class=HTMLResponse)
+    def admin_stories(request: Request) -> HTMLResponse:
+        from ..ops import readmodel as rm
+        from .admin.ops_pages import render_stories
+        res = rm.intel_view(_ops_src(), _now())
+        rows = rm.story_rows(res)
+        q = rm.StoryQuery.from_params({k: v[:120] for k, v in request.query_params.items()})
+        page_rows, total = rm.filter_stories(rows, q)
+        return HTMLResponse(render_stories(page_rows, total, q, categories=sorted({r.category for r in rows}),
+                                           available=res is not None, now=_now()))
+
+    @app.get("/admin/stories/{key}", tags=["admin"], response_class=HTMLResponse)
+    def admin_story(key: str) -> HTMLResponse:
+        from ..ops import readmodel as rm
+        from .admin.ops_pages import render_story
+        if len(key) > 80:
+            return HTMLResponse(render_not_found(now=_now()), status_code=404)
+        detail = rm.story_detail(rm.intel_view(_ops_src(), _now()), key)
+        if detail is None:
+            return HTMLResponse(render_not_found(now=_now()), status_code=404)
+        members = {m.fingerprint for m in detail["story"].members}
+        jobs = [j for j in _jobs() if j.story_key == key or j.fingerprint in members]
+        store = _media_store()
+        assets = [a.to_dict() for a in (store.all() if store else []) if a.story_key == key or set(a.members) & members]
+        return HTMLResponse(render_story(detail, jobs=jobs, assets=assets[:20], now=_now()))
+
+    @app.get("/admin/usage", tags=["admin"], response_class=HTMLResponse)
+    def admin_usage(period: str = Query("day", max_length=8)) -> HTMLResponse:
+        import os as _os
+
+        from ..ops import usage as us
+        from .admin.ops_pages import render_usage
+        rows = us.load(_ops_data_dir() / "ai_usage.jsonl")
+        metrics = get_quality_metrics().as_dict()
+        store = _media_store()
+        env = _os.getenv
+        controls = [
+            ("Text AI provider", env("CYBERALERTX_AI_PROVIDER", "") or "not set (rule-based)", "CYBERALERTX_AI_PROVIDER"),
+            ("Image provider", env("CYBERALERTX_IMAGE_PROVIDER", "") or "none", "branded cards only when none"),
+            ("Illustrations per run", env("CYBERALERTX_ILLUSTRATION_MAX_PER_RUN", "3"), "Media Engine cap"),
+            ("Illustration min score", env("CYBERALERTX_ILLUSTRATION_MIN_SCORE", "55"), "eligibility"),
+            ("Publication retries", env("CYBERALERTX_PUBLISH_MAX_ATTEMPTS", "5"), "per job"),
+            ("Review mode", review_mode(), "CYBERALERTX_REVIEW_MODE"),
+            ("Briefs per hour", "set by `generate --limit` in cyberalertx-generate.service", "systemd unit"),
+        ]
+        return HTMLResponse(render_usage(
+            counters=metrics.get("counters") or {}, first_seen=str(metrics.get("first_seen_utc") or ""),
+            daily=us.aggregate(rows, period="day"), monthly=us.aggregate(rows, period="month"),
+            ledger_start=str(rows[0]["at"]) if rows else "", media_usage=_media_usage(store),
+            controls=controls, rates_configured=bool(us.operator_rates()),
+            period="day" if period != "month" else "month", now=_now()))
+
+    def _system_report() -> Any:
+        from ..ops import readmodel as rm
+        from ..ops.health import system_report
+        from ..publish.config import build_telegram_settings
+        src, now = _ops_src(), _now()
+        ts, accounts = _threads_state()
+        return system_report(src, _jobs(), now=now, health=get_source_health().as_dict(),
+                             metrics=get_quality_metrics().as_dict(), threads_settings=ts, threads_accounts=accounts,
+                             telegram=build_telegram_settings(), intel_ok=rm.intel_view(src, now) is not None)
+
+    @app.get("/admin/system", tags=["admin"], response_class=HTMLResponse)
+    def admin_system() -> HTMLResponse:
+        from .admin.ops_pages import render_system
+        return HTMLResponse(render_system(_system_report(), _audit().recent(50), now=_now()))
+
+    @app.get("/admin/system.json", tags=["admin"])
+    def admin_system_json() -> dict[str, Any]:
+        r = _system_report()
+        return {"overall": r.overall,
+                "checks": [{"group": c.group, "name": c.name, "status": c.status, "detail": c.detail,
+                            "last": c.last.isoformat() if c.last else None} for c in r.checks],
+                "failures": r.failures}
+
+    @app.get("/admin/search", tags=["admin"], response_class=HTMLResponse)
+    def admin_search(q: str = Query("", max_length=120)) -> HTMLResponse:
+        from ..ops import readmodel as rm
+        from .admin.ops_pages import render_search
+        found = rm.search(q, rm.intel_view(_ops_src(), _now()), _jobs()) if q.strip() else {}
+        return HTMLResponse(render_search(q.strip(), found, now=_now()))
+
     @app.get("/admin/{rest:path}", include_in_schema=False)
     def admin_not_found(rest: str) -> HTMLResponse:
         return HTMLResponse(render_not_found(now=_now()), status_code=404)
 
     return app
 
+
+
+def _media_usage(store: Any) -> list[dict[str, Any]]:
+    if store is None:
+        return []
+    path = store.root / "usage.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        return []
+    out: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
+def _ops_data_dir() -> Path:
+    """Where the control room reads operational records (tests point it at tmp)."""
+    return DATA_DIR
+
+
+_FONTS = {"fira-500.ttf": "FiraSansCondensed-Medium.ttf", "fira-600.ttf": "FiraSansCondensed-SemiBold.ttf"}
+_FONT_DIR = Path(__file__).resolve().parents[2] / "frontend" / "assets" / "fonts"
+
+
+def _threads_client_factory() -> Any:
+    from ..threads.client import ThreadsClient
+    return ThreadsClient()
+
+
+def _publish_jobs_path() -> Any:
+    from ..publish.jobs import JOBS_PATH
+    return JOBS_PATH
+
+
+_MEDIA_STORE: Any = None
+
+
+def _media_store() -> Any:
+    """Process-wide MediaStore, created on first use (None if unavailable)."""
+    global _MEDIA_STORE
+    if _MEDIA_STORE is None:
+        try:
+            from ..media.assets import MediaStore
+            _MEDIA_STORE = MediaStore()
+        except OSError:
+            return None
+    return _MEDIA_STORE
 
 
 def _is_admin_path(path: str) -> bool:

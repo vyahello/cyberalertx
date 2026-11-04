@@ -49,6 +49,9 @@ def news_item_to_row(item: NewsItem) -> dict[str, Any]:
         "corroborating_sources": list(item.corroborating_sources or []),
         "story_key": item.story_key or "",
         "duplicate_of": item.duplicate_of or "",
+        "relevance_status": getattr(item, "relevance_status", "") or "",
+        "relevance_reason": (getattr(item, "relevance_reason", "") or "")[:2000],
+        "relevance_override": getattr(item, "relevance_override", "") or "",
     }
 
 
@@ -77,6 +80,10 @@ def row_to_news_item(row: Mapping[str, Any]) -> NewsItem:
         corroborating_sources=list(row.get("corroborating_sources") or []),
         story_key=row.get("story_key") or "",
         duplicate_of=row.get("duplicate_of") or "",
+        # Present after migration 005; absent columns read as "" (unclassified).
+        relevance_status=row.get("relevance_status") or "",
+        relevance_reason=row.get("relevance_reason") or "",
+        relevance_override=row.get("relevance_override") or "",
     )
 
 

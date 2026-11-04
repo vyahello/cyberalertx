@@ -205,6 +205,17 @@ export interface LocalizedThreatPost {
   story_coverage?: StoryCoverage[];
   /** Per-category background paragraphs, keyed by locale. */
   detail_context?: Partial<Record<Locale, DetailContext>>;
+  /** Media Engine assets (cyberalertx/media). Present only when an editorial
+   *  illustration exists and is validated; branded cards need no field. */
+  media?: {
+    illustration?: {
+      asset_id: string;
+      width: number;
+      height: number;
+      alt: Partial<Record<Locale, string>>;
+      generated: true;
+    };
+  };
 }
 
 /** One outlet's original article about a story we've collapsed. */
@@ -222,6 +233,8 @@ export interface FilterState {
   platforms: string[];
   audiences: Audience[];
   actionability: ActionabilityLevel[];
+  /** Only stories the pipeline flagged as exploited in attacks. */
+  exploited_only: boolean;
   query: string;
 }
 
@@ -231,6 +244,7 @@ export const EMPTY_FILTERS: FilterState = {
   platforms: [],
   audiences: [],
   actionability: [],
+  exploited_only: false,
   query: "",
 };
 

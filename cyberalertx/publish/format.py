@@ -246,9 +246,26 @@ def _linkify_cves(escaped_text: str) -> str:
     return _CVE_RE.sub(_repl, escaped_text)
 
 
+# A `backticked` span — the prompt asks the model to wrap commands, paths,
+# hashes, IPs and domains this way. Single line, non-empty, no nested ticks.
+_CODE_SPAN_RE = re.compile(r"`([^`\n]{1,200})`")
+
+
 def _text(raw: str) -> str:
-    """Escape then linkify CVEs — the standard treatment for body text."""
-    return _linkify_cves(_esc(raw))
+    """Escape, render `code` spans, linkify CVEs — the body-text treatment.
+
+    Code spans become `<code>` and are kept out of the CVE linkifier:
+    Telegram does not allow an entity nested inside `<code>`. An unpaired
+    backtick is left as a literal character.
+    """
+    out: list[str] = []
+    last = 0
+    for m in _CODE_SPAN_RE.finditer(raw or ""):
+        out.append(_linkify_cves(_esc(raw[last:m.start()])))
+        out.append(f"<code>{_esc(m.group(1))}</code>")
+        last = m.end()
+    out.append(_linkify_cves(_esc((raw or "")[last:])))
+    return "".join(out)
 
 
 def deep_link(base_url: str, locale: str, fingerprint: str) -> str:
@@ -582,3 +599,49 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
 
 
 __all__ = ["render_message", "deep_link", "quality_problem", "notify"]
+
+
+# Telegram caps a photo caption at 1024 characters after entity parsing
+# (counted in UTF-16 code units, like entity offsets).
+CAPTION_LIMIT = 1024
+_TAG = re.compile(r"<[^>]+>")
+
+
+def visible_length(html_text: str) -> int:
+    """Length Telegram counts for an HTML-formatted text (tags removed)."""
+    plain = html.unescape(_TAG.sub("", html_text))
+    return len(plain.encode("utf-16-le")) // 2
+
+
+def render_caption(payload: dict[str, Any], *, locale: str, base_url: str) -> str:
+    """The message body as a photo caption, within CAPTION_LIMIT.
+
+    The full message when it fits (most do). Otherwise sections are dropped
+    from the least to the most essential — hashtags, the detail paragraph,
+    the corroboration line, the action block — and as a last resort the
+    summary is trimmed. Headline and the read-more link are always kept.
+    """
+    full = render_message(payload, locale=locale, base_url=base_url)
+    if visible_length(full) <= CAPTION_LIMIT:
+        return full
+    blocks = full.split("\n\n")
+    head, tail = blocks[0], blocks[1:]
+    summary = tail[0] if tail and not tail[0].startswith(("✅", "🔎", "👥", "🔗")) else ""
+    read_more = next((ln for b in blocks for ln in b.split("\n") if ln.startswith("🔗")), "")
+    if not read_more:
+        raise ValueError("rendered message has no read-more link")
+    action = next((b for b in tail if b.startswith(("✅", "🔎", "👥"))), "")
+    for candidate in (
+        [head, summary, action, read_more],
+        [head, summary, read_more],
+    ):
+        text = "\n\n".join(p for p in candidate if p)
+        if visible_length(text) <= CAPTION_LIMIT:
+            return text
+    budget = CAPTION_LIMIT - visible_length(f"{head}\n\n\n\n{read_more}") - 1
+    plain = html.unescape(_TAG.sub("", summary))
+    if budget < 40:
+        return f"{head}\n\n{read_more}"
+    trimmed = plain[:budget].rsplit(" ", 1)[0].rstrip(",;:—–- ") + "…"
+    return f"{head}\n\n{_esc(trimmed)}\n\n{read_more}"
+

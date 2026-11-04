@@ -187,10 +187,15 @@ def test_firewall_calque_is_repaired() -> None:
     ) == "захищено мережевим екраном"
 
 
-def test_vrazlyvist_is_the_shipped_form() -> None:
+def test_both_vrazlyvist_forms_survive_at_a_pause() -> None:
+    """Both «уразливість» and «вразливість» are standard. At the start of a
+    sentence (or after punctuation) both are accepted, so the author's form
+    is kept — the old pass forced «вразлив-» everywhere."""
     from cyberalertx.ai.uk_glossary import normalize_ukrainian_calques
 
-    assert normalize_ukrainian_calques("Уразливість у ядрі") == "Вразливість у ядрі"
+    assert normalize_ukrainian_calques("Уразливість у ядрі") == "Уразливість у ядрі"
+    assert normalize_ukrainian_calques("Вразливість у ядрі") == "Вразливість у ядрі"
+    assert normalize_ukrainian_calques("Ядро: уразливість") == "Ядро: уразливість"
     # Must NOT touch «ураження» / «уражати» — different stem entirely.
     assert normalize_ukrainian_calques("ураження систем") == "ураження систем"
     assert normalize_ukrainian_calques("уражені пристрої") == "уражені пристрої"
@@ -364,8 +369,9 @@ def test_vada_is_replaced_with_vrazlyvist_in_every_case() -> None:
     assert n("критична вада у ядрі") == "критична вразливість у ядрі"
     assert n("цю ваду вже використовують") == "цю вразливість вже використовують"
     assert n("патч до вади") == "патч до вразливості"
-    assert n("скориставшись вадою") == "скориставшись вразливістю"
-    assert n("у трьох вадах") == "у трьох вразливостях"
+    # «скориставшись» ends on a consonant, so euphony takes «у-».
+    assert n("скориставшись вадою") == "скориставшись уразливістю"
+    assert n("у трьох вадах") == "у трьох уразливостях"  # «трьох» ends on a consonant
     assert n("Вада дозволяє обхід") == "Вразливість дозволяє обхід"
 
 
@@ -395,3 +401,56 @@ def test_the_prompt_no_longer_teaches_vada() -> None:
     for banned in ("через ваду", "цю ваду", "усунула ваду", "патч до вади"):
         assert banned not in _SHARED_RULES_UK, banned
     assert "«вада» — НЕ термін кібербезпеки" in _SHARED_RULES_UK
+
+
+# --- у/в alternation for «уразлив- / вразлив-» -------------------------------
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # after a vowel → «вразлив-»
+        ("дві уразливості", "дві вразливості"),
+        ("Ivanti виправила уразливість", "Ivanti виправила вразливість"),
+        ("критичну вразливість", "критичну вразливість"),
+        # after a consonant (incl. soft sign) → «уразлив-»
+        ("через вразливість", "через уразливість"),
+        ("шість вразливостей", "шість уразливостей"),
+        ("Через вразливість", "Через уразливість"),
+        # preposition: «в вр-» stacks, so it becomes «у вр-»
+        ("в вразливості", "у вразливості"),
+        ("у уразливості", "у вразливості"),
+        # ambiguous neighbours keep the author's form
+        ("Microsoft уразливість", "Microsoft уразливість"),
+        ("Microsoft вразливість", "Microsoft вразливість"),
+        ("CVE-2026-1234 вразливість", "CVE-2026-1234 вразливість"),
+        ("CVE-2026-1234 уразливість", "CVE-2026-1234 уразливість"),
+        ("сервер, вразливий до атак", "сервер, вразливий до атак"),
+        # capitalisation is carried over mid-sentence
+        ("Нова Уразливість", "Нова Вразливість"),
+    ],
+)
+def test_vrazlyv_euphony(text: str, expected: str) -> None:
+    from cyberalertx.ai.uk_glossary import apply_vrazlyv_euphony
+
+    assert apply_vrazlyv_euphony(text) == expected
+
+
+def test_vrazlyv_euphony_is_idempotent_and_local() -> None:
+    from cyberalertx.ai.uk_glossary import apply_vrazlyv_euphony
+
+    text = "Через вразливість у ядрі зловмисники обходять захист; дві уразливості вже виправлено."
+    once = apply_vrazlyv_euphony(text)
+    assert once == "Через уразливість у ядрі зловмисники обходять захист; дві вразливості вже виправлено."
+    assert apply_vrazlyv_euphony(once) == once
+    # unrelated stems are never touched
+    assert apply_vrazlyv_euphony("ураження систем і вражені пристрої") == "ураження систем і вражені пристрої"
+
+
+def test_both_normalisers_apply_euphony() -> None:
+    from cyberalertx.ai.uk_glossary import normalize_ukrainian, normalize_ukrainian_calques
+
+    assert normalize_ukrainian("через вразливість") == "через уразливість"
+    assert normalize_ukrainian_calques("дві уразливості") == "дві вразливості"

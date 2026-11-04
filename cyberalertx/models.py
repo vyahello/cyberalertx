@@ -75,6 +75,18 @@ class NewsItem:
     # item is the canonical one. Non-empty means "a duplicate — don't render,
     # don't publish, don't spend AI tokens on it".
     duplicate_of: str = ""
+    # --- relevance classification (added in v0.6) ---
+    # Scope verdict of `pipeline.relevance.classify_scope`: "in_scope",
+    # "out_of_scope" or "needs_review"; "" on items stored before the field
+    # existed (`effective_relevance` classifies those on the fly). Items are
+    # never deleted for being out of scope: rendering and publishing skip
+    # them, the record stays.
+    relevance_status: str = ""
+    # Short, human-readable why ("security development: CVE id", "off-topic:
+    # esports").
+    relevance_reason: str = ""
+    # Manual editor decision; when set it wins over `relevance_status`.
+    relevance_override: str = ""
 
     @property
     def fingerprint(self) -> str:
@@ -109,6 +121,9 @@ class NewsItem:
             "corroborating_sources": list(self.corroborating_sources),
             "story_key": self.story_key,
             "duplicate_of": self.duplicate_of,
+            "relevance_status": self.relevance_status,
+            "relevance_reason": self.relevance_reason,
+            "relevance_override": self.relevance_override,
         }
 
     def to_storage_dict(self) -> Dict[str, Any]:
@@ -159,6 +174,9 @@ class NewsItem:
             corroborating_sources=list(data.get("corroborating_sources", [])),
             story_key=data.get("story_key", "") or "",
             duplicate_of=data.get("duplicate_of", "") or "",
+            relevance_status=data.get("relevance_status", "") or "",
+            relevance_reason=data.get("relevance_reason", "") or "",
+            relevance_override=data.get("relevance_override", "") or "",
         )
 
 

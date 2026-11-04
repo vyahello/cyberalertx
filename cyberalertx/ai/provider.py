@@ -9,7 +9,7 @@ are all per-provider concerns. The generator stays simple.
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Mapping, Protocol, runtime_checkable
 
 from .models import ThreatPostResponse
 
@@ -28,4 +28,21 @@ class LLMProvider(Protocol):
 
     def generate_post(self, system: str, user: str) -> ThreatPostResponse:
         """Return a validated ThreatPostResponse, or raise on failure."""
+        ...
+
+    def generate_json(
+        self, system: str, user: str, *, schema: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Return one JSON object shaped by `schema` (a JSON Schema), or raise.
+
+        Generic structured-output call, used by the fact-sheet stage
+        (`ai/fact_sheet.py`). The provider only guarantees "a JSON object";
+        the caller validates it against its own model, so a provider that
+        cannot enforce the schema server-side may simply describe it in the
+        prompt.
+
+        Providers written before this method existed do not have it. The
+        generator checks with `getattr` and skips the fact sheet for them,
+        so they keep working unchanged.
+        """
         ...

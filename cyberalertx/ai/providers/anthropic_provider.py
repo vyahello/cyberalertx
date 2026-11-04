@@ -21,8 +21,9 @@ Design notes:
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, cast
+from typing import Any, Mapping, cast
 
 from ..models import ThreatPostResponse
 
@@ -98,14 +99,60 @@ class AnthropicProvider:
 
         usage = getattr(response, "usage", None)
         if usage is not None:
-            self._record_usage(usage)
+            self._record_usage(usage, self._model)
 
         # `parsed_output` is typed `Any` by the SDK; the `output_format=`
         # contract guarantees it's a validated ThreatPostResponse here.
         return cast(ThreatPostResponse, parsed)
 
+    def generate_json(
+        self, system: str, user: str, *, schema: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """One structured-output call constrained by a raw JSON Schema.
+
+        Uses `output_config={"format": {"type": "json_schema", ...}}` on
+        `messages.create`, which makes the first text block valid JSON for
+        the schema. The schema is first rewritten into the subset structured
+        outputs accepts (see `_strict_schema`); the caller still validates the
+        result against its own Pydantic model, so constraints dropped here
+        are enforced there.
+        """
+        system_blocks: list[dict[str, Any]] = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=self._max_output_tokens,
+            system=system_blocks,
+            messages=[{"role": "user", "content": user}],
+            output_config={
+                "format": {"type": "json_schema", "schema": _strict_schema(schema)},
+            },
+        )
+        if getattr(response, "stop_reason", None) == "refusal":
+            raise RuntimeError("Claude refused the structured request")
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise RuntimeError("structured response truncated at max_tokens")
+
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self._record_usage(usage, self._model)
+
+        text = next(
+            (getattr(b, "text", "") for b in getattr(response, "content", [])
+             if getattr(b, "type", "") == "text"),
+            "",
+        )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Anthropic structured output was not JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("Anthropic structured output was not a JSON object")
+        return data
+
     @staticmethod
-    def _record_usage(usage: Any) -> None:
+    def _record_usage(usage: Any, model: str = "") -> None:
         """Log usage at INFO and bump observability counters.
 
         Promoted to INFO from DEBUG so the prompt-cache hit ratio is
@@ -141,6 +188,53 @@ class AnthropicProvider:
                 m.bump("anthropic_output_tokens", output_tokens)
         except Exception as exc:  # pragma: no cover — defensive
             logger.debug("usage counter bump skipped: %s", exc)
+        try:
+            from ...ops.usage import record_call
+            record_call(provider="anthropic", model=model,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                        cache_read_tokens=cache_read, cache_write_tokens=cache_write)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("usage ledger skipped: %s", exc)
+
+
+# Keywords structured outputs rejects. Dropped from the schema we send; the
+# caller's Pydantic model still enforces whatever they expressed.
+_UNSUPPORTED_SCHEMA_KEYS = frozenset({
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+    "minLength", "maxLength", "pattern", "minItems", "maxItems", "uniqueItems",
+    "default", "title", "examples",
+})
+
+
+def _strict_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Rewrite a Pydantic-style JSON Schema into the structured-outputs subset.
+
+    Every object gets `additionalProperties: false` and lists all of its
+    properties as required (a field with a default simply comes back empty),
+    and unsupported constraint keywords are removed. Pure; returns a copy.
+    """
+    def walk(node: Any) -> Any:
+        if isinstance(node, list):
+            return [walk(n) for n in node]
+        if not isinstance(node, Mapping):
+            return node
+        out: dict[str, Any] = {}
+        for k, v in node.items():
+            if k in ("properties", "$defs", "definitions") and isinstance(v, Mapping):
+                # Keys here are field / definition NAMES, not keywords — a
+                # field called "title" must survive.
+                out[k] = {name: walk(sub) for name, sub in v.items()}
+            elif k not in _UNSUPPORTED_SCHEMA_KEYS:
+                out[k] = walk(v)
+        if out.get("type") == "object" or "properties" in out:
+            props = out.get("properties")
+            if isinstance(props, dict):
+                out["required"] = list(props.keys())
+            out["additionalProperties"] = False
+        return out
+
+    result = walk(schema)
+    return result if isinstance(result, dict) else {}
 
 
 __all__ = ["AnthropicProvider"]

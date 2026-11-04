@@ -55,6 +55,10 @@ class TelegramSettings:
     public_base_url: str = _DEFAULT_PUBLIC_BASE
     api_base: str = _DEFAULT_API_BASE
     request_timeout_seconds: int = 15
+    # Send the story's Media Engine card (Telegram variant, 1200×675) as a
+    # photo with the message as its caption. Off by default: the card URL
+    # must be live on the public site before Telegram can fetch it.
+    attach_images: bool = False
 
     @property
     def min_level_weight(self) -> int:
@@ -81,6 +85,7 @@ def build_telegram_settings() -> TelegramSettings:
       CYBERALERTX_TELEGRAM_SEND_DELAY_S  — pacing between sends (default 1.0)
       CYBERALERTX_PUBLIC_BASE_URL        — site base for deep links (default prod)
       CYBERALERTX_TELEGRAM_API_BASE      — Bot API root (default api.telegram.org)
+      CYBERALERTX_TELEGRAM_ATTACH_IMAGES — 1 to send the story card as a photo (default off)
     """
     channels: dict[str, str] = {}
     for locale, var in (("en", "CYBERALERTX_TELEGRAM_CHANNEL_EN"),
@@ -105,6 +110,8 @@ def build_telegram_settings() -> TelegramSettings:
         api_base=(
             os.getenv("CYBERALERTX_TELEGRAM_API_BASE") or _DEFAULT_API_BASE
         ).rstrip("/"),
+        attach_images=(os.getenv("CYBERALERTX_TELEGRAM_ATTACH_IMAGES") or "").strip().lower()
+        in ("1", "true", "yes", "on"),
     )
 
 

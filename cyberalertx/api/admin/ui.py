@@ -18,21 +18,49 @@ from typing import Iterable, Sequence
 
 Tone = str  # "ok" | "warn" | "bad" | "accent" | "neutral"
 
-NAV: tuple[tuple[str, str, str], ...] = (
-    ("overview", "Overview", "/admin/"),
-    ("feedback", "Feedback", "/admin/feedback"),
-    ("quality", "Quality", "/admin/metrics"),
-    ("sources", "Sources", "/admin/sources"),
+#: The control room, grouped by what an operator is doing. Keys are the
+#: `active=` values pages pass; URLs are unchanged from earlier phases.
+NAV_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    ("", (("overview", "Overview", "/admin/"),)),
+    ("Intelligence", (("stories", "Stories", "/admin/stories"),
+                      ("intel", "Daily selection", "/admin/intel"))),
+    ("Editorial", (("review", "Review queue", "/admin/review"),
+                   ("feedback", "Reader feedback", "/admin/feedback"),
+                   ("quality", "Brief quality", "/admin/metrics"))),
+    ("Media", (("media", "Media studio", "/admin/media"),)),
+    ("Distribution", (("publishing", "Publications", "/admin/publishing"),
+                      ("threads", "Social accounts", "/admin/threads"))),
+    ("Operations", (("sources", "Sources", "/admin/sources"),
+                    ("usage", "AI usage", "/admin/usage"),
+                    ("system", "System health", "/admin/system"))),
 )
+NAV: tuple[tuple[str, str, str], ...] = tuple(item for _, items in NAV_GROUPS for item in items)
+_GROUP_OF = {key: group for group, items in NAV_GROUPS for key, _, _ in items}
+
+#: Aperture glyph (DESIGN.md): three rings + bullseye in currentColor, one cyan ping.
+GLYPH = ('<svg viewBox="0 0 100 100" width="22" height="22" aria-hidden="true" focusable="false">'
+         '<g fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="50" cy="50" r="42" opacity=".22"/>'
+         '<circle cx="50" cy="50" r="30" opacity=".45"/><circle cx="50" cy="50" r="18" opacity=".7"/></g>'
+         '<circle cx="50" cy="50" r="5" fill="currentColor"/>'
+         '<circle cx="76" cy="24" r="14" fill="none" stroke="#00E5FF" stroke-width="2" opacity=".35"/>'
+         '<circle cx="76" cy="24" r="9" fill="#00E5FF"/></svg>')
 
 #: Sent on every admin HTML page. No script may run; styles and images are
 #: inline only; nothing may embed the page or receive a referrer from it.
 CSP = (
-    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
-    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'self'; "
+    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
+# Phase 6: every page carries the search box and filter forms (GET), so
+# `form-action` is 'self' everywhere — forms may only ever submit to this
+# origin. State changes still require POST + same-origin + CSRF token.
+#: The review queue is the one page with forms (Approve / Reject). Same
+#: policy, except forms may post back to this origin — and only this origin.
+CSP_FORMS = CSP
 
 _CSS = """
+@font-face{font-family:"Fira Sans Condensed";font-weight:500;font-display:swap;src:url(/admin/assets/fira-500.ttf) format("truetype")}
+@font-face{font-family:"Fira Sans Condensed";font-weight:600 700;font-display:swap;src:url(/admin/assets/fira-600.ttf) format("truetype")}
 :root{--bg:#0e1116;--surface:#151a21;--surface-2:#1b212a;--line:#252c36;--text:#e6e9ee;
 --muted:#98a2b3;--faint:#6b7383;--accent:#06b6d4;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;
 --ok-bg:rgba(52,211,153,.12);--warn-bg:rgba(251,191,36,.12);--bad-bg:rgba(248,113,113,.12);
@@ -43,20 +71,31 @@ _CSS = """
 --bad-bg:rgba(220,38,38,.1);--accent-bg:rgba(8,145,178,.1);color-scheme:light}}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);
-font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+font:500 14.5px/1.5 "Fira Sans Condensed",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+font-variant-numeric:tabular-nums}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
 backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
-.top .in{max-width:1180px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:20px;height:56px}
-.brand{font-weight:650;letter-spacing:-.01em;color:var(--text);white-space:nowrap}
+.top .in{max-width:1400px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:20px;height:56px}
+.brand{font-weight:650;letter-spacing:-.01em;color:var(--text);white-space:nowrap;display:inline-flex;align-items:center;gap:9px}
+.brand:hover{text-decoration:none}
 .brand span{margin-left:8px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
 color:var(--accent);background:var(--accent-bg);padding:2px 8px;border-radius:999px}
-nav{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1}nav::-webkit-scrollbar{display:none}
-nav a{color:var(--muted);padding:7px 12px;border-radius:8px;white-space:nowrap;font-weight:500}
-nav a:hover{color:var(--text);background:var(--surface-2);text-decoration:none}
-nav a[aria-current=page]{color:var(--text);background:var(--surface-2);box-shadow:inset 0 -2px 0 var(--accent)}
+.search{flex:1;display:flex;justify-content:flex-end}
+.search input{width:min(360px,100%);font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);
+border-radius:9px;padding:7px 12px}.search input:focus{outline:2px solid var(--accent);outline-offset:1px}
 .site{color:var(--muted);white-space:nowrap;font-size:13px}
-main{max-width:1180px;margin:0 auto;padding:28px 20px 64px}
+.shell{max-width:1400px;margin:0 auto;padding:0 20px;display:grid;grid-template-columns:196px minmax(0,1fr);gap:0 32px}
+.side{position:sticky;top:57px;align-self:start;max-height:calc(100vh - 57px);overflow:auto;padding:26px 0 24px}
+.side nav{display:grid;gap:2px}
+.side h3{margin:16px 0 4px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+.side nav>a:first-child{margin-bottom:2px}
+.side a{display:block;color:var(--muted);padding:6px 10px;border-radius:8px;white-space:nowrap;font-weight:500;border-left:2px solid transparent}
+.side a:hover{color:var(--text);background:var(--surface-2);text-decoration:none}
+.side a[aria-current=page]{color:var(--text);background:var(--surface-2);border-left-color:var(--accent)}
+main{min-width:0;padding:26px 0 64px}
+.crumbs{color:var(--faint);font-size:12px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+.crumbs a{color:var(--faint)}
 .head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:22px}
 h1{font-size:24px;line-height:1.2;margin:0;letter-spacing:-.02em}
 .sub{color:var(--muted);margin:6px 0 0;max-width:72ch}
@@ -117,10 +156,57 @@ time{white-space:nowrap}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Cons
 .trunc{max-width:52ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}.cols .trunc{max-width:28ch}
 .ring{flex:none}
 footer{color:var(--faint);font-size:12px;margin-top:28px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.tabs a{padding:6px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font-weight:500}
+.tabs a[aria-current=page]{color:var(--text);border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}
+.review{margin-top:14px}.review>h2{text-transform:none;letter-spacing:0;font-size:15px;color:var(--text);flex-wrap:wrap}
+.review>h2 .pills{display:flex;gap:6px;flex-wrap:wrap}
+.rmeta{color:var(--muted);font-size:13px;margin:0 0 12px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.rgrid{display:grid;gap:18px;grid-template-columns:minmax(0,3fr) minmax(0,2fr)}
+.rgrid h3{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin:0 0 8px}
+dl.fields{margin:0;display:grid;gap:10px}dl.fields dt{font-size:12px;color:var(--faint);font-weight:600}
+dl.fields dd{margin:2px 0 0;white-space:pre-line;overflow-wrap:anywhere}dl.fields ul{margin:2px 0 0;padding-left:18px}
+ul.findings{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:6px}
+ul.findings li{display:flex;gap:8px;align-items:baseline;overflow-wrap:anywhere}ul.findings .pill{flex:none}
+.dims{display:grid;gap:6px;margin-bottom:14px}.dims .row{grid-template-columns:minmax(110px,1fr) 1.4fr auto}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.actions form{display:flex;gap:10px;flex-wrap:wrap;margin:0}
+button.btn{font:inherit;font-weight:600;border-radius:9px;padding:8px 16px;border:1px solid var(--line);
+background:var(--surface-2);color:var(--text);cursor:pointer}
+button.btn.ok{background:var(--ok-bg);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+button.btn.bad{background:var(--bad-bg);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+button.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.filters{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end;margin-bottom:14px}
+.filters label{display:grid;gap:3px;font-size:11.5px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.filters input,.filters select{font:inherit;font-size:13.5px;text-transform:none;letter-spacing:0;color:var(--text);background:var(--surface);
+border:1px solid var(--line);border-radius:8px;padding:6px 9px;min-width:0}
+.filters input[type=search]{min-width:220px}.filters .btn{padding:7px 14px}
+.pager{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 18px;color:var(--muted);font-size:13px;
+border-top:1px solid var(--line)}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;counter-reset:st}
+.flow .st{padding:14px 16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0}
+.flow .st h4{margin:0 0 4px;font-size:13px;display:flex;align-items:center;gap:7px}
+.flow .st h4::before{counter-increment:st;content:counter(st);font-size:11px;color:var(--faint);font-weight:600;min-width:1.2em}
+.flow .st p{margin:0;color:var(--muted);font-size:12.5px}.flow .st dl{margin:8px 0 0;display:grid;gap:2px;font-size:12.5px}
+.flow .st dl div{display:flex;justify-content:space-between;gap:8px}.flow .st dt{color:var(--faint)}.flow .st dd{margin:0;text-align:right}
+.events{list-style:none;margin:0;padding:0}.events li{display:grid;grid-template-columns:auto 86px minmax(0,1fr);gap:10px;
+align-items:baseline;padding:8px 18px;border-bottom:1px solid var(--line);font-size:13px}.events li:last-child{border-bottom:0}
+.events .k{color:var(--faint);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.events .t{overflow-wrap:anywhere}
+dl.kv{margin:0;display:grid;grid-template-columns:minmax(120px,max-content) minmax(0,1fr);gap:6px 18px;font-size:13.5px}
+dl.kv dt{color:var(--faint)}dl.kv dd{margin:0;overflow-wrap:anywhere}
+.confirm{display:inline-flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.inline-form{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0}
+details.more summary{cursor:pointer;color:var(--accent)}
+@media (max-width:900px){.rgrid{grid-template-columns:1fr}
+.shell{display:block}.side{position:static;max-height:none;padding:10px 0 0;border-bottom:1px solid var(--line);margin:0 -20px;padding-left:14px}
+.side nav{display:flex;overflow-x:auto;gap:2px;scrollbar-width:none;padding-bottom:8px}.side nav::-webkit-scrollbar{display:none}
+.side h3{display:none}.side a{border-left:0;border-bottom:2px solid transparent;border-radius:8px 8px 0 0}
+.side a[aria-current=page]{border-bottom-color:var(--accent)}.events li{grid-template-columns:auto minmax(0,1fr)}.events .k{display:none}}
 @media (max-width:640px){
 .top .in{flex-wrap:wrap;height:auto;gap:4px 12px;padding:10px 14px 0}
-.site{display:none}nav{order:3;flex-basis:100%;padding-bottom:8px;margin:0 -6px}
-main{padding:18px 14px 48px}h1{font-size:21px}.head{margin-bottom:16px}
+.site{display:none}.search{order:3;flex-basis:100%;padding-bottom:8px}.search input{width:100%}
+.shell{padding:0 14px}.side{margin:0 -14px}main{padding:18px 0 48px}h1{font-size:21px}.head{margin-bottom:16px}
 .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .tile{padding:13px 14px}.tile .k{font-size:11px}.tile .v{font-size:22px;gap:8px;margin-top:6px}
 .tile .s{font-size:12px}.ring{width:34px;height:34px}
@@ -275,12 +361,25 @@ def page(
     body: str,
     now: datetime,
     json_href: str = "",
+    crumbs: Sequence[tuple[str, str]] = (),
+    query: str = "",
 ) -> str:
-    """The full document. `body` is trusted HTML assembled from escaped parts."""
-    nav = "".join(
-        f'<a href="{href}"{" aria-current=page" if key == active else ""}>{esc(label)}</a>'
-        for key, label, href in NAV
-    )
+    """The full document. `body` is trusted HTML assembled from escaped parts.
+
+    `crumbs` are (label, href) pairs shown above the title, after the nav
+    group; `query` pre-fills the global search box."""
+    nav = ""
+    for group, items in NAV_GROUPS:
+        if group:
+            nav += f"<h3>{esc(group)}</h3>"
+        nav += "".join(f'<a href="{href}"{" aria-current=page" if key == active else ""}>{esc(label)}</a>'
+                       for key, label, href in items)
+    trail = [esc(_GROUP_OF.get(active, ""))] if _GROUP_OF.get(active) else []
+    # A label starting "@key:" is an identifier: shown as-is (case matters), in mono.
+    trail += [f'<a href="{esc(h)}">{esc(lbl)}</a>' if h else
+              (f'<span class=mono style="text-transform:none">{esc(lbl[5:])}</span>' if lbl.startswith("@key:") else esc(lbl))
+              for lbl, h in crumbs]
+    crumb_html = f'<div class="crumbs">{" › ".join(trail)}</div>' if trail else ""
     meta = f'<span>Updated {esc(now.astimezone(timezone.utc).strftime("%H:%M UTC"))}</span>'
     if json_href:
         meta += f'<a href="{esc(json_href)}">JSON</a>'
@@ -289,15 +388,18 @@ def page(
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">'
         f"<title>{esc(title)} · CyberAlertX admin</title><style>{_CSS}</style></head><body>"
-        f'<header class="top"><div class="in"><a class="brand" href="/admin/">CyberAlertX<span>Admin</span></a>'
-        f'<nav aria-label="Admin sections">{nav}</nav>'
+        f'<header class="top"><div class="in"><a class="brand" href="/admin/">{GLYPH}CyberAlertX<span>Admin</span></a>'
+        f'<form class="search" role="search" method="get" action="/admin/search">'
+        f'<input type="search" name="q" value="{esc(query)}" maxlength="120" '
+        f'placeholder="Story, article or job ID, or a headline…" aria-label="Search stories and jobs"></form>'
         f'<a class="site" href="/" target="_blank" rel="noopener noreferrer">View site ↗</a></div></header>'
-        f'<main><div class="head"><div><h1>{esc(title)}</h1><p class="sub">{subtitle}</p></div>'
-        f'<div class="meta">{meta}</div></div>{body}</main></body></html>'
+        f'<div class="shell"><aside class="side"><nav aria-label="Admin sections">{nav}</nav></aside>'
+        f'<main>{crumb_html}<div class="head"><div><h1>{esc(title)}</h1><p class="sub">{subtitle}</p></div>'
+        f'<div class="meta">{meta}</div></div>{body}</main></div></body></html>'
     )
 
 
 __all__ = [
-    "CSP", "NAV", "Segment", "ago", "bar_rows", "dot", "esc", "meter", "num", "page",
+    "CSP", "CSP_FORMS", "GLYPH", "NAV", "NAV_GROUPS", "Segment", "ago", "bar_rows", "dot", "esc", "meter", "num", "page",
     "panel", "parse_time", "pct", "pill", "ring", "stack", "tile", "tone_for_rate",
 ]

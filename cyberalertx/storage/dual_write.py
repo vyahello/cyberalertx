@@ -101,6 +101,18 @@ class DualWriteNewsStore(NewsRepository):
         }
 
 
+class SecondaryWriteError(RuntimeError):
+    """The authoritative JSON write succeeded; the Postgres write did not."""
+
+    def __init__(self, fingerprint: str, locale: str, cause: BaseException) -> None:
+        super().__init__(
+            f"saved in JSON, but the Postgres write failed for {fingerprint}:{locale} "
+            f"({type(cause).__name__}: {cause}); retry the decision to sync"
+        )
+        self.fingerprint = fingerprint
+        self.locale = locale
+
+
 class DualWriteThreatPostCache:
     """ThreatPost cache that writes to both stores, reads JSON-first with PG fallback.
 
@@ -178,6 +190,30 @@ class DualWriteThreatPostCache:
                 type(exc).__name__, exc,
             )
 
+    def set_strict(self, fingerprint: str, locale: str, post: ThreatPost) -> None:
+        """Write both stores and RAISE if the PG half fails.
+
+        Used for editorial decisions (review status). `set` treats PG as a
+        shadow and only logs a failure, which is right for renders (the next
+        render overwrites) but wrong for a human decision: PG would keep the
+        old status, and any later PG-fallback read or PG-only consumer would
+        silently resurrect it. JSON is still written first and stays
+        authoritative; the caller gets `SecondaryWriteError` so it can tell
+        the editor and retry (a retry rewrites both stores).
+        """
+        self._json.set(fingerprint, locale, post)
+        try:
+            self._pg.set(fingerprint, locale, post)
+            self._secondary_successes += 1
+        except Exception as exc:
+            self._secondary_failures += 1
+            logger.error(
+                "dual-write: PG write of an editorial decision FAILED (%s/%s, %s: %s) "
+                "— saved in JSON only; retry the decision.",
+                fingerprint, locale, type(exc).__name__, exc,
+            )
+            raise SecondaryWriteError(fingerprint, locale, exc) from exc
+
     def delete(self, fingerprint: str, locale: str) -> bool:
         """Forget one render in BOTH stores.
 
@@ -227,5 +263,6 @@ class DualWriteThreatPostCache:
 __all__ = [
     "DualWriteNewsStore",
     "DualWriteThreatPostCache",
+    "SecondaryWriteError",
     "ThreatPostStore",
 ]

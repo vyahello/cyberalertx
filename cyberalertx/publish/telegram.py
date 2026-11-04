@@ -1,6 +1,8 @@
 """Minimal synchronous Telegram Bot API client.
 
-One method we need — `sendMessage` — over the existing `httpx`. No `aiogram` /
+Two methods — `sendMessage`, and `sendPhoto` for posts that carry the story's
+Media Engine card (off unless CYBERALERTX_TELEGRAM_ATTACH_IMAGES=1) — over the
+existing `httpx`. No `aiogram` /
 `python-telegram-bot`: the backend is fully synchronous and a bot framework is
 dead weight for a single fire-and-forget call per post.
 
@@ -16,6 +18,26 @@ from typing import Any
 import httpx
 
 logger = logging.getLogger(__name__)
+
+from ..logsafe import install as _install_log_redaction
+
+_install_log_redaction()   # httpx logs request URLs; ours carry credentials
+
+
+#: Bot API 400 descriptions that mean "the photo", not "the message".
+_MEDIA_ERRORS = ("wrong file identifier", "failed to get http url content",
+                 "wrong type of the web page content", "image_process_failed",
+                 "photo_invalid_dimensions", "wrong remote file", "photo_save_file_invalid")
+
+#: Transport failures raised before the request left this machine.
+_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout,
+             httpx.UnsupportedProtocol, httpx.InvalidURL)
+
+
+def _transport_error(method: str, exc: Exception, stage: str = "") -> "TelegramError":
+    not_sent = isinstance(exc, _NOT_SENT)
+    return TelegramError(f"{method} {stage}transport error: {exc}",
+                         category="network" if not_sent else "unknown_outcome")
 
 
 class TelegramError(RuntimeError):
@@ -33,10 +55,53 @@ class TelegramError(RuntimeError):
         *,
         status_code: int | None = None,
         description: str = "",
+        category: str | None = None,
+        retry_after: int = 0,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.description = description
+        self._category = category
+        self.retry_after = retry_after
+
+    @property
+    def category(self) -> str:
+        """What kind of failure this is — drives retry and fallback decisions.
+
+        network        the request never reached Telegram: safe to resend
+        rate_limit     429; `retry_after` says when (not accepted)
+        temporary      502/503/504 gateway errors (not accepted)
+        auth           401: bad token — operator action, no retry
+        permission     403 / chat not found — operator action, no retry
+        missing_media  Telegram could not fetch or use the photo URL
+        invalid_content other 400s: this payload will never be accepted
+        unknown_outcome the request may have been accepted (read timeout,
+                       dropped connection, 500, an unparsable 200): resending
+                       could duplicate the post, so it must be reconciled
+        """
+        if self._category:
+            return self._category
+        code, desc = self.status_code, self.description.lower()
+        if code is None:
+            return "unknown_outcome"
+        if code == 429:
+            return "rate_limit"
+        if code == 401:
+            return "auth"
+        if code == 403 or (code == 400 and ("chat not found" in desc or "chat_id is empty" in desc)):
+            return "permission"
+        if code == 400 and any(k in desc for k in _MEDIA_ERRORS):
+            return "missing_media"
+        if 400 <= code < 500:
+            return "invalid_content"
+        if code in (502, 503, 504):
+            return "temporary"
+        return "unknown_outcome"
+
+    @property
+    def accepted_possible(self) -> bool:
+        """True when Telegram may have published the message anyway."""
+        return self.category == "unknown_outcome"
 
     @property
     def is_channel_fatal(self) -> bool:
@@ -127,10 +192,41 @@ class TelegramPublisher:
             }
         else:
             payload["link_preview_options"] = {"is_disabled": True}
+        return self._post("sendMessage", payload)
+
+    def send_photo(
+        self,
+        chat_id: str,
+        photo_url: str,
+        caption: str,
+        *,
+        parse_mode: str = "HTML",
+        disable_notification: bool = False,
+    ) -> int:
+        """POST sendPhoto with a public HTTPS image URL. Returns the message_id.
+
+        Telegram fetches the URL itself, so it must be publicly reachable —
+        the Media Engine's card URL on the site domain. `caption` must already
+        fit Telegram's 1024-character caption limit (format.render_caption).
+        Same failure contract as `send_message`.
+        """
+        if not photo_url.startswith("https://"):
+            raise TelegramError("sendPhoto needs a public https:// image URL",
+                                category="missing_media")
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "photo": photo_url,
+            "caption": caption,
+            "parse_mode": parse_mode,
+            "disable_notification": disable_notification,
+        }
+        return self._post("sendPhoto", payload)
+
+    def _post(self, method: str, payload: dict[str, Any]) -> int:
         try:
-            resp = self._client.post(self._url("sendMessage"), json=payload)
+            resp = self._client.post(self._url(method), json=payload)
         except httpx.HTTPError as exc:
-            raise TelegramError(f"sendMessage transport error: {exc}") from exc
+            raise _transport_error(method, exc) from exc
 
         # Telegram returns 200 with {ok: true, result: {...}} on success, and
         # a non-2xx with {ok: false, description: "..."} on error. Surface the
@@ -146,6 +242,7 @@ class TelegramPublisher:
         # is that each subsequent send hits the same limit and the backlog
         # rolls to the next timer fire. We wait once and retry once — beyond
         # that the run genuinely should end and let the timer take over.
+        retry_after = 0
         if resp.status_code == 429:
             retry_after = int(
                 (body.get("parameters") or {}).get("retry_after", 0) or 0
@@ -157,24 +254,32 @@ class TelegramPublisher:
                 )
                 time.sleep(retry_after)
                 try:
-                    resp = self._client.post(self._url("sendMessage"), json=payload)
+                    resp = self._client.post(self._url(method), json=payload)
+                except httpx.HTTPError as exc:
+                    raise _transport_error(method, exc, "retry after 429 ") from exc
+                try:
                     body = resp.json()
-                except (httpx.HTTPError, ValueError) as exc:
-                    raise TelegramError(
-                        f"sendMessage retry after 429 failed: {exc}"
-                    ) from exc
+                except ValueError:
+                    body = {}
+                retry_after = int((body.get("parameters") or {}).get("retry_after", 0) or 0)
 
+        if resp.status_code < 400 and not body.get("ok"):
+            # A 2xx we cannot read: Telegram may well have posted it.
+            raise TelegramError(f"{method} returned HTTP {resp.status_code} without a readable result",
+                                status_code=resp.status_code, category="unknown_outcome")
         if resp.status_code >= 400 or not body.get("ok"):
             desc = body.get("description") or resp.text[:200]
             raise TelegramError(
-                f"sendMessage failed (HTTP {resp.status_code}): {desc}",
+                f"{method} failed (HTTP {resp.status_code}): {desc}",
                 status_code=resp.status_code,
                 description=str(desc),
+                retry_after=retry_after,
             )
 
         message_id = (body.get("result") or {}).get("message_id")
         if not isinstance(message_id, int):
-            raise TelegramError("sendMessage ok but no message_id in result")
+            raise TelegramError(f"{method} ok but no message_id in result",
+                                status_code=resp.status_code, category="unknown_outcome")
         return message_id
 
     def close(self) -> None:

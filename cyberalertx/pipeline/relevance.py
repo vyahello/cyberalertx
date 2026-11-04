@@ -54,7 +54,7 @@ import tempfile
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Literal, Optional
 
 from ..models import NewsItem
 from .filter import _REJECTED_LANGUAGES, relevance_score
@@ -515,6 +515,7 @@ def filter_relevant_hybrid(
         if decision.category and not getattr(item, "category", None):
             item.category = decision.category
         if decision.is_relevant:
+            stamp_relevance(item, decision)
             kept.append(item)
     return kept, stats
 
@@ -553,6 +554,251 @@ def build_default_classifier(
     return classifier, cache
 
 
+# =========================================================================
+# Scope classification — explicit, stored, overridable.
+#
+# `classify_relevance` above decides what is worth INGESTING. The scope
+# verdict below is the editorial question "is this security news?", stored
+# on the item (`relevance_status` / `relevance_reason`) so rendering and
+# publishing can skip what is not, while the record — and the editor's
+# ability to overrule the machine — stays. Deterministic; the AI only
+# contributes where it already runs (the gray-zone verdict passed in as
+# `decision`).
+#
+# Why a second layer: the ingest score is a bag of keywords, and the
+# keywords misfire on Ukrainian tech outlets. "кібер*" matches кіберспорт
+# (esports) and кіберпанк; "експлуат*" matches «допустило до експлуатації»
+# (approved for service); "Lazarus" is a game title. 28 of the archive's
+# published UA briefs came through that way (CONTENT_AUDIT F1).
+# =========================================================================
+
+RelevanceStatus = Literal["in_scope", "out_of_scope", "needs_review"]
+RELEVANCE_STATUSES: tuple[str, ...] = ("in_scope", "out_of_scope", "needs_review")
+
+# Unambiguous security evidence. Every entry was chosen so that it cannot
+# match the off-topic vocabulary above (no bare "кібер*", no "експлуат*").
+_SECURITY_TITLE_RE = re.compile(
+    r"\bCVE-\d{4}-\d{4,7}\b"
+    r"|\b(?:vulnerabilit(?:y|ies)|flaws?|bugs?\s+(?:fix|patch)|zero-?days?|0-?day|exploit\w*"
+    r"|patch(?:es|ed)?|security\s+(?:update|fix|advisory)|advisory|hack(?:s|ed|ers?|ing)?"
+    r"|breach\w*|ransomware|malware|spyware|stealer|infostealer|backdoor\w*|botnet|trojan"
+    r"|phishing|scam\w*|fraud\w*|ddos|cyber-?attacks?|cyber\s?(?:crime|criminals?|espionage|security)"
+    r"|supply[- ]chain|compromis\w*|leak(?:s|ed)?|stolen|steal\w*|apt\d*|threat\s+actors?"
+    r"|bootkit|rootkit|wiper|extortion|credential\w*|account\s+takeover|spoof\w*"
+    r"|secure\s+boot|authentication\s+bypass|rce|remote\s+code|privilege\s+escalation"
+    r"|attackers?|sandbox\s+escape|side-?channel)\b"
+    r"|вразлив|уразлив|хакер|злам|кібератак|кіберзлоч|кіберзагроз|кібербезпек|кіберзахист"
+    r"|кібершпигун|кіберпартизан|кібервійськ|кіберполіц|витік|витоку|шкідлив|фішинг|шахра"
+    r"|вимагач|бекдор|експлойт|ddos|троян|стілер|ботнет|шпигунськ|викрад|кібер-атак"
+    r"|cert-ua|ncsc|cisa\b|обійти\s+захист|обход\w*\s+ізоляц|пісочниц",
+    re.IGNORECASE,
+)
+
+# Clearly not security news, whatever keyword let it in. Checked on the
+# headline (and, for the few shapes that need it, the lede).
+_OFF_TOPIC_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("IT news digest / podcast", re.compile(
+        r"\bDOU\s+News\s*#|\bподкаст\b|\bpodcast\b|\bдайджест\s+(?:новин\s+)?(?:IT|ІТ)\b"
+        r"|\b(?:IT|ІТ)-?дайджест", re.IGNORECASE)),
+    ("esports", re.compile(
+        r"кіберспорт|\besports?\b|\be-sports\b|counter-?strike|\bCS2\b|\bDota\b"
+        r"|\bNAVI\b|\bs1mple\b|\bPGL\b|\bMaincast\b|esports\s+charts|турнір", re.IGNORECASE)),
+    ("games / trailers", re.compile(
+        r"\bтрейлер|\bтизер|\bгеймпле|\bRPG\b|\bшутер|\bthe\s+trailer\b|\btrailer\b"
+        r"|\bgameplay\b|\bвідеогр|техно-?демо|Neon\s+Giant", re.IGNORECASE)),
+    ("TV / film", re.compile(r"\bсеріал|\bTV\+|\bComic-Con\b|\bфільм[уі]?\b(?!.*шпигун)",
+                             re.IGNORECASE)),
+    ("hardware review / launch", re.compile(
+        r"\bогляд\s+(?:\w+\s+)?(?:монітор|ноутбук|смартфон|навушник)|\bмонітор[аиу]?\b"
+        r"|\bmonitor\s+review\b|\breview:\s|\bноутбук|\bIFA\s+20\d\d\b", re.IGNORECASE)),
+    ("transport", re.compile(r"\bпотяг|\bпоїзд|\bвузькоколій|\bpassenger\s+trains?\b|\brailway\b|\bелектрокар",
+                             re.IGNORECASE)),
+    ("wine / lifestyle", re.compile(r"\bвин(?:о|на|ні|них)\b|\bwine\b|\bChateau\b", re.IGNORECASE)),
+    ("space / satellites", re.compile(r"\bсупутник|\bsatellites?\b|\bStarlink\b|\bорбіт",
+                                      re.IGNORECASE)),
+    ("energy / science", re.compile(
+        r"\bГЕС\b|\bгідроелектр|\bводн(?:ю|евий|ева)\b|\bhydrogen\b|ядерного\s+палива"
+        r"|\bродовищ", re.IGNORECASE)),
+    ("defence procurement / mobilisation", re.compile(
+        r"\bкодифік|\bБпАК\b|\bбронюван|\bмобілізац|зразків\s+озброєння", re.IGNORECASE)),
+    ("careers / education", re.compile(
+        r"\bрекрутинг|\bрекрутмент|\brecruit\w*|\bвакансі|\bшкола\b|\bкурс(?:и|ів)\b|//kood",
+        re.IGNORECASE)),
+    ("business deal", re.compile(
+        r"\bкупил[аи]\b|\bпридба\w*|\bінвестує\b|\bраунд\b|\bacquires?\b|\bacquisition\b"
+        r"|\braises?\s+\$|\bIPO\b", re.IGNORECASE)),
+)
+
+# A multi-story security bulletin: in scope, but one item stands for many.
+_SECURITY_DIGEST_RE = re.compile(
+    r"\bweekly\s+recap\b|\bthreatsday\b|\bweek\s+in\s+(?:review|ransomware|security)\b"
+    r"|\+\s*\d+\s+more\s+stories\b",
+    re.IGNORECASE,
+)
+
+
+def _security_hits(text: str) -> list[str]:
+    seen: list[str] = []
+    for m in _SECURITY_TITLE_RE.finditer(text or ""):
+        word = m.group(0).lower()
+        if word not in seen:
+            seen.append(word)
+    return seen
+
+
+def classify_scope(
+    item: NewsItem,
+    decision: Optional[RelevanceDecision] = None,
+) -> tuple[str, str]:
+    """`(relevance_status, relevance_reason)` for one item. Pure.
+
+    Order matters:
+      1. language the edition does not serve → out_of_scope;
+      2. an IT news digest / podcast → out_of_scope (its headline quotes
+         other stories, "Витік довіри до інтернету" included);
+      3. an off-topic subject (esports, trailers, monitor reviews, trains,
+         wine, satellites, …) → out_of_scope when the HEADLINE carries no
+         security evidence, needs_review when it does ("game studio hit by
+         cyberattack");
+      4. security evidence in the headline (a CVE id, a patch, an exploited
+         flaw, a breach, a supply-chain compromise) → in_scope. A headline
+         does not need the word "security": "Apple backports CoreGraphics
+         fix" is a patch, so it is in scope;
+      5. no headline evidence: two distinct security terms in the body, the
+         ingest score's accept band, or the AI gray-zone accept → in_scope;
+         one weak signal → needs_review; nothing → out_of_scope.
+    """
+    if item.language in _REJECTED_LANGUAGES:
+        return "out_of_scope", "language not served"
+    title = item.title or ""
+    body = (item.raw_content or "")[:3000]
+    if _OFF_TOPIC_PATTERNS[0][1].search(title):
+        return "out_of_scope", "off-topic: IT news digest / podcast"
+    title_hits = _security_hits(title)
+    for label, rx in _OFF_TOPIC_PATTERNS[1:]:
+        if rx.search(title):
+            if title_hits:
+                return "needs_review", (
+                    f"off-topic subject ({label}) but headline names "
+                    f"security evidence ({', '.join(title_hits[:3])})"
+                )
+            return "out_of_scope", f"off-topic: {label}"
+    if _SECURITY_DIGEST_RE.search(title):
+        return "needs_review", "security digest: several stories in one item"
+    if title_hits:
+        return "in_scope", f"security development: {', '.join(title_hits[:3])}"
+    body_hits = _security_hits(body)
+    ai_accept = decision is not None and decision.is_relevant and decision.source.startswith("ai-")
+    ai_reject = decision is not None and not decision.is_relevant and decision.source.startswith("ai-")
+    if len(body_hits) >= 2:
+        return "in_scope", f"security content in body: {', '.join(body_hits[:3])}"
+    if ai_accept and decision is not None and decision.source != "ai-disabled":
+        return "in_scope", "gray zone: AI classifier accepted"
+    if ai_reject and decision is not None and decision.source not in ("ai-disabled", "ai-error"):
+        return "out_of_scope", "gray zone: AI classifier rejected"
+    score = decision.score if decision is not None else relevance_score(item)
+    if body_hits or score >= DETERMINISTIC_THRESHOLD:
+        return "needs_review", "weak security signal (no security subject in headline)"
+    return "out_of_scope", "no security signal"
+
+
+def effective_relevance(item: NewsItem) -> str:
+    """The status that counts: the manual override, else the stored status,
+    else (items stored before classification existed) a fresh deterministic
+    classification. Always one of `RELEVANCE_STATUSES`."""
+    override = (getattr(item, "relevance_override", "") or "").strip()
+    if override in RELEVANCE_STATUSES:
+        return override
+    status = (getattr(item, "relevance_status", "") or "").strip()
+    if status in RELEVANCE_STATUSES:
+        return status
+    return classify_scope(item)[0]
+
+
+HIDE_OUT_OF_SCOPE_ENV = "CYBERALERTX_HIDE_OUT_OF_SCOPE"
+
+
+def hide_out_of_scope_publicly() -> bool:
+    """Whether the feed and Telegram also drop out_of_scope items.
+
+    Off by default: generation already stops writing NEW briefs for
+    out_of_scope items (`is_renderable` in `cmd_generate`), but hiding briefs
+    that were already published changes what readers see, so it is an explicit
+    operator decision (`CYBERALERTX_HIDE_OUT_OF_SCOPE=1`). Direct links
+    (`/posts/{id}`) are never affected.
+    """
+    return os.getenv(HIDE_OUT_OF_SCOPE_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_renderable(item: NewsItem) -> bool:
+    """The generate/publish gate: everything except out_of_scope."""
+    return effective_relevance(item) != "out_of_scope"
+
+
+def stamp_relevance(item: NewsItem, decision: Optional[RelevanceDecision] = None) -> NewsItem:
+    """Write `relevance_status` / `relevance_reason` onto `item` (never the
+    override). Returns the item for chaining."""
+    status, reason = classify_scope(item, decision)
+    item.relevance_status = status
+    item.relevance_reason = reason[:160]
+    return item
+
+
+# -- manual overrides --------------------------------------------------------
+
+def load_relevance_overrides(path: Path) -> dict[str, dict[str, str]]:
+    """`{fingerprint: {"status", "reason", "at"}}` from
+    `data/stories/relevance_overrides.json`; missing/broken file → {}."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    entries = raw.get("overrides") if isinstance(raw, dict) else None
+    if not isinstance(entries, dict):
+        return {}
+    return {
+        str(fp): {k: str(v) for k, v in e.items()}
+        for fp, e in entries.items()
+        if isinstance(e, dict) and e.get("status") in RELEVANCE_STATUSES
+    }
+
+
+def save_relevance_override(path: Path, fingerprint: str, status: str, reason: str) -> None:
+    """Record one manual decision (atomic write). Never touches items.json."""
+    if status not in RELEVANCE_STATUSES:
+        raise ValueError(f"status must be one of {RELEVANCE_STATUSES}")
+    from datetime import datetime, timezone
+
+    entries = load_relevance_overrides(path)
+    entries[fingerprint] = {
+        "status": status, "reason": reason,
+        "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", delete=False, dir=str(path.parent),
+        prefix=".relevance_overrides.", suffix=".tmp",
+    ) as tmp:
+        json.dump({"version": 1, "overrides": entries}, tmp, ensure_ascii=False, indent=1)
+        tmp_name = tmp.name
+    os.replace(tmp_name, path)
+
+
+def apply_relevance_overrides(
+    items: Iterable[NewsItem], overrides: dict[str, dict[str, str]],
+) -> int:
+    """Set `relevance_override` in memory from the overrides file. Returns
+    how many items it touched."""
+    n = 0
+    for item in items:
+        entry = overrides.get(item.fingerprint)
+        if entry:
+            item.relevance_override = entry["status"]
+            n += 1
+    return n
+
+
 __all__ = [
     "REJECT_FLOOR",
     "ACCEPT_CEILING",
@@ -564,4 +810,13 @@ __all__ = [
     "classify_relevance",
     "filter_relevant_hybrid",
     "build_default_classifier",
+    "RELEVANCE_STATUSES",
+    "RelevanceStatus",
+    "apply_relevance_overrides",
+    "classify_scope",
+    "effective_relevance",
+    "is_renderable",
+    "load_relevance_overrides",
+    "save_relevance_override",
+    "stamp_relevance",
 ]

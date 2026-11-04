@@ -2,40 +2,24 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Languages } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { SUPPORTED_LOCALES, type Locale } from "@/lib/types";
-
-interface Props {
-  lang: Locale;
-}
+import { strings } from "@/lib/i18n";
+import { HTML_LANG, SUPPORTED_LOCALES, type Locale } from "@/lib/types";
 
 const LABELS: Record<Locale, string> = { en: "EN", ua: "UA" };
+const NAMES: Record<Locale, string> = { en: "English", ua: "Українська" };
 
 /**
- * Two-state language toggle.
- *
- * Switching navigates to the same page in the other locale (e.g.
- * `/en/threat/abc` ↔ `/ua/threat/abc`). The URL is the source of truth
- * — no client state, no flash-of-wrong-locale on refresh, every page is
- * bookmarkable per language.
- *
- * Prefetch strategy: we explicitly prefetch the INACTIVE locale's URL
- * once the switcher is in the viewport. That trades one extra RSC fetch
- * per page load for a near-instant tap on the language toggle — critical
- * on mobile where every SSR roundtrip feels like a stall. We do NOT
- * prefetch the active locale (we're already on it). Earlier versions used
- * `prefetch={false}` to save bandwidth; the resulting UX hang on locale
- * switch was worse than the cost of one extra payload.
+ * Switches edition while keeping the reader on the same page (same story,
+ * same topic). Two plain links; the current one is marked, not hidden.
  */
-export function LanguageSwitcher({ lang }: Props) {
+export function LanguageSwitcher({ lang, className }: { lang: Locale; className?: string }) {
   const pathname = usePathname() || "/";
+  const s = strings(lang);
 
-  function pathInLocale(target: Locale): string {
-    // Replace the leading locale segment. The pathname is always
-    // `/<locale>/...` here because middleware/redirect guarantees it.
+  function pathIn(target: Locale): string {
     const parts = pathname.split("/");
-    if (parts[1] && SUPPORTED_LOCALES.includes(parts[1] as Locale)) {
+    if (parts[1] && (SUPPORTED_LOCALES as readonly string[]).includes(parts[1])) {
       parts[1] = target;
       return parts.join("/") || `/${target}`;
     }
@@ -43,36 +27,26 @@ export function LanguageSwitcher({ lang }: Props) {
   }
 
   return (
-    <div
-      role="group"
-      aria-label="Language"
-      className="inline-flex items-center gap-0.5 p-0.5 rounded-md bg-bg-elevated-2 border border-border-subtle"
-    >
-      <Languages className="w-3.5 h-3.5 text-text-tertiary mx-1.5" aria-hidden />
+    <div role="group" aria-label={s.language_label} className={cn("flex items-center", className)}>
       {SUPPORTED_LOCALES.map((l) => {
-        const active = lang === l;
+        const active = l === lang;
         return (
           <Link
             key={l}
-            href={pathInLocale(l)}
-            // Prefetch ONLY the inactive locale — we never need the
-            // active one preloaded. `undefined` (Next default) → intent-
-            // based prefetch when the link is visible; matches our need.
-            prefetch={active ? false : undefined}
+            href={pathIn(l)}
+            hrefLang={HTML_LANG[l]}
+            title={NAMES[l]}
+            prefetch={false}
             aria-current={active ? "page" : undefined}
             className={cn(
-              // Taller lane than the visual pill suggests — the header is
-              // height-capped, so we widen the hit area with padding while
-              // the rounded plate keeps its compact look.
-              "inline-flex items-center justify-center min-w-[2.25rem]",
-              "px-2.5 py-1.5 rounded text-xs font-semibold tracking-wider",
+              "inline-flex h-11 min-w-[2.75rem] items-center justify-center px-2 font-sans text-small font-semibold",
               "transition-colors duration-150",
-              active
-                ? "bg-bg-base text-text-primary"
-                : "text-text-secondary hover:text-text-primary",
+              active ? "text-ink" : "text-ink-faint hover:text-ink",
             )}
           >
-            {LABELS[l]}
+            <span className={cn(active && "underline decoration-signal decoration-2 underline-offset-[6px]")}>
+              {LABELS[l]}
+            </span>
           </Link>
         );
       })}

@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, List, Sequence
 
 from ..models import NewsItem
@@ -33,7 +34,7 @@ from .actionability import analyze_all as analyze_actionability_all
 from .audience import classify_all as classify_audience_all
 from .category import categorize_all
 from .credibility import analyze_all as analyze_credibility_all
-from .dedup import assign_incremental
+from .dedup import assign_incremental, load_story_overrides
 from .filter import filter_relevant
 from .normalize import normalize_all
 from .platforms import extract_all
@@ -41,7 +42,10 @@ from .ranker import score_items
 from .relevance import (
     AIRelevanceClassifier,
     RelevanceCache,
+    apply_relevance_overrides,
     filter_relevant_hybrid,
+    load_relevance_overrides,
+    stamp_relevance,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +88,7 @@ class Pipeline:
         *,
         ai_classifier: AIRelevanceClassifier | None = None,
         relevance_cache: RelevanceCache | None = None,
+        stories_dir: Path | None = None,
     ) -> None:
         self._sources = list(sources)
         self._repo = repository
@@ -94,6 +99,12 @@ class Pipeline:
         # gray zone are routed through Haiku for a final yes/no.
         self._ai_classifier = ai_classifier
         self._relevance_cache = relevance_cache
+        # Editor corrections (`python -m cyberalertx.tools.stories ...`):
+        # `overrides.json` (story split/merge) and `relevance_overrides.json`.
+        if stories_dir is None:
+            from ..config import DATA_DIR
+            stories_dir = DATA_DIR / "stories"
+        self._stories_dir = stories_dir
 
     def run_once(self) -> CycleResult:
         fetched, fetched_by_source = self._fetch_all_with_source_map()
@@ -125,6 +136,17 @@ class Pipeline:
                 logger.warning("metrics rollup failed: %s", exc)
         else:
             relevant = filter_relevant(fresh)
+        # Stage: scope classification. Stamps `relevance_status` /
+        # `relevance_reason` (the hybrid path already did, with the AI
+        # gray-zone verdict) and applies the editor's overrides. Out-of-scope
+        # items are still stored; generate/publish skip them
+        # (`relevance.is_renderable`).
+        for item in relevant:
+            if not item.relevance_status:
+                stamp_relevance(item)
+        apply_relevance_overrides(
+            relevant, load_relevance_overrides(self._stories_dir / "relevance_overrides.json"),
+        )
         # Stage: categorize + extract platforms. Cheap pure-text passes.
         categorize_all(relevant)
         extract_all(relevant)
@@ -148,7 +170,10 @@ class Pipeline:
         # publish hours apart, so the second report usually lands in a later
         # cycle than the first. Runs last because `choose_canonical` reads the
         # credibility score that the stage above assigns.
-        duplicates = assign_incremental(relevant, self._repo.all())
+        duplicates = assign_incremental(
+            relevant, self._repo.all(),
+            overrides=load_story_overrides(self._stories_dir / "overrides.json"),
+        )
         if duplicates:
             logger.info(
                 "story dedup: %d of %d relevant items are later coverage of "

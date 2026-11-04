@@ -14,9 +14,9 @@ beyond config.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, List
+from typing import Any, Iterable, List
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect as sa_inspect, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ...models import NewsItem
@@ -26,6 +26,27 @@ from .schema import news_items
 from .serializers import news_item_to_row, row_to_news_item
 
 logger = logging.getLogger(__name__)
+
+#: Columns added by migration 005. Written only when the live table has them.
+RELEVANCE_COLUMNS = ("relevance_status", "relevance_reason", "relevance_override")
+
+
+def _live_columns(conn: Any) -> frozenset[str]:
+    """Column names of `news_items` in the connected database.
+
+    Cached on the Engine object, so a process sees a newly applied migration
+    after a restart (or `dispose_engine()`), never a stale answer from a
+    previous engine."""
+    engine = conn.engine
+    names: frozenset[str] | None = getattr(engine, "_cax_news_columns", None)
+    if names is None:
+        names = frozenset(c["name"] for c in sa_inspect(conn).get_columns("news_items"))
+        engine._cax_news_columns = names
+        missing = [c for c in RELEVANCE_COLUMNS if c not in names]
+        if missing:
+            logger.warning("news_items lacks %s — apply migration 005 to mirror relevance; "
+                           "writing without them meanwhile", ", ".join(missing))
+    return names
 
 
 class PgNewsStore(NewsRepository):
@@ -52,8 +73,10 @@ class PgNewsStore(NewsRepository):
 
     def all(self) -> List[NewsItem]:
         with get_engine().connect() as conn:
+            live = _live_columns(conn)
+            cols = [c for c in news_items.c if c.name in live]
             result = conn.execute(
-                select(news_items).order_by(news_items.c.published_at.desc())
+                select(*cols).order_by(news_items.c.published_at.desc())
             )
             return [row_to_news_item(dict(r._mapping)) for r in result]
 
@@ -87,7 +110,8 @@ class PgNewsStore(NewsRepository):
                     )
                 )
             }
-            rows = [news_item_to_row(i) for i in items_list]
+            live = _live_columns(conn)
+            rows = [{k: v for k, v in news_item_to_row(i).items() if k in live} for i in items_list]
             stmt = pg_insert(news_items).values(rows)
             excluded = stmt.excluded
             # Array-union expressions written as raw text to avoid SQLAlchemy
@@ -137,6 +161,11 @@ class PgNewsStore(NewsRepository):
                 "story_key": excluded.story_key,
                 "duplicate_of": excluded.duplicate_of,
             }
+            # Relevance is re-derived each cycle (and overrides are the
+            # editor's latest word): latest wins — when the columns exist.
+            for col in RELEVANCE_COLUMNS:
+                if col in live:
+                    update_cols[col] = getattr(excluded, col)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["fingerprint"],
                 set_=update_cols,

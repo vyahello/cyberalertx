@@ -1,4 +1,4 @@
-"""The /admin pages: overview, feedback, content quality, sources.
+"""The /admin pages: overview, review queue, feedback, content quality, sources.
 
 Each renderer is a pure function of plain data, so the pages are tested by
 calling them, not by standing up the pipeline. Everything printed that came
@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Mapping
 
+from ...ai.models import ThreatPost
+from ...ai.scorecard import DIMENSION_LABELS, WEIGHTS
 from ...feedback import FeedbackSummary
 from .guard import GuardStats
 from .ui import (
@@ -35,6 +37,7 @@ REJECT_LABELS: dict[str, str] = {
     "dup_rec_rejects": "Repeated the same recommendation",
     "title_echo_rejects": "Summary repeated the headline",
     "hallucinated_threat_level": "Invented a threat level",
+    "fact_check_rejects": "Named a CVE, hash, IP or CVSS score the source doesn't contain",
 }
 
 # Freshness and health thresholds. Ingest runs every 30 minutes.
@@ -131,7 +134,12 @@ def render_overview(
     logins: GuardStats,
     title_for: TitleLookup,
     now: datetime,
+    pending_review: int = 0,
+    review_mode: str = "",
+    sections: str = "",
 ) -> str:
+    """`sections` (Phase 6): pipeline, destinations, intelligence and activity
+    panels from `ops_pages.overview_sections`, appended below the health view."""
     counters = metrics.get("counters") or {}
     sources, ingest_stopped = classify_sources(health, now)
     failing = [s for s in sources if s.status == "failing"]
@@ -195,6 +203,13 @@ def render_overview(
         alerts.append(("warn", f"{len(unhelpful)} post{'s' if len(unhelpful) != 1 else ''} "
                        "readers found unhelpful",
                        f'Most 👎: {_post_link(unhelpful[0].id, unhelpful[0].locale, title_for)}'))
+    if pending_review:
+        held = review_mode == "hold"
+        alerts.append(("warn" if not held else "bad",
+                       f"{pending_review} post{'s' if pending_review != 1 else ''} waiting for review",
+                       ("Held back from readers until you approve them. " if held else
+                        "Still published (flag mode); the scorecard wants a look. ")
+                       + '<a href="/admin/review">Open the review queue</a>'))
     if logins.failed_24h >= _LOGIN_NOISE:
         top = ", ".join(f"<span class=mono>{esc(a)}</span> ×{n}" for a, n in logins.top_addresses[:3])
         alerts.append(("warn", "Someone is trying admin passwords",
@@ -217,7 +232,7 @@ def render_overview(
         + panel("Needs attention", attention, padded=False)
         + panel("Recent 👎", recent_html, padded=False,
                 aside='<a href="/admin/feedback">All feedback</a>')
-        + "</div>"
+        + "</div>" + sections
     )
     return page(active="overview", title="Overview",
                 subtitle="How the site is doing right now, and what needs a look.",
@@ -393,7 +408,13 @@ def render_quality(metrics: Mapping[str, Any], *, now: datetime) -> str:
 # Sources (/admin/sources)
 # --------------------------------------------------------------------------
 
-def render_sources(health: Mapping[str, Any], *, now: datetime) -> str:
+def render_sources(health: Mapping[str, Any], *, now: datetime,
+                   extra: Mapping[str, Mapping[str, Any]] | None = None, csrf: str = "", notice: str = "",
+                   error: str = "") -> str:
+    """`extra[name]`: connector, host, reliability profile (Intelligence Core
+    SourceTable), articles in store, thin-content share — each a different
+    question from feed health; none are merged into one score."""
+    extra = extra or {}
     rows, stopped = classify_sources(health, now)
     counts = {k: sum(1 for r in rows if r.status == k) for k in _STATUS_LABEL}
 
@@ -421,8 +442,16 @@ def render_sources(health: Mapping[str, Any], *, now: datetime) -> str:
         if empty_rate is None and s.get("cycles_seen"):
             empty_rate = int(s.get("cycles_empty") or 0) / int(s["cycles_seen"])
         cred = s.get("avg_credibility")
+        x = extra.get(r.name, {})
+        prof = (f"{esc(x.get('kind', ''))} · {float(x['reliability']):.2f}" if x.get("reliability") is not None else "—")
+        test = ('<form method="post" action="/admin/sources/test" class="inline-form" style="margin-top:6px">'
+                f'<input type="hidden" name="csrf" value="{esc(csrf)}"><input type="hidden" name="source" value="{esc(r.name)}">'
+                '<label class="confirm"><input type="checkbox" name="confirm" value="yes" required> one live request</label>'
+                '<button class="btn" type="submit">Test fetch</button></form>') if csrf and x.get("connector") else ""
         body_rows += (
-            f"<tr><td><b>{esc(r.name)}</b><div style='color:var(--faint);font-size:12px'>{esc(r.reason)}</div></td>"
+            f"<tr><td><b>{esc(r.name)}</b><div style='color:var(--faint);font-size:12px'>{esc(r.reason)}</div>"
+            f"<div style='color:var(--faint);font-size:12px'>{esc(x.get('connector', 'not in the feed configuration'))}"
+            f"{(' · ' + esc(x['host'])) if x.get('host') else ''}</div>{test}</td>"
             f"<td>{pill(_STATUS_LABEL[r.status], _STATUS_TONE[r.status])}</td>"
             f"<td class=n>{ago(s.get('last_published_at_utc'), now)}</td>"
             f"<td class='n hide-sm'>{ago(s.get('last_successful_ingest_utc'), now)}</td>"
@@ -431,24 +460,220 @@ def render_sources(health: Mapping[str, Any], *, now: datetime) -> str:
             f"<td class='cell-meter hide-xs' style='min-width:120px'>{meter(relevance)}"
             f"<span style='color:var(--muted);font-size:12px'>{pct(relevance)}</span></td>"
             f"<td class='n hide-sm'>{'—' if cred is None else f'{float(cred):.2f}'}</td>"
-            f"<td class='n hide-sm'>{pct(empty_rate)}</td></tr>"
+            f"<td class='n hide-sm'>{pct(empty_rate)}</td>"
+            f"<td class='hide-sm'>{prof}<div style='color:var(--faint);font-size:12px'>{esc(x.get('note', ''))}</div></td>"
+            f"<td class='n hide-sm'>{num(int(x.get('stored', 0)))}<div style='color:var(--faint);font-size:12px'>"
+            f"{pct(x.get('thin'))} thin</div></td></tr>"
         )
     table = ('<div class="scroll"><table><thead><tr><th>Source</th><th>Status</th><th class=n>Last article</th>'
              '<th class="n hide-sm">Last fetch</th><th class="n hide-sm">Fetched</th>'
              '<th class="n hide-sm">Relevant</th><th class=hide-xs>Relevance</th><th class="n hide-sm">Credibility</th>'
-             f'<th class="n hide-sm">Empty fetches</th></tr></thead><tbody>{body_rows}</tbody>'
+             f'<th class="n hide-sm">Empty fetches</th><th class="hide-sm">Reliability profile</th>'
+             f'<th class="n hide-sm">In store</th></tr></thead><tbody>{body_rows}</tbody>'
              "</table></div>") if body_rows else '<p class="empty">No ingest cycle has run yet.</p>'
 
+    for msg, tone in ((notice, "ok"), (error, "bad")):
+        if msg:
+            banner += f'<div class="banner {"bad" if tone == "bad" else ""}">{dot(tone)}<p>{esc(msg)}</p></div>'
     body = (
         banner + f'<div class="grid">{tiles}</div>'
         f'<div class="full">{panel("Feeds", table, padded=False)}</div>'
         "<footer>Failing: no item fetched for 6 h, measured against the last ingest cycle. "
         "Quiet: the feed answers but its newest article is over 3 days old. Relevance is the share "
-        "of fetched items kept as security news. Credibility is the source score from 0 to 1.</footer>"
+        "of fetched items kept as security news. Credibility is the source score from 0 to 1. "
+        "Reliability profile is the Intelligence Core's configured source table (kind · 0–1), a separate "
+        "question from feed health. Thin = stored articles with under 300 characters of text (extraction "
+        "health). Sources are configured in code (cyberalertx/config.py); there is no enable/disable switch "
+        "to expose.</footer>"
     )
     return page(active="sources", title="Sources",
                 subtitle="Every feed the site ingests, worst first.",
                 body=body, now=now, json_href="/admin/sources.json")
+
+
+# --------------------------------------------------------------------------
+# Review queue (/admin/review)
+# --------------------------------------------------------------------------
+
+REVIEW_TABS: tuple[tuple[str, str], ...] = (
+    ("pending", "Waiting"), ("approved", "Approved"), ("rejected", "Rejected"),
+    ("auto", "Published unreviewed"),
+)
+_STATUS_PILL = {"pending": "warn", "approved": "ok", "rejected": "bad", "auto": "neutral"}
+_SEVERITY_TONE = {"hard": "bad", "major": "bad", "minor": "warn", "soft": "warn", "info": "neutral"}
+_MODE_TEXT = {
+    "off": "Review is off: nothing is queued and nothing is hidden.",
+    "flag": "Flag mode: flagged posts stay published while they wait; rejected posts are taken down.",
+    "hold": "Hold mode: waiting and rejected posts are hidden from the site, RSS and Telegram.",
+}
+
+
+@dataclass(frozen=True)
+class ReviewEntry:
+    """One cached render plus what we still know about its source."""
+
+    key: str
+    post: ThreatPost
+    source_title: str = ""
+    source_url: str = ""
+    source_name: str = ""
+    published_at: datetime | None = None
+
+
+def _score_tone(score: object) -> str:
+    try:
+        value = float(score)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "neutral"
+    return "ok" if value >= 92 else "warn" if value >= 85 else "bad"
+
+
+def _field_rows(post: ThreatPost) -> str:
+    rows: list[str] = []
+
+    def text(label: str, value: str) -> None:
+        if value.strip():
+            rows.append(f"<dt>{esc(label)}</dt><dd>{esc(value.strip())}</dd>")
+
+    def items(label: str, values: list[str]) -> None:
+        clean = [v for v in values if v.strip()]
+        if clean:
+            rows.append(f"<dt>{esc(label)}</dt><dd><ul>"
+                        + "".join(f"<li>{esc(v)}</li>" for v in clean) + "</ul></dd>")
+
+    text("Threat level", post.threat_level)
+    text("Plain-language lead", post.plain_summary)
+    text("Feed line", post.short_summary)
+    text("Why it matters", post.why_it_matters)
+    text("Why this rating", post.severity_reason)
+    text("Analysis", post.detail_body)
+    items("Quick facts", post.quick_facts)
+    items("Check if affected", post.am_i_affected)
+    items("What to do", post.what_to_do)
+    items("What not to do", post.what_not_to_do)
+    items("If already affected", post.if_already_affected)
+    items("Who is affected", post.affected_users)
+    return '<dl class="fields">' + "".join(rows) + "</dl>"
+
+
+def _finding_list(findings: list[dict[str, Any]], empty: str) -> str:
+    if not findings:
+        return f'<p style="color:var(--muted);margin:0 0 14px">{esc(empty)}</p>'
+    return '<ul class="findings">' + "".join(
+        f"<li>{pill(str(f.get('severity', '')), _SEVERITY_TONE.get(str(f.get('severity')), 'neutral'))}"
+        f"<span><b class=mono>{esc(f.get('value', ''))}</b> — {esc(f.get('message', ''))}"
+        + (f" <span style='color:var(--faint)'>({esc(f.get('field'))})</span>" if f.get("field") else "")
+        + "</span></li>"
+        for f in findings
+    ) + "</ul>"
+
+
+def _review_card(entry: ReviewEntry, *, csrf: str, back: str, now: datetime) -> str:
+    post, quality = entry.post, entry.post.quality or {}
+    score = quality.get("score")
+    status = post.review_status or "auto"
+    head = (
+        f'{esc(post.title)}<span class="pills">'
+        f"{pill(entry.key.rsplit(':', 1)[-1].upper(), 'accent')}"
+        f"{pill(f'score {score}' if score is not None else 'not scored', _score_tone(score))}"
+        f"{pill(status, _STATUS_PILL.get(status, 'neutral'))}</span>"
+    )
+    if entry.source_url:
+        source = (f'<a href="{esc(entry.source_url)}" target="_blank" rel="noopener noreferrer">'
+                  f"{esc(entry.source_name or 'Source')}: {esc(entry.source_title or entry.source_url)}</a>")
+    else:
+        source = '<span style="color:var(--faint)">Source article is no longer in the store</span>'
+    meta = (
+        f'<p class="rmeta"><span>{source}</span>'
+        + (f"<span>published {ago(entry.published_at, now)}</span>" if entry.published_at else "")
+        + f'<span class="mono">{esc(entry.key)}</span><span>{esc(post.generated_by)}</span>'
+        + (f"<span>reviewed by {esc(post.reviewed_by)} {ago(post.reviewed_at, now)}</span>"
+           if post.reviewed_by else "")
+        + "</p>"
+    )
+    reasons = quality.get("review_reasons") or []
+    banner = ""
+    if reasons:
+        banner = ('<div class="banner warn">' + dot("warn") + "<p><b>Why it is here:</b> "
+                  + "; ".join(esc(r) for r in reasons[:6]) + "</p></div>")
+
+    dims = quality.get("dimensions") or {}
+    dim_rows = "".join(
+        f'<div class="row"><span class="lbl">{esc(DIMENSION_LABELS.get(d, d))}</span>'
+        f"{meter(float(dims[d]) / w, _score_tone(100 * float(dims[d]) / w))}"
+        f'<span class="num">{float(dims[d]):.0f}/{w}</span></div>'
+        for d, w in WEIGHTS.items() if d in dims
+    )
+    fact = quality.get("fact_check") or {}
+    issues = [i for i in (quality.get("issues") or []) if i.get("dimension") != "accuracy"]
+    side = (
+        (f'<h3>Scorecard</h3><div class="dims">{dim_rows}</div>' if dim_rows else "")
+        + "<h3>Fact check — not in the source</h3>"
+        + _finding_list(list(fact.get("hard") or []) + list(fact.get("soft") or []),
+                        "Every checked identifier and figure was found in the source."
+                        if fact else "No fact-check record (older post).")
+        + "<h3>EN / UA consistency</h3>"
+        + _finding_list(list(quality.get("cross_locale") or []), "No disagreement recorded.")
+        + "<h3>Other issues</h3>"
+        + _finding_list([{"severity": i.get("severity"), "value": i.get("code"),
+                          "message": i.get("message"), "field": i.get("field")} for i in issues],
+                        "None.")
+    )
+    actions = ""
+    if csrf:
+        actions = (
+            '<div class="actions"><form method="post" action="/admin/review/decide">'
+            f'<input type="hidden" name="key" value="{esc(entry.key)}">'
+            f'<input type="hidden" name="csrf" value="{esc(csrf)}">'
+            f'<input type="hidden" name="back" value="{esc(back)}">'
+            + ('<button class="btn ok" name="decision" value="approve">Approve</button>'
+               if status != "approved" else "")
+            + ('<button class="btn bad" name="decision" value="reject">Reject</button>'
+               if status != "rejected" else "")
+            + "</form></div>"
+        )
+    body = (meta + banner + f'<div class="rgrid"><div>{_field_rows(post)}</div><div>{side}</div></div>'
+            + actions)
+    return f'<section class="panel review"><h2>{head}</h2><div class="body">{body}</div></section>'
+
+
+def render_review(
+    entries: list[ReviewEntry],
+    *,
+    status: str,
+    counts: Mapping[str, int],
+    csrf: str,
+    mode: str,
+    threshold: int,
+    now: datetime,
+    notice: str = "",
+    total: int | None = None,
+) -> str:
+    tabs = '<nav class="tabs" aria-label="Review status">' + "".join(
+        f'<a href="/admin/review?status={key}"{" aria-current=page" if key == status else ""}>'
+        f"{esc(label)} · {num(int(counts.get(key, 0)))}</a>"
+        for key, label in REVIEW_TABS
+    ) + "</nav>"
+    flash = (f'<div class="banner">{dot("ok")}<p>{esc(notice)}</p></div>' if notice else "")
+    mode_line = (f'<div class="banner {"warn" if mode == "hold" else ""}">{dot("accent")}'
+                 f"<p>{esc(_MODE_TEXT.get(mode, mode))} Posts scoring under {threshold}, "
+                 "naming an identifier the source lacks, or disagreeing with their other "
+                 "edition are queued.</p></div>")
+    if entries:
+        cards = "".join(_review_card(e, csrf=csrf, back=status, now=now) for e in entries)
+        shown = len(entries)
+        more = (f"<footer>Showing the {shown} most recent of {num(total)}.</footer>"
+                if total is not None and total > shown else "")
+    else:
+        cards = panel("Queue", '<p class="empty">Nothing here.</p>', padded=False)
+        more = ""
+    footer = ("<footer>The score is an internal indicator built from deterministic checks "
+              "(banned phrases, calques, identifiers missing from the source, field contracts). "
+              "It is not a measure of truth: read the post.</footer>")
+    return page(active="review", title="Review queue",
+                subtitle="Posts the scorecard wants a human to read, worst signals first.",
+                body=flash + mode_line + tabs + cards + more + footer, now=now,
+                json_href=f"/admin/review.json?status={esc(status)}")
 
 
 # --------------------------------------------------------------------------
@@ -462,6 +687,7 @@ def render_not_found(*, now: datetime) -> str:
 
 
 __all__ = [
-    "FeedStatus", "REASON_LABELS", "classify_sources", "render_feedback", "render_not_found",
-    "render_overview", "render_quality", "render_sources",
+    "FeedStatus", "REASON_LABELS", "REVIEW_TABS", "ReviewEntry", "classify_sources",
+    "render_feedback", "render_not_found", "render_overview", "render_quality",
+    "render_review", "render_sources",
 ]

@@ -87,22 +87,18 @@ export function ShareBar({ title, lang, className }: Props) {
 
   // 40px tap lane on phones (thumb targets), compact chip from sm+.
   const itemClass =
-    "inline-flex items-center gap-1.5 rounded-md border border-border-subtle " +
-    "min-h-[40px] sm:min-h-0 px-3 sm:px-2.5 py-1.5 text-xs text-text-secondary transition-colors " +
-    "hover:text-text-primary hover:border-border-strong active:border-border-strong " +
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus";
+    "inline-flex items-center gap-2 min-h-[44px] px-3.5 bg-ground-raised font-sans text-small font-semibold " +
+    "text-ink-muted transition-colors duration-150 hover:bg-ground-high hover:text-ink active:translate-y-px";
 
   return (
     <div className={className}>
-      <p className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
-        {s.share_label}
-      </p>
+      <h2 className="font-sans text-[1rem] font-semibold text-ink mb-3">{s.share_label}</h2>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={copyLink} className={itemClass}>
+        <button type="button" onClick={copyLink} className={itemClass} aria-live="polite">
           {copied ? (
-            <Check className="w-4 h-4 text-signal-live" />
+            <Check className="w-4 h-4 text-signal" aria-hidden />
           ) : (
-            <Copy className="w-4 h-4" />
+            <Copy className="w-4 h-4" aria-hidden />
           )}
           {copied ? s.share_copied : s.share_copy}
         </button>
@@ -127,8 +123,8 @@ export function ShareBar({ title, lang, className }: Props) {
 
         {canNativeShare && (
           <button type="button" onClick={nativeShare} className={itemClass}>
-            <Share2 className="w-4 h-4" />
-            {s.share_label}
+            <Share2 className="w-4 h-4" aria-hidden />
+            {s.share_native}
           </button>
         )}
       </div>
