@@ -70,11 +70,10 @@ Thumbs.db
 .analytics-spec.md
 
 # ============================================================================
-# Design-tool working files (Taste inspector screenshots, Impeccable review
-# captures). Scratch evidence, regenerated on every run. The durable records
-# (PRODUCT.md, .impeccable/surfaces/, .taste-skill/direction.json) are kept.
+# Design-tool state (Taste, Impeccable): local working files only, never
+# committed. The design documentation lives in docs/design/DESIGN_SYSTEM.md.
 # ============================================================================
-.taste-skill/*
-!.taste-skill/direction.json
-.impeccable/review/
-.impeccable/mocks/
+.taste-skill/
+.impeccable/
+/DESIGN.md
+/PRODUCT.md

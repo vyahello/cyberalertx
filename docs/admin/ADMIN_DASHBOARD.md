@@ -30,7 +30,7 @@ All earlier URLs and their JSON endpoints are unchanged.
 
 - The shell follows the public site:
   - **Colours:** graphite surfaces, the single cyan accent, and the Aperture
-    glyph (DESIGN.md "One Signal Rule": the bright `#00E5FF` only in the
+    glyph (design system "One Signal Rule": the bright `#00E5FF` only in the
     glyph's ping).
   - **Typography:** the site's interface face, Fira Sans Condensed, served to
     the admin from the bundled OFL TTFs at `/admin/assets/…`.

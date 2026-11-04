@@ -45,7 +45,7 @@ with a copy of the data and no `.env` (JSON-only, no Postgres, no Telegram).
 ## 3. Design weaknesses (measured)
 
 Taste-skill inspector on the live homepage: **9 FAIL / 6 WARN**; on an article:
-**11 FAIL / 6 WARN** (`.taste-skill/before/`, `.taste-skill/before-article/`).
+**11 FAIL / 6 WARN** (design-tool captures, kept locally, not in the repository).
 
 1. **The first screen sells instead of informing.** The homepage opens on a
    slogan ("Cyber threats. Before they hit you."), an eyebrow, a gradient

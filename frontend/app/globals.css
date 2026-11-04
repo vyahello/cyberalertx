@@ -9,7 +9,7 @@
 
 @layer base {
   :root {
-    /* Always dark: a brand commitment (PRODUCT.md), not a default. */
+    /* Always dark: a brand commitment, not a default. */
     color-scheme: dark;
 
     --ground: #0e1116;

@@ -37,7 +37,7 @@ NAV_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
 NAV: tuple[tuple[str, str, str], ...] = tuple(item for _, items in NAV_GROUPS for item in items)
 _GROUP_OF = {key: group for group, items in NAV_GROUPS for key, _, _ in items}
 
-#: Aperture glyph (DESIGN.md): three rings + bullseye in currentColor, one cyan ping.
+#: Aperture glyph (docs/design/DESIGN_SYSTEM.md): three rings + bullseye in currentColor, one cyan ping.
 GLYPH = ('<svg viewBox="0 0 100 100" width="22" height="22" aria-hidden="true" focusable="false">'
          '<g fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="50" cy="50" r="42" opacity=".22"/>'
          '<circle cx="50" cy="50" r="30" opacity=".45"/><circle cx="50" cy="50" r="18" opacity=".7"/></g>'
