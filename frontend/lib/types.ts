@@ -155,6 +155,29 @@ export interface ThreatSignals {
 }
 
 /** A threat post with translations for one or more locales. */
+/** What the SOURCE establishes (backend `pipeline/evidence.py`), kept apart
+ *  from severity (potential impact) and action priority. Codes only; the UI
+ *  localizes them, so both editions always state the same facts. */
+export type ExploitationStatus = "confirmed" | "attacks_observed" | "suspected" | "not_reported";
+export type CampaignStatus = "active" | "declined" | "disrupted" | "unknown" | "";
+export type CompromiseStatus = "confirmed" | "not_confirmed" | "";
+export type UnknownCode =
+  | "exposure_unconfirmed"
+  | "exploitation_unconfirmed"
+  | "scope_undisclosed"
+  | "timeline_undisclosed"
+  | "attribution_unconfirmed"
+  | "campaign_end_unconfirmed";
+
+export interface ThreatEvidence {
+  exploitation: ExploitationStatus;
+  campaign: CampaignStatus;
+  compromise: CompromiseStatus;
+  sponsored: boolean;
+  sponsor: string;
+  unknowns: UnknownCode[];
+}
+
 export interface LocalizedThreatPost {
   id: string;
   source: string;
@@ -186,6 +209,10 @@ export interface LocalizedThreatPost {
   // ----- intelligence-layer enrichment (optional for back-compat) -----
   /** Boolean signals describing the threat's shape — see `ThreatSignals`. */
   signals?: ThreatSignals;
+  /** Evidence status from the source reporting (absent on older API builds). */
+  evidence?: ThreatEvidence;
+  /** The feed's author line: a reporter, or "Sponsored by …". */
+  source_byline?: string;
   /** One-line "does this affect me?" label, per locale. */
   who_should_care?: Partial<Record<Locale, string>>;
   /** Ranked list of realistic-impact labels ("Account takeover",

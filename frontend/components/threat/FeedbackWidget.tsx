@@ -18,12 +18,14 @@ interface Stored {
   reasoned: boolean;
 }
 
+// Usefulness only. Errors (factual, outdated, translation) are reported in
+// the separate ReportProblem block, so a reader never has to vote 👎 to
+// flag a wrong detail.
 const REASONS: Array<{ reason: FeedbackReason; key: "feedback_reason_too_vague"
   | "feedback_reason_too_technical" | "feedback_reason_incorrect"
   | "feedback_reason_not_relevant" }> = [
   { reason: "too_vague", key: "feedback_reason_too_vague" },
   { reason: "too_technical", key: "feedback_reason_too_technical" },
-  { reason: "incorrect", key: "feedback_reason_incorrect" },
   { reason: "not_relevant", key: "feedback_reason_not_relevant" },
 ];
 

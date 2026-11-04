@@ -169,7 +169,9 @@ export type FeedbackReason =
   | "too_vague"
   | "too_technical"
   | "incorrect"
-  | "not_relevant";
+  | "not_relevant"
+  | "outdated"
+  | "translation";
 
 /** One click on the "Was this helpful?" widget.
  *

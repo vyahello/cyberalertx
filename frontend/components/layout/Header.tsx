@@ -33,7 +33,7 @@ export function Header({ lang }: { lang: Locale }) {
         <nav aria-label={s.nav_label} className="on-axis hidden lg:flex items-center justify-between gap-6">
           <SiteNav
             lang={lang}
-            className="flex items-center gap-x-6 xl:gap-x-8"
+            className="flex items-center gap-x-4 xl:gap-x-8"
             itemClassName="h-11 text-[1rem] whitespace-nowrap"
           />
           <div className="flex items-center gap-2">
@@ -42,8 +42,10 @@ export function Header({ lang }: { lang: Locale }) {
               href={TELEGRAM_CHANNELS[lang]}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 items-center px-2 font-sans text-[1rem] font-semibold text-ink-muted hover:text-ink"
+              className="hidden xl:inline-flex h-11 items-center px-2 font-sans text-[1rem] font-semibold text-ink-muted hover:text-ink"
             >
+              {/* Between lg and xl the bar has no room for it (it overflowed at
+                  1024 px); the menu and the footer still link the channel. */}
               {s.telegram}
             </a>
           </div>

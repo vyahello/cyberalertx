@@ -4,12 +4,13 @@ import { ArticleMarks } from "@/components/article/ArticleMarks";
 import { InlineText, RichText } from "@/components/article/RichText";
 import { ShareBar } from "@/components/share/ShareBar";
 import { FeedbackWidget } from "./FeedbackWidget";
+import { ReportProblem } from "./ReportProblem";
+import { TONE_CLASS, evidenceOf, evidenceRows, unknownsOf } from "@/lib/evidence";
 import { strings } from "@/lib/i18n";
 import { topicForCategory } from "@/lib/topics";
 import {
   HTML_LANG,
   contentFor,
-  type DetailContext,
   type Locale,
   type LocalizedContent,
   type LocalizedThreatPost,
@@ -64,12 +65,25 @@ export function ThreatDetail({ post, lang }: Props) {
   const short = c.short_summary?.trim();
   const standfirst = plain || short;
   const opener = plain ? short : "";
-  const checks = (c.am_i_affected ?? []).filter((x) => x.trim());
-  const recovery = (c.if_already_affected ?? []).filter((x) => x.trim());
-  const toDo = (c.what_to_do ?? []).filter((x) => x.trim());
-  const avoid = (c.what_not_to_do ?? []).filter((x) => x.trim());
-  const facts = (c.quick_facts ?? []).filter((x) => x.trim());
+  // Each recommendation appears once: a later list drops what an earlier one
+  // already says (exact or contained), so "what to do" and "if affected"
+  // never repeat the same step.
+  const seen = new Set<string>();
+  const once = (xs: string[] | undefined) => (xs ?? []).filter((x) => {
+    const k = norm(x);
+    if (!k || seen.has(k) || [...seen].some((y) => y.length > 24 && (y.includes(k) || k.includes(y)))) return false;
+    seen.add(k);
+    return true;
+  });
+  const toDo = once(c.what_to_do);
+  const recovery = once(c.if_already_affected);
+  const checks = once(c.am_i_affected);
+  const avoid = once(c.what_not_to_do);
+  const prose = norm([c.title, plain, short, c.why_it_matters, c.detail_body].join(" "));
+  const facts = (c.quick_facts ?? []).filter((x) => x.trim() && !prose.includes(norm(x)));
   const affected = (c.affected_users ?? []).filter((x) => x.trim());
+  const evidence = evidenceRows(post, lang);
+  const unknowns = unknownsOf(post, lang);
   const topic = topicForCategory(post.category);
   const illustration = post.media?.illustration;
   const readingSeconds = Math.round((words(c) / WPM[lang]) * 60);
@@ -107,6 +121,20 @@ export function ThreatDetail({ post, lang }: Props) {
             <p className="mt-5 font-serif text-lead text-ink-muted max-w-measure animate-rise [animation-delay:160ms]">
               {standfirst}
             </p>
+          )}
+          {(evidence.length > 0 || toDo.length > 0) && (
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 font-sans text-small">
+              {evidence.map((r) => (
+                <span key={r.key} className={`font-semibold ${TONE_CLASS[r.tone]}`}>
+                  {r.value}
+                </span>
+              ))}
+              {toDo.length > 0 && (
+                <a href="#actions" className="link font-semibold">
+                  {s.detail_jump_actions} ↓
+                </a>
+              )}
+            </div>
           )}
           {illustration && (
             <figure className="mt-8">
@@ -148,7 +176,7 @@ export function ThreatDetail({ post, lang }: Props) {
 
         <div className="lg:col-start-2 lg:row-start-2 min-w-0">
           <div className="prose-brief">
-          {(opener || c.detail_body?.trim()) && (
+          {(opener || c.detail_body?.trim() || c.why_it_matters?.trim()) && (
             <section aria-labelledby="sec-what" className={SECTION}>
               <h2 id="sec-what" className={H2}>
                 {s.detail_what_happened}
@@ -160,39 +188,42 @@ export function ThreatDetail({ post, lang }: Props) {
                   </p>
                 )}
                 <RichText text={c.detail_body} className="mt-4" />
+                {c.why_it_matters?.trim() && (
+                  <>
+                    <h3 className={`${H3} mt-6`}>{s.detail_why}</h3>
+                    <p className="mt-1.5">
+                      <InlineText text={c.why_it_matters} />
+                    </p>
+                  </>
+                )}
               </div>
             </section>
           )}
 
-          {c.why_it_matters?.trim() && (
-            <section aria-labelledby="sec-why" className={SECTION}>
-              <h2 id="sec-why" className={H2}>
-                {s.detail_why}
+          {facts.length > 0 && (
+            <section aria-labelledby="sec-facts" className={SECTION}>
+              <h2 id="sec-facts" className={H2}>
+                {s.detail_key_facts}
               </h2>
-              <p className="mt-4">
-                <InlineText text={c.why_it_matters} />
-              </p>
+              <KeyFacts facts={facts} />
             </section>
           )}
 
-          {(affected.length > 0 || checks.length > 0 || recovery.length > 0) && (
+          {(affected.length > 0 || checks.length > 0) && (
             <section aria-labelledby="sec-affected" className={SECTION}>
               <h2 id="sec-affected" className={H2}>
                 {s.detail_affected}
               </h2>
               {affected.length > 0 && (
-                <>
-                  <h3 className={`${H3} mt-5`}>{s.detail_who_affected}</h3>
-                  <ul className="mt-2 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
-                    {affected.map((u) => (
-                      <li key={u}>{u}</li>
-                    ))}
-                  </ul>
-                </>
+                <ul className="mt-4 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
+                  {affected.map((u) => (
+                    <li key={u}>{u}</li>
+                  ))}
+                </ul>
               )}
               {checks.length > 0 && (
                 <>
-                  <p className="mt-5 font-sans text-small text-ink-faint">{s.detail_checks_hint}</p>
+                  <h3 className={`${H3} mt-6`}>{s.detail_checks_hint}</h3>
                   <ol className="mt-2 list-decimal pl-6 space-y-2 marker:font-sans marker:text-ink-faint">
                     {checks.map((step) => (
                       <li key={step} className="pl-1">
@@ -202,22 +233,10 @@ export function ThreatDetail({ post, lang }: Props) {
                   </ol>
                 </>
               )}
-              {recovery.length > 0 && (
-                <div className="mt-6 bg-ground-raised p-5">
-                  <h3 className={`${H3} text-sev-critical`}>{s.detail_already}</h3>
-                  <ul className="mt-2 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
-                    {recovery.map((step) => (
-                      <li key={step}>
-                        <InlineText text={step} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </section>
           )}
 
-          {(toDo.length > 0 || avoid.length > 0) && (
+          {(toDo.length > 0 || recovery.length > 0 || avoid.length > 0) && (
             <section id="actions" aria-labelledby="sec-actions" className={SECTION}>
               <h2 id="sec-actions" className={H2}>
                 {s.detail_what_to_do}
@@ -230,6 +249,18 @@ export function ThreatDetail({ post, lang }: Props) {
                     </li>
                   ))}
                 </ol>
+              )}
+              {recovery.length > 0 && (
+                <div className="mt-6 bg-ground-raised p-5">
+                  <h3 className={`${H3} text-sev-critical`}>{s.detail_already}</h3>
+                  <ol className="mt-2 list-decimal pl-6 space-y-1.5 marker:font-sans marker:text-ink-faint">
+                    {recovery.map((step) => (
+                      <li key={step} className="pl-1">
+                        <InlineText text={step} />
+                      </li>
+                    ))}
+                  </ol>
+                </div>
               )}
               {avoid.length > 0 && (
                 <>
@@ -246,23 +277,27 @@ export function ThreatDetail({ post, lang }: Props) {
             </section>
           )}
 
-          {facts.length > 0 && (
-            <section aria-labelledby="sec-facts" className={SECTION}>
-              <h2 id="sec-facts" className={H2}>
-                {s.detail_key_facts}
+          {unknowns.length > 0 && (
+            <section aria-labelledby="sec-unknowns" className={SECTION}>
+              <h2 id="sec-unknowns" className={H2}>
+                {s.detail_unknowns}
               </h2>
-              <KeyFacts facts={facts} />
+              <p className="mt-2 font-sans text-small text-ink-faint">{s.detail_unknowns_hint}</p>
+              <ul className="mt-3 list-disc pl-5 space-y-1.5 marker:text-ink-faint">
+                {unknowns.map((u) => (
+                  <li key={u}>{u}</li>
+                ))}
+              </ul>
             </section>
           )}
 
           <SourcesSection post={post} refs={c.references} lang={lang} />
-
-          <BackgroundSection context={post.detail_context?.[lang]} lang={lang} />
           </div>
 
           <div className="mt-14 max-w-measure space-y-10 font-sans">
             <ShareBar title={c.title} lang={lang} />
             <FeedbackWidget postId={post.id} lang={lang} />
+            <ReportProblem postId={post.id} lang={lang} />
           </div>
         </div>
       </div>
@@ -271,6 +306,11 @@ export function ThreatDetail({ post, lang }: Props) {
 }
 
 // ---------------------------------------------------------------- parts
+
+/** Lower-case words only, for comparing list items and facts. */
+function norm(text: string): string {
+  return (text || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
 
 /** "Label: value" facts become a definition list; anything else a list. */
 function KeyFacts({ facts }: { facts: string[] }) {
@@ -317,13 +357,24 @@ function SourcesSection({
     (c) => c.url && c.url !== post.source_url && c.source !== post.source,
   );
   const references = (refs ?? []).filter((r) => r.url && r.label);
+  const ev = evidenceOf(post);
+  // A reporter's name is shown as the author; a "Sponsored by …" line is not
+  // an author, it is the disclosure below.
+  const byline = (post.source_byline ?? "").trim();
+  const author = byline && !ev.sponsored && !/sponsor/i.test(byline) ? byline : "";
 
   return (
     <section aria-labelledby="sec-sources" className={SECTION}>
       <h2 id="sec-sources" className={H2}>
         {s.detail_sources}
       </h2>
-      <p className="mt-3 font-sans text-small text-ink-faint">{s.detail_provenance(post.source)}</p>
+      <p className="mt-3 font-sans text-[1rem] text-ink-muted">{s.detail_provenance(post.source)}</p>
+
+      {ev.sponsored && (
+        <p className="mt-4 border-l-2 border-sev-medium pl-4 font-sans text-[1rem] text-ink">
+          {s.detail_sponsored(ev.sponsor)}
+        </p>
+      )}
 
       {post.source_url && (
         <div className="mt-5">
@@ -337,6 +388,11 @@ function SourcesSection({
             <span>{post.source}</span>
             <ArrowUpRight className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
           </a>
+          {author && (
+            <p className="mt-1 font-sans text-small text-ink-faint">
+              {s.detail_byline}: {author}
+            </p>
+          )}
         </div>
       )}
 
@@ -370,40 +426,6 @@ function SourcesSection({
           </ul>
         </div>
       )}
-    </section>
-  );
-}
-
-function BackgroundSection({
-  context,
-  lang,
-}: {
-  context: DetailContext | undefined;
-  lang: Locale;
-}) {
-  if (!context) return null;
-  const s = strings(lang);
-  const blocks = [
-    { label: s.context_how_it_works, body: context.how_it_works },
-    { label: s.context_who_is_affected, body: context.who_is_affected },
-    { label: s.context_attacker_motivation, body: context.attacker_motivation },
-    { label: s.context_realistic_impact, body: context.realistic_impact },
-  ].filter((b) => b.body?.trim());
-  if (blocks.length === 0) return null;
-
-  return (
-    <section aria-labelledby="sec-context" className={`${SECTION} bg-ground-raised p-5 sm:p-7`}>
-      <h2 id="sec-context" className={H2}>
-        {s.context_heading}
-      </h2>
-      <div className="mt-4 space-y-5">
-        {blocks.map((b) => (
-          <div key={b.label}>
-            <h3 className={H3}>{b.label}</h3>
-            <p className="mt-1 text-ink-muted">{b.body}</p>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }

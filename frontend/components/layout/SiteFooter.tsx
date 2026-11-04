@@ -18,7 +18,7 @@ export function SiteFooter({ lang }: { lang: Locale }) {
 
   return (
     <footer className="mt-section bg-signal text-signal-ink">
-      <div className="page pt-14 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="page pt-12 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="axis gap-y-10">
           <p className="font-serif text-body text-signal-deep max-w-[34ch]">{s.footer_note}</p>
           <div className="on-axis grid grid-cols-2 gap-x-6 gap-y-8 font-sans text-[1rem] sm:grid-cols-4">
@@ -81,8 +81,11 @@ export function SiteFooter({ lang }: { lang: Locale }) {
           </div>
         </div>
 
-        <div className="mt-16 sm:mt-24 [container-type:inline-size]" aria-hidden>
-          <Wordmark className="text-[15.2cqw] text-signal-ink" accentColor="#071318" />
+        {/* The closing brand mark: still the full wordmark on the cyan field,
+            but scaled to a signature (capped at 7.5rem) rather than a
+            full-width banner that pushed the page end off screen. */}
+        <div className="mt-10 sm:mt-14 [container-type:inline-size]" aria-hidden>
+          <Wordmark className="text-[min(9cqw,7.5rem)] text-signal-ink" accentColor="#071318" />
         </div>
         <p className="mt-4 font-sans text-small text-signal-deep">{s.footer_rights}</p>
       </div>
