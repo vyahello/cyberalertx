@@ -1,3 +1,7 @@
+# Installed as /etc/systemd/system/cyberalertx-generate.service (source of truth: this file).
+# Runs from the active immutable release via /home/cax/cyberalertx/current
+# (docs/operations/OPERATIONS.md). Matches the host as of 5 Nov 2026.
+
 # /etc/systemd/system/cyberalertx-generate.service
 #
 # AI render — one-shot helper invoked by cyberalertx-generate.timer.
@@ -35,9 +39,9 @@ Wants=cyberalertx-api.service
 Type=oneshot
 User=cax
 Group=cax
-WorkingDirectory=/home/cax/cax
+WorkingDirectory=/home/cax/cyberalertx/current
 EnvironmentFile=/home/cax/cax/.env
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 1 --use-llm
+ExecStart=/home/cax/cyberalertx/current/venv/bin/python -m cyberalertx.main generate --limit 1 --use-llm
 # 1 item/fire × hourly = up to 24 renders/day — a steady drip that keeps the
 # feed fresh while pacing the Telegram channels to one post/hour (the publish
 # timer at :15 is also capped to 1/channel). Renders go through the OAuth

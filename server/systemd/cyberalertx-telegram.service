@@ -1,5 +1,10 @@
 # /etc/systemd/system/cyberalertx-telegram.service
 #
+# HELD until Stage D is authorized: the drop-in
+# cyberalertx-telegram.service.d/stage-c-hold.conf adds
+# ConditionPathExists=/home/cax/cyberalertx/STAGE_D_AUTHORIZED (absent), and the
+# timer stays DISABLED. Never install this unit without that drop-in.
+#
 # Telegram publisher — one-shot helper invoked by cyberalertx-telegram.timer.
 #
 # Runs `publish-telegram`: selects already-AI-rendered posts above the
@@ -32,9 +37,9 @@ Wants=cyberalertx-api.service
 Type=oneshot
 User=cax
 Group=cax
-WorkingDirectory=/home/cax/cax
+WorkingDirectory=/home/cax/cyberalertx/current
 EnvironmentFile=/home/cax/cax/.env
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.main publish-telegram --limit 1
+ExecStart=/home/cax/cyberalertx/current/venv/bin/python -m cyberalertx.main publish-telegram --limit 1
 # --limit 1 = at most one message PER CHANNEL per fire. With the hourly timer
 # this paces each channel (EN/UA) to one post/hour instead of batch-flooding.
 # A couple of HTTP calls with ~1s pacing — generous ceiling before retry.

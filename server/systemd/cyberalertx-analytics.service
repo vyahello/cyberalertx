@@ -47,8 +47,8 @@ SupplementaryGroups=adm
 # files is an unprivileged operation once adm membership is granted, and a
 # nightly job that parses attacker-controlled strings (User-Agent, Referer,
 # request paths) is exactly the sort of thing that should not run as root.
-WorkingDirectory=/home/cax/cax
-ExecStart=/home/cax/cax/venv/bin/python -m server.analytics ingest
+WorkingDirectory=/home/cax/cyberalertx/current
+ExecStart=/home/cax/cyberalertx/current/venv/bin/python -m server.analytics ingest
 # No EnvironmentFile. This unit needs no secrets, and handing log analytics the
 # .env would give it the Anthropic key for no reason. Keep it that way.
 #
