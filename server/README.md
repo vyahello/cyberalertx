@@ -1,25 +1,26 @@
-# Server — deploy & debug
+# Server — host configuration and operational reference
 
-Production deployment artifacts + operational reference. Drop these
-files on a fresh Ubuntu 24.04 VPS to bring CyberAlertX up. Refer here
-for routine ops (deploy, restart, debug, backup).
-
-The narrative deploy guide is in the [main README](../README.md). This
-folder is the **quick-reference**: cmd → result, debug recipe → fix.
+Files in this folder are installed on the production host (systemd units,
+nginx, logrotate, the backup script) or run there (`server.analytics`).
+**Releases, rollback and recovery** are in
+[docs/operations/OPERATIONS.md](../docs/operations/OPERATIONS.md); this file
+is the quick reference for the units, logs, analytics and maintenance tools.
 
 ```
 server/
 ├── README.md                              this file
-├── systemd/
+├── systemd/                               source of truth for /etc/systemd/system
 │   ├── cyberalertx-api.service            FastAPI on 127.0.0.1:8000
-│   ├── cyberalertx-run.service            APScheduler ingest every 15 min
+│   ├── cyberalertx-run.service            ingest loop (every 30 min)
 │   ├── cyberalertx-frontend.service       Next.js on 127.0.0.1:3000
-│   ├── cyberalertx-generate.service       AI render one-shot (fires from timer)
-│   ├── cyberalertx-generate.timer         Every 6h, runs the generate one-shot
-│   ├── cyberalertx-telegram.service       Telegram publish one-shot (fires from timer)
-│   ├── cyberalertx-telegram.timer         10x/day (+15m), publishes to TG channels
-│   ├── cyberalertx-analytics.service      visitor-stats ingest one-shot (fires from timer)
-│   └── cyberalertx-analytics.timer        daily 03:00, pulls new log lines into the store
+│   ├── cyberalertx-generate.service       AI render one-shot (fired by its timer)
+│   ├── cyberalertx-generate.timer         hourly (:00, up to 3 min random delay)
+│   ├── cyberalertx-telegram.service       Telegram publish one-shot — HELD
+│   ├── cyberalertx-telegram.service.d/
+│   │   └── stage-c-hold.conf              ConditionPathExists=…/STAGE_D_AUTHORIZED (absent)
+│   ├── cyberalertx-telegram.timer         installed but DISABLED until Stage D
+│   ├── cyberalertx-analytics.service      visitor-stats ingest one-shot
+│   └── cyberalertx-analytics.timer        daily 03:00
 ├── nginx/
 │   ├── cyberalertx.conf                   reverse proxy + SSL
 │   └── analytics-log-format.conf          http-level JSON log_format (goes in conf.d/)
@@ -28,158 +29,58 @@ server/
 ├── analytics/                             visitor analytics package (python -m server.analytics)
 ├── scripts/
 │   └── refresh_feed.py                    editorial reset: prune store + regen AI
-├── setup.sh                               one-time VPS bootstrap (run as root)
-├── deploy.sh                              update workflow (run as app user)
-└── backup.sh                              daily data/ archive (run from cron)
+├── setup.sh                               one-time bootstrap of a FRESH host (run as root)
+└── backup.sh                              daily data/ archive (installed as /usr/local/bin/cax-backup)
 ```
 
----
-
-## Placeholders used in this document
-
-Replace these with your own values when running the commands below.
-
-| Placeholder | Meaning | Example |
-|---|---|---|
-| `<user>` | Unix user that owns the app | `deploy`, `cyberalertx`, etc. |
-| `<app-dir>` | Working directory of the app | `/home/<user>/cyberalertx` |
-| `<your-domain>` | Production domain (DNS A record) | `example.com` |
-| `<vps-ip>` | Public IP of the VPS | `203.0.113.42` |
-| `<your-fork>` | GitHub org/user hosting your fork | `acme/cyberalertx` |
-| `<fingerprint>` | 16-hex `news_items.fingerprint` of a post | `a1b2c3d4e5f60718` |
-
-## Project defaults (don't change unless you're customising)
-
-| Setting | Value |
-|---|---|
-| Python venv | `<app-dir>/venv` |
-| Frontend build | `<app-dir>/frontend/.next` |
-| API port (internal) | `127.0.0.1:8000` |
-| Frontend port (internal) | `127.0.0.1:3000` |
-| SSL cert | `/etc/ssl/cyberalertx/origin.{crt,key}` (Cloudflare Origin) |
-| Store cap | 20 items (newest by `published_at`, auto-pruned) |
-| Feed display | 15 newest + 5 trending (by danger) |
-| AI render cadence | every 6h via systemd timer (2 items per fire) |
-
-If you deploy under different paths, `sed` the relevant files before
-copying to `/etc/`. Or set `APP_USER` / `APP_DIR` env vars when running
-`setup.sh`.
+Release tooling (switch, idle-wait, O35 unit migration, the `.env` loader) is
+in [`ops/release/`](../ops/release/). Commands below that need the production
+environment run from the active release and load `.env` with
+`ops/release/loadenv.sh` — never `source .env` (an unquoted value breaks the
+shell parse and silently drops later variables). The old `server/deploy.sh` (git pull + build
+in the checkout + restart) was removed on 5 Nov 2026: production runs from
+immutable releases, and that script would have bypassed them (O33).
 
 ---
 
 ## What runs on the server
 
-Four long-lived services + one timer-driven oneshot. All under systemd,
-all logs to journald, all gated by the same `.env` at `<app-dir>/.env`.
+Every unit except analytics loads `/home/cax/cax/.env`. All of them run code
+from the active release, `/home/cax/cyberalertx/current` (analytics and
+Telegram after the O35 migration, `ops/release/o35_units.sh`). Data lives in
+`/home/cax/cax/data` (each release's `data` is a symlink to it).
 
-| Unit | Type | Cadence | What it does | Calls Anthropic? |
+| Unit | Type | Cadence | What it does | Calls the AI? |
 |---|---|---|---|---|
-| `cyberalertx-api` | simple | always-on | FastAPI on `127.0.0.1:8000`; reads JSON + PG, serves `/posts`, `/healthz`, etc. | No |
-| `cyberalertx-run` | simple | always-on | APScheduler in-process; runs ingest cycle every 15 min (RSS fetch → filter → rank → upsert). Auto-prunes store to 20 items on each upsert. | No |
-| `cyberalertx-frontend` | simple | always-on | Next.js production server on `127.0.0.1:3000`. SSR + ISR (60s window). | No |
-| `cyberalertx-generate.service` | oneshot | fires from timer | Runs `generate --limit 2 --use-llm` — top-2 newest uncached items get an AI render. | **Yes** |
-| `cyberalertx-generate.timer` | timer | every 6h (00, 06, 12, 18 UTC) | Activates the generate one-shot. Persistent (catches up after reboots). | n/a |
-| `cyberalertx-telegram.service` | oneshot | fires from timer | Runs `publish-telegram` — sends qualifying *already-rendered* posts to the EN/UA Telegram channels. Idempotent via `data/telegram_published.jsonl`. | No |
-| `cyberalertx-telegram.timer` | timer | every 6h, +15m (00:15, 06:15, 12:15, 18:15 UTC) | Activates the publish one-shot 15 min after generate, so freshly rendered posts go out same cycle. Persistent. | n/a |
+| `cyberalertx-api` | simple | always on | FastAPI on `127.0.0.1:8000`: `/posts`, `/healthz`, `/admin`. In `dual` mode reads JSON first, Postgres via the O27 key index. | No |
+| `cyberalertx-run` | simple | every 30 min | Ingest cycle: RSS fetch → relevance → categories/audience/evidence → dedup → upsert (JSON + Postgres). Failing feeds back off (`last_error` on `/admin/sources`). | No |
+| `cyberalertx-frontend` | simple | always on | Next.js production server on `127.0.0.1:3000` (SSR + ISR). | No |
+| `cyberalertx-generate.service` | oneshot | hourly timer | `generate --limit 1 --use-llm`: renders the newest uncached item in EN/UA, scores it (review mode `flag`). | **Yes** |
+| `cyberalertx-telegram.service` | oneshot | timer **disabled** | `publish-telegram`; HELD by `stage-c-hold.conf` until Stage D. | No |
+| `cyberalertx-analytics.service` | oneshot | daily 03:00 | Pulls new nginx log lines into `data/analytics.sqlite3` (idempotent). | No |
 
-Memory budget on a small VPS (~2 GB RAM):
-
-| Service | Typical RSS |
-|---|---|
-| `cyberalertx-frontend` (Next.js) | ~250-450 MB |
-| `cyberalertx-api` (uvicorn) | ~60-120 MB |
-| `cyberalertx-run` | ~55-80 MB |
-| `cyberalertx-generate.service` (transient, only while rendering) | ~80 MB peak |
-
-Watch with `systemd-cgtop` if you suspect drift.
+Watch memory with `systemd-cgtop` if you suspect drift (frontend ~250–450 MB,
+api ~60–120 MB, run ~55–80 MB).
 
 ---
 
-## Initial deploy (one-time, ~90 min)
+## Fresh host bootstrap (not for the production host)
 
-Run `setup.sh` AS ROOT on a fresh VPS:
-
-```bash
-ssh root@<vps-ip>
-curl -fsSL https://raw.githubusercontent.com/<your-fork>/cyberalertx/main/server/setup.sh -o /tmp/setup.sh
-bash /tmp/setup.sh
-```
-
-(Or `git clone` first, then `bash server/setup.sh` from the cloned repo.)
-
-`setup.sh` handles: user creation, SSH hardening, firewall, Node 20,
-Python venv, frontend build, deps install. **Doesn't touch secrets** —
-you finish manually:
-
-```bash
-# Switch to app user
-su - <user>
-cd <app-dir>
-
-# 1. Create .env (manual paste from your dev .env)
-nano .env
-chmod 600 .env
-
-# 2. Postgres
-python -m cyberalertx.tools.pg_migrate
-# Optional — sync historical data from dev machine
-# Run THIS from your dev machine, not the VPS:
-#   rsync -avz data/ <user>@<vps-ip>:<app-dir>/data/
-python -m cyberalertx.tools.import_to_postgres
-python -m cyberalertx.tools.import_ai_cache_to_postgres
-python -m cyberalertx.tools.compare_storage   # exit 0 = OK
-
-# 3. systemd units (services + timer)
-sudo cp <app-dir>/server/systemd/*.service /etc/systemd/system/
-sudo cp <app-dir>/server/systemd/*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now cyberalertx-api cyberalertx-run cyberalertx-frontend
-# AI auto-render every 6h:
-sudo systemctl enable --now cyberalertx-generate.timer
-
-# 4. nginx
-sudo cp <app-dir>/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx
-sudo ln -sf /etc/nginx/sites-available/cyberalertx /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-
-# 5. SSL — Cloudflare Origin Certificate (paste from CF dashboard)
-sudo mkdir -p /etc/ssl/cyberalertx
-sudo nano /etc/ssl/cyberalertx/origin.crt
-sudo nano /etc/ssl/cyberalertx/origin.key
-sudo chmod 600 /etc/ssl/cyberalertx/origin.key
-sudo systemctl reload nginx
-
-# 6. Daily backup cron
-sudo cp <app-dir>/server/backup.sh /usr/local/bin/<user>-backup
-sudo chmod +x /usr/local/bin/<user>-backup
-echo "0 3 * * * <user> /usr/local/bin/<user>-backup" | sudo tee /etc/cron.d/<user>-backup
-
-# Verify
-curl https://<your-domain>/healthz
-```
+`setup.sh` (as root, on a new Ubuntu 24.04 box) creates the app user, hardens
+SSH, sets up the firewall, installs Python, Node 20, nginx and git, and clones
+the repository to `/home/<user>/cax`. It does not build or start anything.
+Then follow [docs/operations/OPERATIONS.md](../docs/operations/OPERATIONS.md):
+`.env` (mode 600), build the first release, migrations from that release,
+install `server/systemd/*` (with the Telegram drop-in), nginx, the Cloudflare
+origin certificate and the backup cron (`0 3 * * * cax /usr/local/bin/cax-backup`).
 
 ---
 
-## Update workflow
+## Updating production
 
-After pushing code to git:
-
-```bash
-ssh <user>@<your-domain>
-cd <app-dir>
-./server/deploy.sh
-```
-
-`deploy.sh` does:
-1. `git pull`
-2. `pip install -r requirements.txt`
-3. `npm ci && npm run build`
-4. `systemctl restart cyberalertx-api cyberalertx-frontend`
-
-(`cyberalertx-run` keeps cycling — its code is re-loaded automatically
-within minutes. If you specifically changed ingest / pipeline code,
-add `cyberalertx-run` to the restart list inside deploy.sh.)
+Never `git pull` and restart in the checkout. Build a new immutable release
+from a reviewed commit and switch to it:
+[docs/operations/OPERATIONS.md](../docs/operations/OPERATIONS.md) §3–§4.
 
 ---
 
@@ -188,10 +89,10 @@ add `cyberalertx-run` to the restart list inside deploy.sh.)
 The AI layer is gated by `--use-llm`. The API server and the ingest
 scheduler **never** call Anthropic. Only two paths trigger Anthropic:
 
-### 1. Automatic — `cyberalertx-generate.timer` (every 6h)
+### 1. Automatic — `cyberalertx-generate.timer` (hourly)
 
-Fires `generate --limit 2 --use-llm`. Idempotent: if the top-2 newest
-items are already cached, the fire is a no-op (cache hits skip, zero
+Fires `generate --limit 1 --use-llm`. Idempotent: if the newest
+item is already cached, the fire is a no-op (cache hits skip, zero
 API calls). Real cost is bounded by NEW items arriving since the last
 fire — i.e., by news-cycle volume, not by timer frequency.
 
@@ -216,16 +117,16 @@ sudo systemctl disable --now cyberalertx-generate.timer
 sudo systemctl enable --now  cyberalertx-generate.timer
 ```
 
-Tightening the cadence: edit `cyberalertx-generate.timer` →
-`OnCalendar=*-*-* 00,04,08,12,16,20:00:00` for every 4h, or change
-`--limit 2` → `--limit 3` in `cyberalertx-generate.service`. Then
-`sudo systemctl daemon-reload && sudo systemctl restart cyberalertx-generate.timer`.
+Changing the cadence or batch size is a unit change: edit
+`server/systemd/cyberalertx-generate.{timer,service}` in the repository, review,
+install the file, then `sudo systemctl daemon-reload && sudo systemctl restart
+cyberalertx-generate.timer`. Each extra render is an AI call (cost).
 
 ### 2. Manual — ad-hoc render or batch refresh
 
 ```bash
 ssh <user>@<your-domain>
-cd <app-dir> && source venv/bin/activate
+cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
 
 # Preview first — shows cost surface, no API calls
 python -m cyberalertx.main generate --limit 5 --use-llm --dry-run
@@ -244,7 +145,7 @@ shows up in the feed. Remove it from every store with one command:
 
 ```bash
 ssh <user>@<your-domain>
-cd <app-dir> && source venv/bin/activate
+cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
 
 # By URL (paste from browser)
 python -m cyberalertx.tools.delete_post https://<your-domain>/ua/threat/<fingerprint>
@@ -274,7 +175,7 @@ style. Destructive — prunes store and wipes AI cache.
 
 ```bash
 ssh <user>@<your-domain>
-cd <app-dir> && source venv/bin/activate
+cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
 
 # Dry-run — show what would change
 python -m server.scripts.refresh_feed --dry-run
@@ -329,20 +230,15 @@ translation) **plus** Ukrainian-source items — same asymmetric rule as the sit
    ```
 3. **Preview before going live** (no messages sent):
    ```bash
-   cd <app-dir> && source venv/bin/activate
+   cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
    python -m cyberalertx.main publish-telegram --dry-run
    # narrow it: --language en   |   cap it: --limit 2
    ```
-4. **Send for real once** to confirm formatting in-channel:
-   ```bash
-   python -m cyberalertx.main publish-telegram --limit 1
-   ```
-5. **Install + enable the timer:**
-   ```bash
-   sudo cp <app-dir>/server/systemd/cyberalertx-telegram.* /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now cyberalertx-telegram.timer
-   ```
+4. **Going live is Stage D, a separately authorized step.** Until then the
+   unit is HELD: `cyberalertx-telegram.service.d/stage-c-hold.conf` requires
+   `/home/cax/cyberalertx/STAGE_D_AUTHORIZED` (absent) and the timer stays
+   disabled. Do not send, create the marker or enable the timer without that
+   authorization (docs/release/STAGE_C_RUNBOOK.md C10–C12).
 
 ### Control & inspect
 
@@ -394,10 +290,8 @@ grep NEXT_PUBLIC_SITE_URL <app-dir>/.env <app-dir>/frontend/.env* 2>/dev/null
 ### Deploy an OG / metadata change (bust all three caches)
 
 ```bash
-# 1. Rebuild — OG tags are emitted at build/render time, not runtime.
-cd <app-dir> && git pull
-cd frontend && npm run build
-sudo systemctl restart cyberalertx-frontend
+# 1. Ship it as a new release — OG tags are emitted at build/render time.
+#    docs/operations/OPERATIONS.md §3–§4 (build, verify, switch).
 
 # 2. Confirm the origin emits the right tags (bypasses every cache):
 curl -s https://<your-domain>/ua/threat/<fingerprint> \
@@ -634,7 +528,7 @@ and empty (did not traverse Cloudflare, or the toggle is off).
 ### Daily use
 
 ```bash
-cd <app-dir> && source venv/bin/activate
+cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
 
 # Nightly, from the timer: pull every new log line into the store.
 python -m server.analytics ingest
@@ -905,7 +799,7 @@ dig <your-domain> +short                           # should be your CDN IPs
 dig <your-domain> NS +short                        # should match your DNS provider
 
 # JSON ↔ PG parity
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.tools.compare_storage'
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m cyberalertx.tools.compare_storage'
 ```
 
 ---
@@ -959,14 +853,14 @@ Expected: 3-4 (one every ~15 min). If `0` → APScheduler is dead
 
 ```bash
 sudo systemctl list-timers --no-pager | grep generate
-# Shows NEXT and LAST. LAST should be within the last 6h.
+# Shows NEXT and LAST. LAST should be within the last hour.
 
 sudo journalctl -u cyberalertx-generate.service --since "24h ago" \
   | grep -E "Started|generated_by"
 ```
 
-Expected: 3-4 entries per day (every 6h cadence). Each entry should
-end with `generated_by: anthropic:claude-haiku-...=N` for N>=0.
+Expected: about 24 entries per day (hourly). Each entry ends with a
+`generated_by: …=N` line (N = renders made; 0 when nothing new).
 
 If `N=0` consistently — cache is already warm (fine). If timer log
 has `failed` / `timeout` → check `.env` ANTHROPIC_API_KEY and rate
@@ -1002,7 +896,7 @@ cyberalertx-frontend` (cheap, no user impact past one ISR window).
 ### 7. JSON ↔ PG drift
 
 ```bash
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
   && python -m cyberalertx.tools.compare_storage'
 ```
 
@@ -1025,7 +919,7 @@ Sonnet/Opus by accident).
 ### 9. Audience numbers are still plausible
 
 ```bash
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
   && python -m server.analytics report --since 7d'
 ```
 
@@ -1088,7 +982,7 @@ Postgres unreachable. Network blip → JSON path stays authoritative,
 PG catches up next render. If persistent: check Supabase status,
 verify `CYBERALERTX_PG_URL` in `.env`, test:
 ```bash
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate && python -c "from cyberalertx.storage.pg.engine import get_engine; from sqlalchemy import text; print(get_engine().connect().execute(text(\"SELECT 1\")).scalar())"'
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && python -c "from cyberalertx.storage.pg.engine import get_engine; from sqlalchemy import text; print(get_engine().connect().execute(text(\"SELECT 1\")).scalar())"'
 ```
 
 ### RAM pressure on a small VPS (~2GB)
@@ -1117,7 +1011,7 @@ echo '/swap none swap sw 0 0' | sudo tee -a /etc/fstab
 Stale cache entry from before the title-language validator was added.
 Delete it from PG, regenerate:
 ```bash
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate && python -c "
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && python -c "
 from sqlalchemy import text
 from cyberalertx.storage.pg.engine import get_engine
 with get_engine().begin() as c:
@@ -1167,7 +1061,7 @@ the prune sort and the cap come from `cyberalertx/config.py` +
 
 ```bash
 # Verify the running config picked up max_items=20
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
   && python -c "from cyberalertx.config import SETTINGS; print(SETTINGS.max_items_retained)"'
 
 # If it prints 5000 — old code is loaded. git pull + restart:
@@ -1175,7 +1069,7 @@ cd <app-dir> && git pull
 sudo systemctl restart cyberalertx-run cyberalertx-api
 
 # Force a prune right now:
-sudo -u <user> bash -c 'cd <app-dir> && source venv/bin/activate \
+sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
   && python -m server.scripts.refresh_feed'
 ```
 
@@ -1215,14 +1109,14 @@ Postgres data lives on Supabase — restore via their dashboard
 
 | Want to | Run on dev machine |
 |---|---|
-| Update prod after code change | `git push && ssh <user>@<your-domain> 'cd <app-dir> && ./server/deploy.sh'` |
+| Update prod after code change | Build and switch a release: [docs/operations/OPERATIONS.md](../docs/operations/OPERATIONS.md) (never pull + restart in the checkout) |
 | Trigger AI render | `ssh <user>@<your-domain> 'sudo systemctl start cyberalertx-generate.service'` |
-| Manual generate with custom limit | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.main generate --limit 5 --use-llm'` |
-| Delete a post that slipped through | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
-| Editorial reset (after prompt change) | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.scripts.refresh_feed --regen'` |
+| Manual generate with custom limit | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m cyberalertx.main generate --limit 5 --use-llm'` |
+| Delete a post that slipped through | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
+| Editorial reset (after prompt change) | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m server.scripts.refresh_feed --regen'` |
 | Pull prod logs | `ssh <user>@<your-domain> 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
-| Pull the audience report | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.analytics report --since 7d'` |
-| Check the analytics store | `ssh <user>@<your-domain> 'cd <app-dir> && source venv/bin/activate && python -m server.analytics status'` |
+| Pull the audience report | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m server.analytics report --since 7d'` |
+| Check the analytics store | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m server.analytics status'` |
 | Check AI timer next-fire | `ssh <user>@<your-domain> 'systemctl list-timers --no-pager \| grep generate'` |
 | Pull prod data backup | `scp <user>@<your-domain>:~/backups/data-*.tar.gz ~/Downloads/` |
 | Sync local → prod data | `rsync -avz data/ <user>@<your-domain>:<app-dir>/data/` |
@@ -1251,8 +1145,7 @@ body with `"ok": true`. Alert if 3 consecutive failures.
 | Supabase free tier | $0 (500MB DB, 2GB transfer) |
 | Cloudflare free tier | $0 (unlimited bandwidth, basic DDoS) |
 | Cloudflare Worker (RSS proxy) | $0 (free tier covers ~50k req/day) |
-| Anthropic Haiku — auto-render every 6h (test cadence) | ~$1-3 (~5-15 new items/day × ~$0.013) |
-| Anthropic Haiku — every 4h `--limit 3` (production cadence) | ~$3-6 |
+| AI renders — hourly, `--limit 1` (production cadence) | bounded by new items per day; see `/admin/usage` |
 | Domain (varies by TLD/registrar) | ~$1-2 amortized |
 | **Total at test cadence** | **~$8-12/mo** |
 | **Total at production cadence** | **~$10-15/mo** |
