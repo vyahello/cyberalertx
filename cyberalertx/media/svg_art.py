@@ -540,6 +540,44 @@ def ov_analysis(cv: Canvas, f: tuple[float, float]) -> None:
     cv.dot(f, 6, CYAN_SOFT)
 
 
+def _visitor_phone(cv: Canvas, c: tuple[float, float]) -> tuple[float, float]:
+    x, y = c[0] - 23, c[1] - 42
+    cv.add(f'<rect x="{_f(x)}" y="{_f(y)}" width="46" height="84" rx="9" fill="{FACE_TOP}" '
+           f'stroke="{EDGE}" stroke-width="1.5"/>')
+    cv.add(f'<rect x="{_f(x + 5)}" y="{_f(y + 9)}" width="36" height="62" rx="4" fill="url(#screen)" opacity=".9"/>')
+    return (c[0], c[1] - 4)
+
+
+def _visitor_laptop(cv: Canvas, c: tuple[float, float]) -> tuple[float, float]:
+    x, y = c[0] - 58, c[1] - 46
+    cv.add(f'<rect x="{_f(x)}" y="{_f(y)}" width="116" height="74" rx="6" fill="{FACE_TOP}" '
+           f'stroke="{EDGE}" stroke-width="1.5"/>')
+    cv.add(f'<rect x="{_f(x + 6)}" y="{_f(y + 6)}" width="104" height="60" rx="3" fill="url(#screen)" opacity=".9"/>')
+    base = [(x - 12, y + 80), (x + 128, y + 80), (x + 116, y + 74), (x, y + 74)]
+    cv.add(f'<polygon points="{_pts(base)}" fill="{FACE_LEFT}" stroke="{EDGE}" stroke-width="1"/>')
+    return (c[0], c[1] - 12)
+
+
+def ov_script_injection(cv: Canvas, f: tuple[float, float]) -> None:
+    """A tampered third-party script inside the page, carried out to the
+    devices of the people who visit it."""
+    mod = (f[0] + cv.rng.uniform(80, 130), f[1] - cv.rng.uniform(25, 55))
+    hexa = [(mod[0] + 20 * math.cos(math.radians(a)), mod[1] + 20 * math.sin(math.radians(a)))
+            for a in range(30, 390, 60)]
+    cv.glow(mod, 58, 0.4)
+    cv.add(f'<polygon points="{_pts(hexa)}" fill="{INK}" stroke="{CYAN}" stroke-width="2.5"/>')
+    cv.dot(mod, 5, CYAN_SOFT)
+    n = cv.rng.randint(3, 4)
+    ys = [cv.rng.uniform(250, 290) + i * (430 / n) for i in range(n)]
+    for i, y in enumerate(ys):
+        x = cv.rng.uniform(1100, 1190)          # inside the centre crop used for thumbnails
+        screen = _visitor_laptop(cv, (x, y)) if i % 2 else _visitor_phone(cv, (x, y))
+        ctrl = ((mod[0] + screen[0]) / 2, min(mod[1], screen[1]) - cv.rng.uniform(20, 90))
+        cv.curve(mod, ctrl, screen, CYAN, 2.4, 0.85, "7 9")
+        cv.glow(screen, 26, 0.35)
+        cv.dot(screen, 5, CYAN)
+
+
 def ov_campaign_waves(cv: Canvas, origin: tuple[float, float]) -> None:
     for i, r in enumerate((80, 150, 230, 320)):
         cv.ring(origin, r, CYAN, 1.2, 0.28 - i * 0.06)
@@ -549,7 +587,7 @@ OVERLAYS: dict[str, Callable[[Canvas, tuple[float, float]], None]] = {
     "exploited": ov_exploited, "exposed": ov_exposed, "ransomware": ov_ransomware,
     "breach_confirmed": ov_breach_confirmed, "breach_unconfirmed": ov_breach_unconfirmed,
     "phishing": ov_phishing, "scam": ov_scam, "malware": ov_malware, "botnet": ov_botnet,
-    "disrupted": ov_disrupted, "analysis": ov_analysis,
+    "disrupted": ov_disrupted, "analysis": ov_analysis, "script_injection": ov_script_injection,
 }
 
 

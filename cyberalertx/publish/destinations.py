@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .config import TelegramSettings
-from .format import deep_link, notify, quality_problem, render_caption, render_message
+from .format import deep_link, format_problem, notify, quality_problem, render_buttons, render_caption
 from .ledger import PublishLedger
 from .telegram import TelegramError
 
@@ -201,7 +201,6 @@ class TelegramDestination:
         if self.settings.require_illustration and not illustration:
             raise DeliveryError("waiting for the story's illustration", category=WAITING)
         try:
-            text = render_message(payload, locale=job.locale, base_url=base)
             # The canonical illustration — the same asset the website shows —
             # as its 1200x675 Telegram derivative. Else (only when the
             # requirement is off) the branded card, if enabled.
@@ -209,19 +208,25 @@ class TelegramDestination:
                 photo = f"{base}/media/{illustration}/telegram.png"
             else:
                 photo = card_for(payload, job.locale, "telegram") if self.settings.attach_images else ""
-            caption = render_caption(payload, locale=job.locale, base_url=base) if photo else ""
+            # An update marker counts towards the caption limit, so it is
+            # passed in rather than prepended afterwards.
+            prefix = _UPDATE_PREFIX.get(job.locale, _UPDATE_PREFIX["en"]) \
+                if job.publication_type == "breaking_update" else ""
+            # Photo caption and text fallback are the same post.
+            text = render_caption(payload, locale=job.locale, base_url=base, prefix=prefix)
+            caption = text if photo else ""
+            buttons = render_buttons(payload, locale=job.locale, base_url=base)
         except (KeyError, ValueError) as exc:
             raise DeliveryError(f"format failed: {exc}", category="invalid_content") from exc
-        if job.publication_type == "breaking_update":
-            prefix = _UPDATE_PREFIX.get(job.locale, _UPDATE_PREFIX["en"])
-            text = f"{prefix}\n\n{text}"
-            caption = f"{prefix}\n\n{caption}" if caption else ""
+        problem = format_problem(caption or text)
+        if problem:
+            raise DeliveryError(f"format check: {problem}", category="invalid_content")
         return Prepared(
             destination="telegram", locale=job.locale, target=chat,
             url=deep_link(base, job.locale, str(payload["id"])), text=text, media_url=photo,
             content_hash=edition_hash(payload, job.locale),
             members=list(payload.get("_story_members") or [payload["id"]]),
-            extra={"caption": caption, "silent": not notify(payload),
+            extra={"caption": caption, "buttons": buttons, "silent": not notify(payload),
                    "publication_type": job.publication_type,
                    "photo_required": bool(self.settings.require_illustration)},
         )
@@ -242,7 +247,8 @@ class TelegramDestination:
             on_sending()
             try:
                 message_id = client.send_photo(prepared.target, prepared.media_url,
-                                               prepared.extra["caption"], disable_notification=silent)
+                                               prepared.extra["caption"], disable_notification=silent,
+                                               reply_markup=prepared.extra.get("buttons"))
                 media_used = prepared.media_url
             except TelegramError as exc:
                 cat = exc.category
@@ -257,8 +263,11 @@ class TelegramDestination:
         if message_id is None:
             on_sending()
             try:
-                message_id = client.send_message(prepared.target, prepared.text, preview_url=prepared.url,
-                                                 disable_notification=silent)
+                # The photo-less fallback: no link preview (the button carries
+                # the article link), so the post never shows a second image.
+                message_id = client.send_message(prepared.target, prepared.text, preview_url=None,
+                                                 disable_notification=silent,
+                                                 reply_markup=prepared.extra.get("buttons"))
             except TelegramError as exc:
                 raise DeliveryError(str(exc), category=exc.category, retry_after=exc.retry_after) from exc
         PublishLedger(self.ledger_path).record(fingerprint=prepared.url.rsplit("/", 1)[-1],

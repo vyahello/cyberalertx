@@ -203,14 +203,13 @@ illustration; it spends no attempt and expires with the 48 h window. Set
 `CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION=0` to fall back to the edition card
 (`CYBERALERTX_TELEGRAM_ATTACH_IMAGES=1`) or text.
 
-The caption is the usual message limited to Telegram's 1024 characters
-(counted the way Telegram counts them). Blocks are dropped in this order: the
-detail paragraph, the action, the status lines, "why it matters". As a last
-resort the summary is trimmed. Headline, source and read-more link are always
-kept. If Telegram refuses a required photo, the post is retried later; it is
-never sent as text instead. Errors that affect the whole channel (401/403,
-chat not found) stop the channel. The message layout is described in
-[PUBLICATION_ENGINE.md](../publish/PUBLICATION_ENGINE.md).
+The caption targets 700–900 characters and never exceeds Telegram's 1024
+(counted the way Telegram counts them). Optional sections are added by
+priority and skipped whole when they do not fit; no sentence is cut. The
+article link is an inline button. If Telegram refuses a required photo, the
+post is retried later; it is never sent as text instead. Errors that affect
+the whole channel (401/403, chat not found) stop the channel. The format is
+described in [editorial/TELEGRAM_FORMAT.md](../editorial/TELEGRAM_FORMAT.md).
 
 ## Threads
 

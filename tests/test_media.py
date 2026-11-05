@@ -596,9 +596,11 @@ def test_backfill_plan_counts_without_writing(monkeypatch: pytest.MonkeyPatch, t
     assert plan["with_validated_illustration"] == 1 and plan["to_generate"] == 2      # resumable
 
 
-def test_long_caption_is_trimmed_and_keeps_headline_source_and_link() -> None:
+def test_long_caption_fits_without_cutting_a_sentence() -> None:
     long = "Атакувальники використовують ваду в сервері Widget, щоб захопити облікові записи. " * 30
     cap = render_caption(tg_payload("0123456789abcdef", summary=long, ua=True), locale="ua",
                          base_url="https://cyberalertx.com")
     assert visible_length(cap) <= CAPTION_LIMIT
-    assert cap.startswith("<b>Widget flaw exploited</b>") and "Детальніше: <a href=" in cap and "…" in cap
+    assert cap.startswith("🧩 <b>Widget flaw exploited</b>") and "Джерело:" in cap and "…" not in cap
+    # Only whole sentences: the TL;DR is the first one, complete.
+    assert "\n\nАтакувальники використовують ваду в сервері Widget, щоб захопити облікові записи.\n\n" in cap

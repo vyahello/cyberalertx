@@ -230,7 +230,7 @@ due job → edition rendered and approved?  else wait (no attempt spent)
 story illustration validated?  else wait (no attempt spent)
    │
    ▼
-format caption (headline, summary, why it matters, status, actions, source, read more)
+format caption (emoji headline, TL;DR, optional sections, severity, source) + article button
    │
    ▼
 Bot API sendPhoto(https://cyberalertx.com/media/{asset}/telegram.png, caption)

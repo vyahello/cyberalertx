@@ -174,12 +174,25 @@ _ACTION = {
                "many devices directed by one hidden node", "багато пристроїв під керуванням одного прихованого вузла"),
     "disrupted": ("dismantled infrastructure: severed links and powered-down nodes",
                   "dismantled attacker infrastructure", "демонтована інфраструктура зловмисників"),
+    "script_injection": ("a tampered third-party script inside a website, carried out to visitors' phones and laptops",
+                         "a tampered third-party script spreading from a website to visitors' devices",
+                         "підмінений сторонній скрипт, що поширюється із сайту на пристрої відвідувачів"),
     "analysis": ("a calm analytical cross-section revealing how the mechanism works",
                  "an analytical cross-section of the mechanism", "аналітичний розріз механізму"),
 }
 
 
-def _event(category: str, ev: Any) -> str:
+#: The SOURCE describes a compromised script served by websites to their
+#: visitors (analytics, third-party or skimming code, watering holes). Web
+#: context is required: "a malicious script" alone can be anything.
+_SCRIPT_INJECTION = re.compile(
+    r"\b(?:analytics (?:script|code)|third[- ]party (?:java)?scripts?|web(?:site)? scripts?|javascript|"
+    r"watering[- ]hole|skimm\w*|Plerdy)\b|скрипт\w* аналітик\w*|аналітичн\w* (?:код|скрипт)\w*|вебаналітик\w*|"
+    r"водопо\w*",
+    re.IGNORECASE)
+
+
+def _event(category: str, ev: Any, source_text: str = "") -> str:
     exploitation = str(getattr(ev, "exploitation", "") or "")
     compromise = str(getattr(ev, "compromise", "") or "")
     campaign = str(getattr(ev, "campaign", "") or "")
@@ -187,6 +200,8 @@ def _event(category: str, ev: Any) -> str:
         return "disrupted"
     if category == "ransomware":
         return "ransomware"
+    if _SCRIPT_INJECTION.search(source_text):
+        return "script_injection"
     if category in ("breach", "data leak"):
         return "breach_confirmed" if compromise == "confirmed" else "breach_unconfirmed"
     if category in ("phishing", "social engineering"):
@@ -214,10 +229,12 @@ def build_prompt(story: Any, evaluation: Any) -> IllustrationPrompt:
     """Article-specific brief from verified story fields only (see above)."""
     from ..pipeline.evidence import assess
 
+    from ..pipeline.evidence import _source_text
+
     anchor = story.anchor
     ev = assess(anchor)
     category = str(anchor.category or "other").lower()
-    event = _event(category, ev)
+    event = _event(category, ev, _source_text(anchor))
     keys = [str(p).lower() for p in (getattr(anchor, "affected_platforms", None) or [])]
     keys += [str(a) for a in (getattr(anchor, "audience_targets", None) or [])]
     scenes: list[tuple[str, str]] = []
@@ -311,6 +328,9 @@ def visual_brief(story: Any) -> tuple[Any, dict[str, str], str]:
         mapped = _SCENE_KIND.get(k)
         if mapped and mapped not in scenes:
             scenes.append(mapped)
+    if prompt.inputs["event"] == "script_injection":
+        # The script lives in a website: draw the site, the devices come from the overlay.
+        scenes = ["web"] + [s for s in scenes if s != "web"]
     ev = assess(anchor)
     brief = VisualBrief(event=prompt.inputs["event"], scenes=tuple(scenes[:2]) or ("core",),
                         seed=f"{story.key}:{RENDERER_VERSION}",
