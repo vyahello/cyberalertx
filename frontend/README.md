@@ -15,7 +15,7 @@ python -m cyberalertx.main serve   # API on http://localhost:8000
 # Terminal 2 — the Next.js dev server
 cd frontend
 cp .env.local.example .env.local   # sets API_URL=http://localhost:8000
-npm install
+npm ci                             # exact versions from package-lock.json
 npm run dev                        # http://localhost:3000
 ```
 

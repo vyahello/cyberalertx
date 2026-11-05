@@ -1,5 +1,7 @@
 # Phase 5 — Threads integration: final report
 
+> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+
 Everything was done in `/home/cax/cax-redesign` (branch `redesign/cti-platform`).
 
 - Nothing was deployed, committed or pushed.

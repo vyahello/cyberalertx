@@ -1,5 +1,7 @@
 # Stage C deployment report: 4 November 2026 (EET)
 
+> **Status: historical record** of the 4 Nov 2026 Stage C cutover. `c7_rollback.sh` now refuses to run; rollback is [OPERATIONS.md §4](../operations/OPERATIONS.md).
+
 **Result:** the redesigned CyberAlertX website and backend are live at
 https://cyberalertx.com. They run from a fresh, verified release of commit
 `4fa7a63`. Production data is preserved. Telegram and Threads publishing stay

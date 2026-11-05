@@ -1,5 +1,7 @@
 # Phase 4 — Publication Engine: final report
 
+> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+
 Built and tested in `/home/cax/cax-redesign` (branch `redesign/cti-platform`)
 only. Nothing was deployed, committed or pushed. **No Telegram message was
 sent**; every Bot API call ran against `httpx.MockTransport` with fake channel

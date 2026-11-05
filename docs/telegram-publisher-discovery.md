@@ -1,5 +1,7 @@
 # Telegram Publisher — Discovery Report
 
+> **Historical record.** The publisher described here was built later and is held in production; index: [docs/README.md](README.md).
+
 **Status:** discovery only. No implementation code written. This documents
 the codebase as it exists today so we can plan a Telegram publishing module
 that fits the existing architecture instead of fighting it.

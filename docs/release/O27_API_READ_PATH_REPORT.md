@@ -1,5 +1,7 @@
 # O27: API read path in `dual` mode
 
+> **Status: historical record; deployed 5 Nov 2026** in `b509775` ([release record](RELEASE_2026-11-05.md)). Current behaviour: [OPERATIONS.md §5](../operations/OPERATIONS.md).
+
 Branch `feature/o27-api-latency` (from `main` `d98086f`). **Not deployed.** The
 production API still runs with the Stage C JSON-reads drop-in
 (`stage-c-json-reads.conf`), which stays in place until the release with this
@@ -199,4 +201,4 @@ CPU-bound rendering, the same in both backends.
    `PG key index loaded` line and `/ua` timings; the frontend journal must show
    no "This operation was aborted".
 4. Rollback of step 3: `sudo bash /home/cax/stagec-tools/c8_api_json_reads.sh apply` (re-applies the drop-in). Rollback
-   of step 1: `release_rollback.sh <previous release>`.
+   of step 1: `release_switch.sh <previous release>` (then `release_rollback.sh`).

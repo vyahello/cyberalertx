@@ -1,5 +1,7 @@
 # Phase 3 — Media Engine: final report
 
+> **Historical record.** Paths such as `/home/cax/cax-redesign` predate the release layout; see [docs/README.md](../README.md) for current documents.
+
 **Status:** branded cards are live in the worktree for every story edition.
 Illustrations are **implemented but not operational**. No image provider is
 configured, so no real image has been generated. Everything was built and

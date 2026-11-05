@@ -1,5 +1,7 @@
 # O28 reconciliation runbook: JSON review state → Postgres
 
+> **Status: current reference procedure** for any future JSON → Postgres re-sync. Executed once on 5 Nov 2026 ([release record](RELEASE_2026-11-05.md)); the numbers quoted below are from the isolated rehearsal.
+
 > **Not executed.** Administrator steps for the release that reverts the O27
 > hotfix (API back to `dual`). Run them in this order, on the production host,
 > after the release containing the O27 read-path fix is live and before

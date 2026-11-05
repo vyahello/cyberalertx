@@ -1,5 +1,7 @@
 # Deployment runbook (release directories)
 
+> **Status: historical (superseded).** Written for the first release (Phase 7, built from the old `cax-redesign` worktree). Current build/switch/rollback procedure: [OPERATIONS.md](../operations/OPERATIONS.md).
+
 > **Nothing in this file has been executed.** Every command is for the
 > administrator, run only after the stage is explicitly authorized.
 > `sudo` steps change root-owned systemd units.
@@ -32,7 +34,7 @@
   current -> releases/20261105-1000-<sha>    atomic symlink switch
 /home/cax/cax/.env               stays the EnvironmentFile (shared config)
 /home/cax/cax                    canonical git checkout of main (since 4 Nov 2026); NOT a rollback target
-                                 (rollback = release_rollback.sh <previous-release>, ROLLBACK_RUNBOOK §4)
+                                 (rollback = release_switch.sh <previous-release>, OPERATIONS.md §4)
 ```
 
 `config.PROJECT_ROOT` uses `Path(__file__).resolve()`, so code imported through

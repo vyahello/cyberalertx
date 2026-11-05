@@ -1,5 +1,7 @@
 # Production readiness — Phase 7
 
+> **Status: historical record** of the Phase 7 readiness review (4 Nov 2026). Open items moved to [OPEN_ISSUES.md](OPEN_ISSUES.md).
+
 **Date:** 4 Nov 2026
 **Worktree:** `/home/cax/cax-redesign`, branch `redesign/cti-platform`, HEAD
 `73257f0` plus uncommitted Phase 1–7 work (preserved).
