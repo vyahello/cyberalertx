@@ -446,7 +446,7 @@ def test_six_destinations_with_failure_isolation_and_idempotency(world: dict[str
     assert list(st.values()).count("retrying") == 1 and list(st.values()).count("published") == 5   # one 502 isolated
     # locale routing: every message/post went to its own language's channel/profile
     for b in bot.sent("sendMessage"):
-        assert ("/ua/threat/" in b["text"]) == (b["chat_id"] == "@fake_ua")
+        assert ("/ua/threat/" in b["reply_markup"]["inline_keyboard"][0][0]["url"]) == (b["chat_id"] == "@fake_ua")
     for p in api.posts:
         assert ("/ua/threat/" in p["text"]) == (p["user"] == "222")
     # idempotency: planning and running again sends nothing new; the retry finishes once

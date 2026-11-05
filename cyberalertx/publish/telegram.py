@@ -159,6 +159,7 @@ class TelegramPublisher:
         parse_mode: str = "HTML",
         preview_url: str | None = None,
         disable_notification: bool = False,
+        reply_markup: dict[str, Any] | None = None,
     ) -> int:
         """POST sendMessage. Returns the new message_id.
 
@@ -192,6 +193,8 @@ class TelegramPublisher:
             }
         else:
             payload["link_preview_options"] = {"is_disabled": True}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         return self._post("sendMessage", payload)
 
     def send_photo(
@@ -202,6 +205,7 @@ class TelegramPublisher:
         *,
         parse_mode: str = "HTML",
         disable_notification: bool = False,
+        reply_markup: dict[str, Any] | None = None,
     ) -> int:
         """POST sendPhoto with a public HTTPS image URL. Returns the message_id.
 
@@ -220,6 +224,9 @@ class TelegramPublisher:
             "parse_mode": parse_mode,
             "disable_notification": disable_notification,
         }
+        if reply_markup:
+            # The inline keyboard: one URL button to the full article.
+            payload["reply_markup"] = reply_markup
         return self._post("sendPhoto", payload)
 
     def _post(self, method: str, payload: dict[str, Any]) -> int:

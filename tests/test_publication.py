@@ -237,7 +237,10 @@ def test_all_four_destinations_deliver_with_localized_content(tmp_path: Path) ->
     assert len(rep.published) == 4 and set(statuses(store).values()) == {"published"}
     msgs = {b["chat_id"]: b["text"] for b in bot.sent("sendMessage")}
     assert "Widget flaw Story 1" in msgs["@fake_en"] and "Ваду у Widget Story 1" in msgs["@fake_ua"]
-    assert f"{BASE}/ua/threat/{it.fingerprint}" in msgs["@fake_ua"]
+    buttons = {b["chat_id"]: b["reply_markup"]["inline_keyboard"][0][0] for b in bot.sent("sendMessage")}
+    assert buttons["@fake_ua"] == {"text": "📖 Читати повний розбір", "url": f"{BASE}/ua/threat/{it.fingerprint}"}
+    assert buttons["@fake_en"]["url"] == f"{BASE}/en/threat/{it.fingerprint}"
+    assert all(b["link_preview_options"] == {"is_disabled": True} for b in bot.sent("sendMessage"))
     web = store.get("s:0001:ua:website:initial")
     assert web and web.published_url == f"{BASE}/ua/threat/{it.fingerprint}" and web.external_id == it.fingerprint
     assert web.media_url.startswith(f"{BASE}/ua/threat/{it.fingerprint}/card/og.png?v=") and web.content_hash
@@ -504,7 +507,7 @@ def test_breaking_goes_first_and_top10_waits_for_the_kyiv_edition(tmp_path: Path
     t = jobs["s:0002:en:telegram:initial"]
     assert t.priority == 60 and t.scheduled_at == "2026-11-03T07:00:00+00:00"   # 09:00 Kyiv
     go(store, src, d, now=now, limit=1)
-    assert bot.sent()[0]["text"].startswith("<b>Widget flaw Story 3")        # breaking first, under a cap of 1
+    assert bot.sent()[0]["text"].startswith("🧩 <b>Widget flaw Story 3")        # breaking first, under a cap of 1
     go(store, src, d, now=now + timedelta(minutes=1), limit=5)
     assert statuses(store)["s:0002:en:telegram:initial"] == "scheduled"         # Top 10 not before 09:00 Kyiv
     go(store, src, d, now=datetime(2026, 11, 3, 7, 0, tzinfo=timezone.utc), limit=5)
@@ -647,7 +650,7 @@ def test_backlog_goes_newest_first_like_the_legacy_publisher(tmp_path: Path) -> 
     old, new = item(1, hours_ago=20), item(2, hours_ago=1)
     store, src, d, bot = setup(tmp_path, old, new, s=settings(channels={"en": "@fake_en"}))
     go(store, src, d, limit=1)
-    assert [b["text"].split("\n")[0] for b in bot.sent()] == ["<b>Widget flaw Story 2</b>"]
+    assert [b["text"].split("\n")[0] for b in bot.sent()] == ["🧩 <b>Widget flaw Story 2</b>"]
 
 
 def test_social_jobs_expire_outside_the_window(tmp_path: Path) -> None:

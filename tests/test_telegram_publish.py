@@ -211,7 +211,8 @@ def test_source_is_named_once() -> None:
     item = _item("s")
     payload = _payload(item, "en", source="Krebs on Security")
     msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "Source: Krebs on Security" in msg
+    assert "🔗 <b>Source:</b> Krebs on Security" in msg
+    assert msg.count("Krebs on Security") == 1
 
 
 
@@ -634,17 +635,18 @@ def _rich(item: NewsItem, locale: str = "en", **kw: Any) -> dict[str, Any]:
 def test_layout_headline_what_why_status_source_and_link() -> None:
     item = _item("lay")
     msg = render_message(_rich(item, title="RCE in Foo", plain="Attackers can take over Foo servers.",
-                               summary="BleepingComputer reports CVE-2026-1111 in Foo 4.2 is exploited."),
+                               summary="BleepingComputer reports that CVE-2026-1111 in Foo 4.2 is exploited against exposed servers."),
                          locale="en", base_url="https://cyberalertx.com")
-    lines = msg.split("\n")
-    assert lines[0] == "<b>RCE in Foo</b>"                       # plain bold headline, no emoji
-    assert "Attackers can take over Foo servers." in msg
-    assert "<b>Why it matters:</b> Attackers already use it against unpatched servers." in msg
+    blocks = msg.split("\n\n")
+    assert blocks[0] == "🧩 <b>RCE in Foo</b>"                   # one category emoji + bold headline
+    assert blocks[1] == "Attackers can take over Foo servers."    # TL;DR
+    # The outlet lead-in is dropped: the source line already names it.
+    assert blocks[2].startswith('<a href="https://nvd.nist.gov/vuln/detail/CVE-2026-1111">CVE-2026-1111</a> in Foo')
+    assert "🎯 <b>Why it matters:</b> Attackers already use it against unpatched servers." in msg
     assert "Patching closes the hole" not in msg                 # one sentence only
-    assert "Severity: High · exploitation confirmed" in msg      # severity and evidence side by side
-    assert '<a href="https://www.bleepingcomputer.com/news/security/x/">BleepingComputer</a>' in msg
-    assert f'Read more: <a href="{deep_link("https://cyberalertx.com", "en", item.fingerprint)}">' in msg
-    assert "✅" not in msg and "🔴" not in msg and "🔗" not in msg
+    assert "🟠 <b>Severity: High</b> · exploitation confirmed" in msg   # stored level, evidence beside it
+    assert '🔗 <b>Source:</b> <a href="https://www.bleepingcomputer.com/news/security/x/">BleepingComputer</a>' in msg
+    assert "Read more" not in msg and "/threat/" not in msg       # the article link is the button
 
 
 def test_severity_never_reads_as_exploitation() -> None:
@@ -652,13 +654,13 @@ def test_severity_never_reads_as_exploitation() -> None:
     p = _rich(item, level="Critical")
     p["evidence"] = {"exploitation": "not_reported", "unknowns": ["exploitation_unconfirmed"]}
     msg = render_message(p, locale="en", base_url="https://x.test")
-    assert "Severity: Critical" in msg and "exploitation confirmed" not in msg
+    assert "🔴 <b>Severity: Critical</b>" in msg and "exploitation confirmed" not in msg
     assert "Not yet known" not in msg            # inferred from silence: never printed
     p["category"] = "breach"
     p["evidence"] = {"exploitation": "not_reported", "compromise": "not_confirmed",
                      "unknowns": ["exposure_unconfirmed"]}
     msg = render_message(p, locale="en", base_url="https://x.test")
-    assert "exposure not confirmed" in msg and "Not yet known: whether data was taken." in msg
+    assert "exposure confirmed" not in msg and "❔ <b>Not yet known:</b> whether data was taken." in msg
 
 
 def test_exposure_status_only_where_exposure_is_the_story() -> None:
@@ -677,10 +679,10 @@ def test_actions_only_when_actionable_and_at_most_two() -> None:
     assert "What to do" not in render_message(p, locale="en", base_url="https://x.test")   # nothing justifies it
     p["evidence"] = {"exploitation": "confirmed", "unknowns": []}
     msg = render_message(p, locale="en", base_url="https://x.test")
-    assert "<b>What to do:</b>\n• Install the vendor patch.\n• Reboot the server." in msg
+    assert "🛡️ <b>What to do:</b>\n• Install the vendor patch.\n• Reboot the server." in msg
     assert "Audit exposed hosts." not in msg
     p["translations"]["en"]["what_to_do"] = ["Install the vendor patch."]
-    assert "<b>What to do:</b> Install the vendor patch." in render_message(p, locale="en", base_url="https://x.test")
+    assert "🛡️ <b>What to do:</b> Install the vendor patch." in render_message(p, locale="en", base_url="https://x.test")
 
 
 def test_cve_ids_are_linkified_in_body_and_actions() -> None:
@@ -699,12 +701,15 @@ def test_ukrainian_post_uses_ukrainian_furniture_only() -> None:
               actionability="recommended_action")
     p["translations"]["ua"]["why_it_matters"] = "Це зачіпає багатьох користувачів."
     msg = render_message(p, locale="ua", base_url="https://cyberalertx.com")
-    for ua in ("Чому це важливо:", "Рівень: Високий", "експлуатацію підтверджено", "Що робити:", "Джерело:",
-               "Детальніше:", "повний розбір на CyberAlertX"):
+    for ua in ("Чому це важливо:", "Рівень загрози: високий", "експлуатацію підтверджено", "Що робити:",
+               "Джерело:"):
         assert ua in msg
-    for en in ("Why it matters", "Severity", "Source:", "Read more", "What to do"):
+    for en in ("Why it matters", "Severity", "Source:", "Read more", "What to do", "Not yet known"):
         assert en not in msg
-    assert f"/ua/threat/{item.fingerprint}" in msg
+    from cyberalertx.publish.format import render_buttons
+    button = render_buttons(p, locale="ua", base_url="https://cyberalertx.com")["inline_keyboard"][0][0]
+    assert button == {"text": "📖 Читати повний розбір",
+                      "url": f"https://cyberalertx.com/ua/threat/{item.fingerprint}"}
 
 
 def test_why_it_matters_is_dropped_when_it_repeats_the_summary() -> None:
@@ -719,15 +724,15 @@ def test_other_outlets_are_named_and_tags_are_few() -> None:
     p = _rich(item)
     p["corroborating_sources"] = ["CISA", "The Hacker News"]
     msg = render_message(p, locale="en", base_url="https://x.test")
-    assert "Also reported by CISA, The Hacker News" in msg
-    assert msg.rstrip().split("\n")[-1] == "#vulnerability #Windows"
+    assert "BleepingComputer</a> · also CISA, The Hacker News" in msg
+    assert msg.rstrip().split("\n")[-1] == "#vulnerability #Windows #Chrome"     # at most three
 
 
 def test_source_without_a_url_is_named_without_a_link() -> None:
     item = _item("nourl")
     p = _payload(item, "en", source="Krebs on Security")
     msg = render_message(p, locale="en", base_url="https://x.test")
-    assert "Source: Krebs on Security" in msg and "<a href=\"\"" not in msg
+    assert "🔗 <b>Source:</b> Krebs on Security" in msg and "<a href=\"\"" not in msg
 
 
 def test_caption_fits_the_limit_and_keeps_headline_source_and_link() -> None:
@@ -737,7 +742,8 @@ def test_caption_fits_the_limit_and_keeps_headline_source_and_link() -> None:
               actionability="urgent_action")
     cap = render_caption(p, locale="en", base_url="https://x.test")
     assert visible_length(cap) <= CAPTION_LIMIT
-    assert cap.startswith("<b>Title</b>") and "Source:" in cap and "Read more:" in cap
+    assert cap.startswith("🧩 <b>Title</b>") and "Source:" in cap and "Severity: High" in cap
+    assert "…" not in cap                                       # sections are dropped whole, never cut
 
 
 def test_html_in_fields_is_escaped() -> None:
