@@ -197,26 +197,12 @@ python -m cyberalertx.tools.publish reconcile JOB --not-sent    # it is not: sen
 
 ## Telegram message format
 
-`publish/format.py: render_message`, the same for EN and UA (labels localized):
-
-1. **Headline** in bold.
-2. **Summary**, plain.
-3. **Detail** paragraph, only when it adds facts the summary lacks (a CVE,
-   a product, a number).
-4. **Why it matters:** one sentence, dropped when it repeats the summary.
-5. **Status line:** threat level, plus exploitation or campaign status when
-   known. Compromise ("data exposure confirmed") appears only for incident
-   categories (breach, data leak, ransomware), never for a vulnerability.
-6. **Not yet known:** only for unknowns a reader can act on (exposure, scope,
-   timeline, attribution, whether a campaign is over). It never contradicts a
-   stated fact.
-7. **What to do:** at most two actions, and only when the story justifies
-   them (actionable, high or critical, or exploitation observed).
-8. **Also reported by**, **Source** with its link, **Read more** link to the
-   article, at most two tags.
-
-No emoji prefix, no link preview (the photo is the image). Before/after
-examples: [OPERATIONS.md](../operations/OPERATIONS.md#7-telegram).
+One photo per post, with a caption of about 700–900 characters (hard limit
+1024): an emoji headline, a TL;DR, optional sections (🎯 why, ⚙️ how,
+👥 who, 🛡️ what to do, ⚠️ unconfirmed, ❔ unknown), the stored severity with
+confirmed evidence only, and a linked source. The article link is an inline
+button. Rules, emoji vocabulary, evaluation and examples:
+[editorial/TELEGRAM_FORMAT.md](../editorial/TELEGRAM_FORMAT.md).
 
 ## Media
 

@@ -16,6 +16,7 @@ marked as such at the top.
 | [release/O28_RECONCILIATION_RUNBOOK.md](release/O28_RECONCILIATION_RUNBOOK.md) | JSON → Postgres re-sync procedure |
 | [release/ROLLBACK_RUNBOOK.md](release/ROLLBACK_RUNBOOK.md) | Undoing Stage D; migration 005 notes |
 | [editorial/EDITORIAL_REVIEW_PROCESS.md](editorial/EDITORIAL_REVIEW_PROCESS.md) | Review modes, the evidence gate, daily routine |
+| [editorial/TELEGRAM_FORMAT.md](editorial/TELEGRAM_FORMAT.md) | Telegram post format: structure, emoji, accuracy rules, evaluation |
 | [../server/README.md](../server/README.md) | Units, logs, analytics, maintenance tools on the host |
 | [threads/THREADS_SETUP.md](threads/THREADS_SETUP.md) | Threads integration setup (publishing is off) |
 

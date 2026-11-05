@@ -49,7 +49,7 @@ How a story becomes an image (`media/illustrations.py: visual_brief`):
 
 | Input (verified fields only) | Decides |
 |---|---|
-| Category + evidence labels (`pipeline/evidence.py`) | The **event** that is drawn. An attack path appears only when exploitation is confirmed, otherwise the image shows exposure. Records leave an archive only when the exposure is confirmed, otherwise it is an inspection. Ransomware seals systems; phishing leads to a counterfeit gateway; malware is a foreign component in the delivery chain; a disrupted campaign shows dismantled infrastructure. |
+| Category + evidence labels (`pipeline/evidence.py`) | The **event** that is drawn. An attack path appears only when exploitation is confirmed, otherwise the image shows exposure. Records leave an archive only when the exposure is confirmed, otherwise it is an inspection. Ransomware seals systems; phishing leads to a counterfeit gateway; malware is a foreign component in the delivery chain; a disrupted campaign shows dismantled infrastructure; a compromised website script (analytics, third-party code, skimming, watering hole) is drawn inside a site, spreading to visitors' devices. |
 | Affected platforms, audience, technology words in the source title | The **scene**: smartphone, server racks, network edge appliances, cloud identity layers, industrial control, build pipeline, mail system, corporate network and so on. Brands map to their technology category; logos are never drawn. |
 | Story key | A stable **seed**: the same story always gets the same picture, and different stories get different layouts, counts and angles. |
 

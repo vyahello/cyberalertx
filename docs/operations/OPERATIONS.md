@@ -197,49 +197,10 @@ venv/bin/python -m cyberalertx.tools.publish status           # jobs by state
 venv/bin/python -m cyberalertx.tools.publish pending          # what is due next
 ```
 
-**Message format** ([PUBLICATION_ENGINE.md](../publish/PUBLICATION_ENGINE.md#telegram-message-format)).
-Each post is a photo (the story illustration, same asset as the website) with
-this caption. Before, from the legacy publisher:
-
-```text
-🟠 Storm-2603 breaks into SharePoint servers without leaving files on disk
-The Storm-2603 group broke into a company's SharePoint server and ran its tools from memory, …
-Kaspersky researchers on Securelist analyze a fileless SharePoint intrusion …
-✅ What to do
-• Read Kaspersky's "The SOC Files 5" report on Securelist for its detection guidance.
-• Hunt for Storm-2603 activity on SharePoint servers using the detection methods in that report.
-• Don't treat a clean file scan as proof a SharePoint server is uncompromised.
-Source: Securelist (Kaspersky)
-🔗 Read more — the full brief
-#exploit
-```
-
-After (same story, the publication engine):
-
-```text
-Storm-2603 breaks into SharePoint servers without leaving files on disk
-The Storm-2603 group broke into a company's SharePoint server and ran its tools from memory, …
-Kaspersky researchers on Securelist analyze a fileless SharePoint intrusion …
-Why it matters: Storm-2603 runs its code in memory instead of saving files, so a SharePoint
-server that passes a disk-based antivirus scan can still be compromised.
-Severity: High
-What to do:
-• Read Kaspersky's "The SOC Files 5" report on Securelist for its detection guidance.
-• Hunt for Storm-2603 activity on SharePoint servers using the detection methods in that report.
-Source: Securelist (Kaspersky)            ← linked to the original article
-Read more: the full brief on CyberAlertX
-#exploit
-```
-
-What changed, from a review of 40 live posts (20 EN, 20 UA):
-- The source is always present and linked. Before, it was missing from 15 of
-  the 20 EN posts and 6 of the 20 UA posts.
-- A sentence that repeats the summary is dropped.
-- Status lines state only facts, and compromise is never claimed for a
-  vulnerability.
-- Actions are capped at two and appear only when the story justifies them.
-- The illustration replaces the link preview, which had repeated the headline
-  a third time.
+**Message format.** Each post is a photo (the story illustration, the same
+asset as the website) with a caption and one inline button to the article.
+Structure, accuracy rules and a measured before/after comparison:
+[editorial/TELEGRAM_FORMAT.md](../editorial/TELEGRAM_FORMAT.md).
 
 **Threads** stays off: `CYBERALERTX_THREADS_PUBLISH=0`. Resolved flags,
 including `review_mode` (production: `flag`):
