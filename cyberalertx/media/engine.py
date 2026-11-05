@@ -310,26 +310,50 @@ def backfill_plan(items: Sequence[NewsItem], *, store: MediaStore | None = None,
     if intel_dir is not None:
         kwargs["intel_dir"] = intel_dir
     intel = intel_run(items, **kwargs)
+    from .svg_art import RENDERER_VERSION
+
     eligible = done = failed_final = 0
     todo: list[str] = []
+    reasons: dict[str, int] = {}
+    sizes: list[int] = []
+    owner: dict[str, str] = {}
+    shared: list[str] = []
     for story in sorted(intel.stories, key=lambda st: st.anchor.published_at, reverse=True):
         if not eligibility(story, intel.evals.get(story.key), cfg=cfg).eligible:
             continue
         eligible += 1
         _, _, inputs_hash = visual_brief(story)
         a = store.get(f"illus:{story.key}")
+        if a and a.storage_key:
+            sizes.append(int(a.file_size or 0))
+            prev = owner.setdefault(a.storage_key, story.key)
+            if prev != story.key:
+                shared.append(f"{prev} / {story.key}")
         if a and a.content_hash == inputs_hash and a.status in ("validated", "published"):
             done += 1
-        elif a and a.status == "failed" and a.content_hash == inputs_hash and a.attempts >= max_attempts:
+            continue
+        if a and a.status == "failed" and a.content_hash == inputs_hash and a.attempts >= max_attempts:
             failed_final += 1
+            continue
+        todo.append(story.key)
+        if a is None:
+            why = "no illustration yet"
+        elif a.status == "failed":
+            why = "previous attempt failed"
+        elif a.generation_method == "svg" and a.generation_model and a.generation_model != RENDERER_VERSION:
+            why = f"renderer upgrade ({a.generation_model} -> {RENDERER_VERSION})"
         else:
-            todo.append(story.key)
+            why = "story facts changed since the image was made"
+        reasons[why] = reasons.get(why, 0) + 1
     day, month, _avg = spent(store, now)
     return {"public_stories_eligible": eligible, "with_validated_illustration": done,
             "failed_at_retry_limit": failed_final, "to_generate": len(todo),
             "method": "comfyui (if healthy) else svg" if os.getenv("CYBERALERTX_COMFYUI_URL") else "svg",
             "cost_usd": 0.0,
+            "replacement_reasons": reasons,
+            "assets_shared_between_stories": shared,
             "estimated_cpu_seconds": round(0.05 * len(todo), 1),
+            "estimated_storage_mb": round((sum(sizes) / max(len(sizes), 1)) * len(todo) / 1e6, 2),
             "spent_today_usd": round(day, 4), "spent_this_month_usd": round(month, 4),
             "budget_daily_usd": budget.daily_usd, "budget_monthly_usd": budget.monthly_usd,
             "next": todo[:10]}
