@@ -59,6 +59,11 @@ class TelegramSettings:
     # photo with the message as its caption. Off by default: the card URL
     # must be live on the public site before Telegram can fetch it.
     attach_images: bool = False
+    # Post only with the story's canonical illustration (the website's image,
+    # its `telegram` derivative). A story without one waits (no attempt spent)
+    # until the media run has produced it; it is never posted image-less and
+    # never with a publisher's picture. On by default.
+    require_illustration: bool = True
 
     @property
     def min_level_weight(self) -> int:
@@ -112,6 +117,8 @@ def build_telegram_settings() -> TelegramSettings:
         ).rstrip("/"),
         attach_images=(os.getenv("CYBERALERTX_TELEGRAM_ATTACH_IMAGES") or "").strip().lower()
         in ("1", "true", "yes", "on"),
+        require_illustration=(os.getenv("CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION") or "1").strip().lower()
+        not in ("0", "false", "no", "off"),
     )
 
 

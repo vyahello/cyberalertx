@@ -92,8 +92,11 @@ def view(*items_: NewsItem, breaking: dict[str, str] | None = None, top: dict[st
 
 
 def settings(**kw: Any) -> TelegramSettings:
+    # These tests cover scheduling, retries and the ledger; the illustration
+    # requirement has its own tests below (test_telegram_waits_for_...).
     base: dict[str, Any] = dict(bot_token="123:FAKE", channels={"en": "@fake_en", "ua": "@fake_ua"},
-                                send_delay_seconds=0.0, public_base_url=BASE, limit=5)
+                                send_delay_seconds=0.0, public_base_url=BASE, limit=5,
+                                require_illustration=False)
     base.update(kw)
     return TelegramSettings(**base)
 
@@ -501,7 +504,7 @@ def test_breaking_goes_first_and_top10_waits_for_the_kyiv_edition(tmp_path: Path
     t = jobs["s:0002:en:telegram:initial"]
     assert t.priority == 60 and t.scheduled_at == "2026-11-03T07:00:00+00:00"   # 09:00 Kyiv
     go(store, src, d, now=now, limit=1)
-    assert bot.sent()[0]["text"].startswith("🔴 <b>Widget flaw Story 3")        # breaking first, under a cap of 1
+    assert bot.sent()[0]["text"].startswith("<b>Widget flaw Story 3")        # breaking first, under a cap of 1
     go(store, src, d, now=now + timedelta(minutes=1), limit=5)
     assert statuses(store)["s:0002:en:telegram:initial"] == "scheduled"         # Top 10 not before 09:00 Kyiv
     go(store, src, d, now=datetime(2026, 11, 3, 7, 0, tzinfo=timezone.utc), limit=5)
@@ -644,7 +647,7 @@ def test_backlog_goes_newest_first_like_the_legacy_publisher(tmp_path: Path) -> 
     old, new = item(1, hours_ago=20), item(2, hours_ago=1)
     store, src, d, bot = setup(tmp_path, old, new, s=settings(channels={"en": "@fake_en"}))
     go(store, src, d, limit=1)
-    assert [b["text"].split("\n")[0] for b in bot.sent()] == ["🔴 <b>Widget flaw Story 2</b>"]
+    assert [b["text"].split("\n")[0] for b in bot.sent()] == ["<b>Widget flaw Story 2</b>"]
 
 
 def test_social_jobs_expire_outside_the_window(tmp_path: Path) -> None:
@@ -658,3 +661,47 @@ def test_social_jobs_expire_outside_the_window(tmp_path: Path) -> None:
     assert j and j.status == "cancelled" and "expired" in j.last_error and not bot.calls
     assert store.get("s:0001:en:website:initial").status == "published"   # type: ignore[union-attr]
     assert any("expired" in c["reason"] for c in rep.cancelled)
+
+
+# ---------------------------------------------------------------- canonical illustration (Nov 2026)
+
+def _with_illustration(src: FakeSource, it: NewsItem, asset: str = "ab12cd34ef56ab78") -> None:
+    for loc in ("en", "ua"):
+        if (it.fingerprint, loc) in src.payloads:
+            src.payloads[(it.fingerprint, loc)]["media"] = {"illustration": {"asset_id": asset}}
+
+
+def test_telegram_waits_for_the_story_illustration_then_posts_it(tmp_path: Path) -> None:
+    it = item(1)
+    store, src, d, bot = setup(tmp_path, it, s=settings(require_illustration=True))
+    rep = go(store, src, d)
+    assert not bot.sent("sendPhoto") and not bot.sent("sendMessage")       # nothing posted without the image
+    waiting = store.get("s:0001:en:telegram:initial")
+    assert waiting and waiting.status == "retrying" and waiting.attempts == 0   # no attempt spent
+    assert "illustration" in waiting.last_error and any("illustration" in x["reason"] for x in rep.deferred)
+    assert statuses(store)["s:0001:en:website:initial"] == "published"      # the website never waits
+
+    _with_illustration(src, it)
+    go(store, src, d, now=NOW + timedelta(minutes=21))
+    photos = {b["chat_id"]: b for b in bot.sent("sendPhoto")}
+    assert set(photos) == {"@fake_en", "@fake_ua"} and not bot.sent("sendMessage")
+    # Both channels get the SAME canonical asset (the website's image), Telegram derivative.
+    assert photos["@fake_en"]["photo"] == photos["@fake_ua"]["photo"] == f"{BASE}/media/ab12cd34ef56ab78/telegram.png"
+
+
+def test_required_photo_refused_is_retried_never_posted_as_text(tmp_path: Path) -> None:
+    bot = Bot({"sendPhoto": [httpx.Response(400, json={"ok": False, "description": "Bad Request: wrong file identifier/HTTP URL specified"})]})
+    it = item(1)
+    store, src, d, _ = setup(tmp_path, it, bot=bot, s=settings(require_illustration=True, channels={"en": "@fake_en"}))
+    _with_illustration(src, it)
+    go(store, src, d)
+    assert [m for m, _ in bot.calls] == ["sendPhoto"]
+    assert statuses(store)["s:0001:en:telegram:initial"] == "retrying"
+
+
+def test_waiting_jobs_expire_with_the_publication_window(tmp_path: Path) -> None:
+    it = item(1)
+    store, src, d, bot = setup(tmp_path, it, s=settings(require_illustration=True, channels={"en": "@fake_en"}))
+    go(store, src, d)
+    go(store, src, d, now=NOW + timedelta(hours=60))
+    assert statuses(store)["s:0001:en:telegram:initial"] == "cancelled" and not bot.calls

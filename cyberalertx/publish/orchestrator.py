@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from ..models import NewsItem
 from .config import TelegramSettings
-from .destinations import OPERATOR, RETRYABLE, UNKNOWN, DeliveryError, edition_hash
+from .destinations import OPERATOR, RETRYABLE, UNKNOWN, WAITING, DeliveryError, edition_hash
 from .jobs import JobStore, PublicationJob, RetryPolicy, _iso, _parse as _parse_ts, job_id
 
 logger = logging.getLogger(__name__)
@@ -518,6 +518,16 @@ def run(
             prepared = dest.prepare(job, payload)
             delivery = dest.deliver(prepared, mark_sending)
         except DeliveryError as exc:
+            if exc.category == WAITING:
+                def wait(j: PublicationJob, reason: str = str(exc), t: datetime = clock()) -> None:
+                    j.status, j.claimed_by, j.lease_until, j.phase = "retrying", "", "", ""
+                    j.attempts = max(0, j.attempts - 1)
+                    j.next_attempt_at = _iso(t + timedelta(minutes=20))
+                    j.last_error = reason
+                    j.note(t, "waiting", reason=reason)
+                store.update(job.job_id, wait, clock())
+                report.deferred.append({"job_id": job.job_id, "reason": str(exc)})
+                continue
             _record_failure(store, job, exc.category, str(exc), exc.retry_after, clock(), retry, report, rng)
             if exc.category in OPERATOR or exc.category == "rate_limit":
                 paused.add(key)

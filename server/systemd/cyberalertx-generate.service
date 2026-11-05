@@ -42,12 +42,18 @@ Group=cax
 WorkingDirectory=/home/cax/cyberalertx/current
 EnvironmentFile=/home/cax/cax/.env
 ExecStart=/home/cax/cyberalertx/current/venv/bin/python -m cyberalertx.main generate --limit 1 --use-llm
+# Canonical story illustrations (server-side SVG; local ComfyUI only if enabled
+# and healthy): the new brief gets its image before the next Telegram run.
+# "-": a media failure never marks the generate run failed.
+ExecStartPost=-/home/cax/cyberalertx/current/venv/bin/python -m cyberalertx.tools.media run --max-calls 25
 # 1 item/fire × hourly = up to 24 renders/day — a steady drip that keeps the
 # feed fresh while pacing the Telegram channels to one post/hour (the publish
 # timer at :15 is also capped to 1/channel). Renders go through the OAuth
 # subscription (no API cost). One item × ~1.5 locales is ~1-2 min; the 5-min
 # cap leaves ample headroom for subscription latency before a retry.
-TimeoutStartSec=300
+TimeoutStartSec=600
+# Bounded: the Claude CLI, the generator and the media run together.
+MemoryMax=1200M
 StandardOutput=journal
 StandardError=journal
 

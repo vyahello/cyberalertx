@@ -47,6 +47,9 @@ RETRYABLE = frozenset({"network", "rate_limit", "temporary"})
 OPERATOR = frozenset({"auth", "permission"})
 #: Never resend automatically — reconcile first.
 UNKNOWN = "unknown_outcome"
+#: Not ready yet (e.g. the story's illustration is still being rendered):
+#: deferred without spending an attempt; expires with the publication window.
+WAITING = "waiting"
 
 
 class DeliveryError(RuntimeError):
@@ -194,9 +197,18 @@ class TelegramDestination:
         if problem:
             raise DeliveryError(f"quality gate: {problem}", category="invalid_content")
         base = self.settings.public_base_url
+        illustration = ((payload.get("media") or {}).get("illustration") or {}).get("asset_id", "")
+        if self.settings.require_illustration and not illustration:
+            raise DeliveryError("waiting for the story's illustration", category=WAITING)
         try:
             text = render_message(payload, locale=job.locale, base_url=base)
-            photo = card_for(payload, job.locale, "telegram") if self.settings.attach_images else ""
+            # The canonical illustration — the same asset the website shows —
+            # as its 1200x675 Telegram derivative. Else (only when the
+            # requirement is off) the branded card, if enabled.
+            if illustration:
+                photo = f"{base}/media/{illustration}/telegram.png"
+            else:
+                photo = card_for(payload, job.locale, "telegram") if self.settings.attach_images else ""
             caption = render_caption(payload, locale=job.locale, base_url=base) if photo else ""
         except (KeyError, ValueError) as exc:
             raise DeliveryError(f"format failed: {exc}", category="invalid_content") from exc
@@ -210,7 +222,8 @@ class TelegramDestination:
             content_hash=edition_hash(payload, job.locale),
             members=list(payload.get("_story_members") or [payload["id"]]),
             extra={"caption": caption, "silent": not notify(payload),
-                   "publication_type": job.publication_type},
+                   "publication_type": job.publication_type,
+                   "photo_required": bool(self.settings.require_illustration)},
         )
 
     def _already_sent(self, prepared: Prepared) -> bool:
@@ -235,6 +248,9 @@ class TelegramDestination:
                 cat = exc.category
                 if cat not in ("missing_media", "invalid_content"):
                     raise DeliveryError(str(exc), category=cat, retry_after=exc.retry_after) from exc
+                if prepared.extra.get("photo_required"):
+                    # Nothing was posted; retry later rather than post without the image.
+                    raise DeliveryError(f"photo refused: {exc}", category="temporary") from exc
                 # Telegram refused the photo itself — nothing was posted, so the
                 # text post is a safe fallback (never after an unknown outcome).
                 logger.warning("sendPhoto refused (%s) — falling back to text", exc)
@@ -253,4 +269,4 @@ class TelegramDestination:
 
 
 __all__ = ["DeliveryError", "Delivery", "Destination", "OPERATOR", "Prepared", "RETRYABLE",
-           "TelegramDestination", "UNKNOWN", "WebsiteDestination", "card_for", "edition_hash"]
+           "TelegramDestination", "UNKNOWN", "WAITING", "WebsiteDestination", "card_for", "edition_hash"]
