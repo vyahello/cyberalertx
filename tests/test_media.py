@@ -100,7 +100,7 @@ class MockProvider:
 
     def generate(self, prompt: str, *, width: int, height: int, timeout_s: float) -> GeneratedImage:
         self.calls.append({"prompt": prompt, "width": width, "height": height, "timeout_s": timeout_s})
-        out = self.outcomes.pop(0) if self.outcomes else GeneratedImage(png(1536, 1024), "image/png", "mock-1", 0.04)
+        out = self.outcomes.pop(0) if self.outcomes else GeneratedImage(png(1536, 864), "image/png", "mock-1", 0.04, "comfyui")
         if isinstance(out, BaseException):
             raise out
         return out
@@ -162,59 +162,16 @@ def test_card_url_rejects_unknown_variant(monkeypatch: pytest.MonkeyPatch) -> No
 
 # ---------------------------------------------------------------- eligibility & prompt
 
-def test_high_priority_verified_story_is_eligible() -> None:
-    s = critical_story()
-    e = eligibility(s, evaluate(s, CFG, TABLE, NOW), breaking=True)
-    assert e.eligible and "breaking" in e.reasons
 
 
-def test_thin_unverified_or_out_of_scope_story_is_not() -> None:
-    s = thin_story()
-    e = eligibility(s, evaluate(s, CFG, TABLE, NOW), top_rank=1)
-    assert not e.eligible and any("context" in r or "verification" in r for r in e.reasons)
-    oos = critical_story()
-    oos.relevance = "out_of_scope"
-    assert not eligibility(oos, evaluate(oos, CFG, TABLE, NOW), breaking=True).eligible
-    assert not eligibility(critical_story(), None).eligible
 
 
-def test_importance_threshold_is_configurable() -> None:
-    s = critical_story(exploited=False)
-    s.members = [item("Widget CVE-2026-1111 patched", "CISA Alerts",
-                      body="CISA released an advisory: the vendor patched CVE-2026-1111 in Widget Server. " * 5)]
-    s.anchor = s.members[0]
-    ev = evaluate(s, CFG, TABLE, NOW)
-    assert ev.dim("exploitation_status") != "confirmed"
-    assert eligibility(s, ev, cfg=EligibilityConfig(min_importance=0)).eligible
-    assert not eligibility(s, ev, cfg=EligibilityConfig(min_importance=101)).eligible
 
 
-def test_prompt_uses_fact_sheet_and_never_depicts_brands_or_text() -> None:
-    s = critical_story(products=("Widget Server", "Widget Gateway"))
-    p = build_prompt(s, evaluate(s, CFG, TABLE, NOW))
-    assert "Widget Gateway" in p.prompt and "never its brand" in p.prompt
-    assert "No text" in p.prompt and "No people's faces" in p.prompt
-    assert p.inputs["products"] == ["Widget Gateway", "Widget Server"]
-    assert p.alt["ua"].startswith("Абстрактна ілюстрація: ")
 
 
-def test_prompt_shows_exploitation_only_when_confirmed() -> None:
-    s = critical_story(exploited=False)
-    s.members = [item("Widget CVE-2026-1111 patched", "Vendor blog",
-                      body="The vendor patched CVE-2026-1111. No exploitation is known. " * 6)]
-    s.anchor = s.members[0]
-    s.anchor.category = "exploit"
-    ev = evaluate(s, CFG, TABLE, NOW)
-    assert ev.dim("exploitation_status") != "confirmed"
-    p = build_prompt(s, ev)
-    assert p.inputs["event"] == "vulnerability_disclosure" and "intrusion path" not in p.prompt
 
 
-def test_prompt_without_fact_sheet_falls_back_to_category() -> None:
-    s = critical_story()
-    s.sheets = []
-    p = build_prompt(s, evaluate(s, CFG, TABLE, NOW))
-    assert p.inputs["products"] == [] and "affected technology" not in p.prompt
 
 
 def test_headline_edit_does_not_change_prompt_inputs() -> None:
@@ -280,51 +237,12 @@ def _run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, provider: Any, stories
     return res, store
 
 
-def test_no_provider_is_branded_card_only_and_records_no_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("CYBERALERTX_IMAGE_PROVIDER", raising=False)
-    res, store = _run(monkeypatch, tmp_path, NoProvider())
-    assert res.provider == "none" and res.calls == 0 and not res.failed
-    assert res.skipped == [{"story_key": "s:crit", "reason": "no image provider configured"}]
-    assert store.get("illus:s:crit") is None
-    assert not (tmp_path / "usage.jsonl").exists()
 
 
-def test_successful_generation_is_validated_and_exposed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    prov = MockProvider()
-    res, store = _run(monkeypatch, tmp_path, prov)
-    assert res.generated == ["s:crit"] and res.calls == 1 and res.cost_usd == pytest.approx(0.04)
-    a = store.get("illus:s:crit")
-    assert a and a.status == "validated" and (a.width, a.height) == (1536, 1024) and a.aspect_ratio == "3:2"
-    assert a.public_url.endswith("/og.png") and set(a.variants) == set(media_engine.ILLUSTRATION_VARIANTS)
-    assert a.generation_model == "mock-1" and a.prompt_version == "illus-1" and a.alt_text["en"]
-    block = media_engine.illustration_payload(store, critical_story().anchor.fingerprint)
-    assert block and block["asset_id"] == a.storage_key[:16] and block["generated"] is True
-    usage = [json.loads(x) for x in (tmp_path / "usage.jsonl").read_text().splitlines()]
-    assert usage[0]["ok"] is True and usage[0]["model"] == "mock-1"
-    assert prov.calls[0]["width"] == 1536 and prov.calls[0]["timeout_s"] == 90.0
 
 
-def test_reuse_until_inputs_change(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    prov = MockProvider()
-    _run(monkeypatch, tmp_path, prov)
-    res, _ = _run(monkeypatch, tmp_path, prov)
-    assert res.reused == ["s:crit"] and len(prov.calls) == 1               # no duplicate generation
-    res, store = _run(monkeypatch, tmp_path, prov, stories=[critical_story(products=("Other Appliance",))])
-    assert res.generated == ["s:crit"] and len(prov.calls) == 2            # meaningful change
-    assert "Other Appliance" in (store.get("illus:s:crit") or MediaAsset("", "", "")).prompt
 
 
-def test_failures_are_contained_and_retry_limited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    prov = MockProvider([ProviderError("refused"), TimeoutError("90s"),
-                         GeneratedImage(b"not an image", "image/png", "mock-1")])
-    for attempt in (1, 2, 3):
-        res, store = _run(monkeypatch, tmp_path, prov)
-        a = store.get("illus:s:crit")
-        assert a and a.status == "failed" and a.attempts == attempt and res.failed
-    assert "MediaValidationError" in a.last_error
-    res, _ = _run(monkeypatch, tmp_path, prov)
-    assert res.calls == 0 and "retry limit" in res.skipped[0]["reason"]
-    assert store.open_file("0" * 16) is None and media_engine.illustration_payload(store, a.members[0]) is None
 
 
 def test_per_run_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -518,12 +436,6 @@ def test_dry_run_with_images_touches_no_network(tmp_path: Path, caplog: pytest.L
     assert res.sent == 1 and "would send photo" in caplog.text and "/card/telegram.png?v=" in caplog.text
 
 
-def test_long_caption_is_trimmed_and_keeps_headline_and_link() -> None:
-    long = "Атакувальники використовують ваду в сервері Widget, щоб захопити облікові записи. " * 30
-    cap = render_caption(tg_payload("0123456789abcdef", summary=long, ua=True), locale="ua",
-                         base_url="https://cyberalertx.com")
-    assert visible_length(cap) <= CAPTION_LIMIT
-    assert cap.startswith("🔴 <b>Widget flaw exploited</b>") and "🔗 <a href=" in cap and "…" in cap
 
 
 def test_photo_for_has_no_card_without_the_edition() -> None:
@@ -536,3 +448,157 @@ def test_send_photo_requires_https() -> None:
     with pytest.raises(TelegramError):
         pub.send_photo("@fake", "http://insecure.example/a.png", "c")
     assert not seen
+
+
+# ---------------------------------------------------------------- eligibility (Nov 2026)
+
+SEL = EligibilityConfig(scope="selective")
+
+
+def test_selective_scope_keeps_the_phase3_rules() -> None:
+    s = critical_story()
+    e = eligibility(s, evaluate(s, CFG, TABLE, NOW), breaking=True, cfg=SEL)
+    assert e.eligible and "breaking" in e.reasons
+    thin = thin_story()
+    e = eligibility(thin, evaluate(thin, CFG, TABLE, NOW), top_rank=1, cfg=SEL)
+    assert not e.eligible and any("context" in r or "verification" in r for r in e.reasons)
+    assert not eligibility(critical_story(), None, cfg=SEL).eligible
+
+
+def test_all_scope_covers_every_public_story_with_a_published_brief() -> None:
+    s = thin_story()
+    s.posts = {"en": ThreatPost(title="t", short_summary="s", threat_level="Low", why_it_matters="w",
+                                affected_users=["a"], what_to_do=["b"], generated_by="claude-cli:default")}
+    assert eligibility(s, None).eligible                          # default scope = all
+    oos = critical_story()
+    oos.relevance = "out_of_scope"
+    assert not eligibility(oos, None).eligible
+    s.posts["en"].generated_by = "rule_based"
+    assert not eligibility(s, None).eligible                      # no AI brief = not public
+    s.posts["en"].generated_by, s.posts["en"].review_status = "claude-cli:default", "rejected"
+    assert not eligibility(s, None).eligible
+
+
+# ---------------------------------------------------------------- the brief
+
+def test_brief_never_names_brands_and_bans_text() -> None:
+    s = critical_story(products=("Widget Server", "Widget Gateway"))
+    p = build_prompt(s, evaluate(s, CFG, TABLE, NOW))
+    assert "Widget" not in p.prompt and "No text" in p.prompt and "No logos" in p.prompt
+    assert "No people's faces" in p.prompt and p.inputs["v"] == "illus-2"
+    assert p.alt["ua"].startswith("Ілюстрація: ") and p.alt["en"].startswith("Illustration: ")
+
+
+def test_attack_is_drawn_only_when_exploitation_is_confirmed() -> None:
+    s = critical_story()                                          # source: actively exploited
+    assert build_prompt(s, None).inputs["event"] == "exploited"
+    s.members = [item("Widget CVE-2026-1111 patched", "Vendor blog",
+                      body="The vendor patched CVE-2026-1111. No exploitation is known. " * 6)]
+    s.anchor = s.members[0]
+    s.anchor.category = "exploit"
+    p = build_prompt(s, None)
+    assert p.inputs["event"] == "exposed" and "attack path" not in p.prompt and "no attack in progress" in p.prompt
+
+
+def test_unconfirmed_breach_never_shows_data_leaving() -> None:
+    s = thin_story()
+    s.anchor.category = "breach"
+    s.anchor.title = "Company investigating a possible data breach"
+    p = build_prompt(s, None)
+    assert p.inputs["event"] == "breach_unconfirmed" and "nothing leaving" in p.prompt
+
+
+def test_scene_follows_verified_platforms_and_title_technology() -> None:
+    from cyberalertx.media.illustrations import visual_brief
+    s = critical_story()
+    s.anchor.affected_platforms = ["Android"]
+    assert visual_brief(s)[0].scenes[0] == "phone"
+    s.anchor.affected_platforms = []
+    s.anchor.title = "SCADA flaw lets attackers stop industrial pumps"
+    assert visual_brief(s)[0].scenes[0] == "industrial"
+
+
+# ---------------------------------------------------------------- engine (Nov 2026)
+
+def test_without_comfyui_every_story_gets_a_free_svg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("CYBERALERTX_COMFYUI_URL", raising=False)
+    res, store = _run(monkeypatch, tmp_path, None)
+    assert res.provider == "svg" and res.generated == ["s:crit"] and res.cost_usd == 0 and not res.failed
+    a = store.get("illus:s:crit")
+    assert a and a.status == "validated" and a.generation_method == "svg" and a.mime_type == "image/svg+xml"
+    assert (a.width, a.height) == (1600, 900) and a.storage_key.endswith(".svg") and a.alt_text["en"]
+    data, mime = store.open_file(a.storage_key[:16]) or (b"", "")
+    assert mime == "image/svg+xml" and data.startswith(b"<svg") and b"<script" not in data
+    block = media_engine.illustration_payload(store, critical_story().anchor.fingerprint)
+    assert block and block["asset_id"] == a.storage_key[:16]
+    usage = [json.loads(x) for x in (tmp_path / "usage.jsonl").read_text().splitlines()]
+    assert usage[0]["ok"] is True and usage[0]["method"] == "svg" and usage[0]["cost_usd"] == 0
+
+
+def test_one_canonical_asset_per_story_shared_by_both_languages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    s = critical_story()
+    s.posts = {"en": tpost(), "ua": tpost()}
+    res, store = _run(monkeypatch, tmp_path, None, stories=[s])
+    assert res.generated == ["s:crit"] and len([a for a in store.all() if a.asset_type == "editorial_illustration"]) == 1
+
+
+def test_a_healthy_local_worker_is_used_and_recorded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    prov = MockProvider()
+    res, store = _run(monkeypatch, tmp_path, prov)
+    a = store.get("illus:s:crit")
+    assert a and a.generation_method == "comfyui" and (a.width, a.height) == (1536, 864) and a.aspect_ratio == "16:9"
+    assert prov.calls[0]["width"] == 1536 and prov.calls[0]["height"] == 864 and a.prompt_version == "illus-2"
+
+
+def test_local_worker_failure_falls_back_to_svg_in_the_same_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    prov = MockProvider([ProviderError("refused")])
+    res, store = _run(monkeypatch, tmp_path, prov)
+    a = store.get("illus:s:crit")
+    assert a and a.status == "validated" and a.generation_method == "svg" and "comfyui" in a.last_error
+    assert res.generated == ["s:crit"] and not res.failed
+
+
+def test_reuse_until_the_brief_changes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _run(monkeypatch, tmp_path, None)
+    res, _ = _run(monkeypatch, tmp_path, None)
+    assert res.reused == ["s:crit"] and not res.generated               # idempotent: nothing regenerated
+    s = critical_story()
+    s.anchor.title = "A completely different headline"
+    res, _ = _run(monkeypatch, tmp_path, None, stories=[s])
+    assert res.reused == ["s:crit"]                                     # a headline edit is not a new brief
+    s.anchor.affected_platforms = ["Android"]
+    res, _ = _run(monkeypatch, tmp_path, None, stories=[s])
+    assert res.generated == ["s:crit"]                                  # a different technology is
+
+
+def test_storage_failures_are_retry_limited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def boom(self: MediaStore, data: bytes, *, declared_mime: str = "") -> Any:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(MediaStore, "save_bytes", boom)
+    for attempt in (1, 2, 3):
+        res, store = _run(monkeypatch, tmp_path, None)
+        a = store.get("illus:s:crit")
+        assert a and a.status == "failed" and a.attempts == attempt and res.failed
+    res, _ = _run(monkeypatch, tmp_path, None)
+    assert res.calls == 0 and "retry limit" in res.skipped[0]["reason"]
+
+
+def test_backfill_plan_counts_without_writing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    stories = [critical_story(f"s:{i}") for i in range(3)]
+    fake_intel(monkeypatch, stories)
+    store = MediaStore(tmp_path)
+    plan = media_engine.backfill_plan([s.anchor for s in stories], store=store, now=NOW)
+    assert plan["public_stories_eligible"] == 3 and plan["to_generate"] == 3 and plan["cost_usd"] == 0.0
+    assert store.all() == []
+    media_engine.run([s.anchor for s in stories], store=store, now=NOW, max_calls=1)
+    plan = media_engine.backfill_plan([s.anchor for s in stories], store=store, now=NOW)
+    assert plan["with_validated_illustration"] == 1 and plan["to_generate"] == 2      # resumable
+
+
+def test_long_caption_is_trimmed_and_keeps_headline_source_and_link() -> None:
+    long = "Атакувальники використовують ваду в сервері Widget, щоб захопити облікові записи. " * 30
+    cap = render_caption(tg_payload("0123456789abcdef", summary=long, ua=True), locale="ua",
+                         base_url="https://cyberalertx.com")
+    assert visible_length(cap) <= CAPTION_LIMIT
+    assert cap.startswith("<b>Widget flaw exploited</b>") and "Детальніше: <a href=" in cap and "…" in cap

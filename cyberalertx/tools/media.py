@@ -40,6 +40,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backfill(args: argparse.Namespace) -> int:
+    """Historical illustrations: plan (default) or generate in budgeted batches."""
+    from ..media.engine import backfill_plan, run
+
+    items = JsonNewsStore(DATA_DIR / "items.json").all()
+    sheets, posts = _stores()
+    plan = backfill_plan(items, sheets=sheets, posts=posts)
+    print(json.dumps({"plan": plan}, ensure_ascii=False, indent=2))
+    if args.dry_run or not args.batch:
+        return 0
+    res = run(items, sheets=sheets, posts=posts, max_calls=args.batch, now=datetime.now(timezone.utc))
+    print(json.dumps({"batch": res.summary()}, ensure_ascii=False, indent=2))
+    return 1 if res.failed and not res.generated else 0
+
+
 def cmd_status(_: argparse.Namespace) -> int:
     import os
     from collections import Counter
@@ -109,6 +124,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--dry-run", action="store_true", help="report what would happen; write nothing")
     r.add_argument("--max-calls", type=int, default=None, help="provider calls this run (default env or 3)")
     r.set_defaults(fn=cmd_run)
+    b = sub.add_parser("backfill", help="illustrations for existing public stories: plan, or --batch N to generate")
+    b.add_argument("--dry-run", action="store_true", help="plan only (counts, cost); the default without --batch")
+    b.add_argument("--batch", type=int, default=0, help="generate at most N images now (newest first, within budget)")
+    b.set_defaults(fn=cmd_backfill)
     sub.add_parser("status", help="asset counts and failures").set_defaults(fn=cmd_status)
     g = sub.add_parser("regenerate", help="redo a story's illustration on the next run")
     g.add_argument("story")
