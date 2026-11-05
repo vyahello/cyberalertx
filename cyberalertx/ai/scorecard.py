@@ -333,16 +333,33 @@ def _claim_text(post: Any) -> str:
 # not an assertion: "if the vault was accessed", "чи не викрали", "plan as if".
 _CONDITIONAL = re.compile(
     r"(?:\bif\b|\bwhether\b|\bas if\b|\bin case\b|\bcould\b|\bmay\b|\bmight\b|\bunless\b|"
-    r"\bякщо\b|\bчи\b|\bможливо\b|\bнібито\b|\bначебто\b|\bначе\b)[^.;:]{0,60}$",
+    # An attributed claim is reported as a claim: "the gang says it stole".
+    r"\bclaim(?:s|ed|ing)?\b|\balleg\w*|\breportedly\b|\bsays? (?:it|they)\b|"
+    r"\bякщо\b|\bчи\b|\bможливо\b|\bнібито\b|\bначебто\b|\bначе\b|\bзаяв\w*|\bстверджу\w*)[^.;:]{0,60}$",
     re.I)
 
 
+# A denial is not a claim either: "no observed abuse in the wild", "exploitation
+# not yet confirmed in the wild", "Даних не викрадено". Negation counts in the
+# same clause before the claim, or right after it up to the next comma.
+_CLAIM_TAIL_END = re.compile(r"[,.;:!?\n]")
+
+
 def _asserts(pattern: re.Pattern[str], text: str) -> bool:
-    """True when at least one match is stated outright (not hedged)."""
+    """True when at least one match is stated outright (not hedged, not denied)."""
+    from ..pipeline.evidence import _CLAUSE_BREAK, _NEGATION
     for m in pattern.finditer(text):
         before = text[max(0, m.start() - 80):m.start()]
-        if not _CONDITIONAL.search(before):
-            return True
+        if _CONDITIONAL.search(before):
+            continue
+        cuts = list(_CLAUSE_BREAK.finditer(before))
+        lead = before[cuts[-1].end():] if cuts else before
+        tail = text[m.end():m.end() + 60]
+        stop = _CLAIM_TAIL_END.search(tail)
+        tail = tail[:stop.start()] if stop else tail
+        if _NEGATION.search(lead + m.group(0) + tail):
+            continue
+        return True
     return False
 
 
