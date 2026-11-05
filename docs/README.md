@@ -11,6 +11,7 @@ marked as such at the top.
 |---|---|
 | [architecture.md](architecture.md) | Components, data flow, storage model, deployment model |
 | [operations/OPERATIONS.md](operations/OPERATIONS.md) | Release layout, build / switch / rollback, backups, consistency model, publishing hold, recovery |
+| [media/VISUAL_REVIEW.md](media/VISUAL_REVIEW.md) | Illustration renderer v2: before/after review of 24 stories |
 | [media/IMAGE_GENERATION.md](media/IMAGE_GENERATION.md) | Article illustrations: host findings, SVG generator, ComfyUI status, backfill |
 | [release/OPEN_ISSUES.md](release/OPEN_ISSUES.md) | Register of open and resolved issues |
 | [release/O28_RECONCILIATION_RUNBOOK.md](release/O28_RECONCILIATION_RUNBOOK.md) | JSON → Postgres re-sync procedure |

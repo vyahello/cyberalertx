@@ -40,7 +40,8 @@ current host enables it.
 
 ## 2. The working generator: server-side SVG
 
-`cyberalertx/media/svg_art.py` draws one 1600×900 editorial illustration
+`cyberalertx/media/svg_art.py` (renderer `cax-svg-2`, see
+[VISUAL_REVIEW.md](VISUAL_REVIEW.md)) draws one 1600×900 editorial illustration
 per story. It needs no model, network or GPU. [measured] All 135 public
 stories took 5.9 s on the production host's data copy, with a peak RSS of
 100 MB, using 1.8 MB of disk in total.
@@ -92,7 +93,7 @@ Telegram (10x/day) ->  posts only stories whose illustration exists; others wait
 - **Metadata per asset:**
   - asset id and story key;
   - `generation_method` (`svg` or `comfyui`) and model or renderer version
-    (`cax-svg-1`);
+    (`cax-svg-2`);
   - prompt/brief version (`illus-2`) and brief hash;
   - SHA-256 storage key, width, height and size;
   - alt text in EN and UA;
