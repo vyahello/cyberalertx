@@ -1,6 +1,3 @@
-# Exact versions the Phase 7 release candidate was tested with (Python 3.12,
-# isolated venv, full suite 1381 passed). Install with: pip install -r requirements.lock
-# Regenerate only after re-running the full suite against the new set.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anthropic==2.4.0
