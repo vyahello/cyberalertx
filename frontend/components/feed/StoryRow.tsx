@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FieldMarks } from "@/components/marks/FieldMarks";
+import { StoryVisual } from "@/components/media/StoryVisual";
 import { HTML_LANG, contentFor, type Locale, type LocalizedThreatPost } from "@/lib/types";
 
 interface Props {
@@ -32,7 +33,8 @@ export function StoryRow({ post, lang, level = 4 }: Props) {
                    has-[a:focus-visible]:outline-signal has-[a:focus-visible]:outline-offset-4"
       >
         <FieldMarks post={post} lang={lang} variant="row" className="md:pt-1.5" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex items-start gap-5">
+          <div className="min-w-0 flex-1">
           <Heading className="font-serif text-lead font-semibold text-ink break-words">
             <Link
               href={`/${lang}/threat/${post.id}`}
@@ -49,6 +51,11 @@ export function StoryRow({ post, lang, level = 4 }: Props) {
               {lead}
             </p>
           )}
+          </div>
+          {/* Decorative here: the headline is the link text; alt lives on the article page. */}
+          <div className="hidden sm:block w-36 lg:w-44 shrink-0 mt-1" aria-hidden>
+            <StoryVisual post={post} lang={lang} variant="preview" />
+          </div>
         </div>
       </article>
     </li>

@@ -36,7 +36,20 @@ export async function GET(
   if (!src) return new Response("Not found", { status: 404 });
   const { width, height } = SIZES[m[1]];
   const format = m[2] as keyof typeof TYPES;
-  const pipeline = sharp(src).resize({ width, height, fit: "cover", position: sharp.strategy.attention });
+  // Thumbnails show the central 16:9 region (where every composition puts
+  // its subject) so the subject stays legible at 640x360; larger variants
+  // use the whole frame.
+  let base = sharp(src);
+  if (m[1] === "preview") {
+    const meta = await sharp(src).metadata();
+    const w = meta.width ?? 0, h = meta.height ?? 0;
+    if (w >= 1024 && h >= 576) {
+      const cw = Math.round(w * 0.62), ch = Math.round((cw * 9) / 16);
+      const left = Math.round((w - cw) / 2), top = Math.max(0, Math.round((h - ch) / 2 - h * 0.04));
+      base = sharp(await sharp(src).extract({ left, top, width: cw, height: Math.min(ch, h - top) }).png().toBuffer());
+    }
+  }
+  const pipeline = base.resize({ width, height, fit: "cover", position: sharp.strategy.attention });
   const body =
     format === "png"
       ? await pipeline.png().toBuffer()

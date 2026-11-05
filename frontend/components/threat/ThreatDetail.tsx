@@ -1,3 +1,4 @@
+import { StoryVisual } from "@/components/media/StoryVisual";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { ArticleMarks } from "@/components/article/ArticleMarks";
@@ -136,27 +137,14 @@ export function ThreatDetail({ post, lang }: Props) {
               )}
             </div>
           )}
-          {illustration && (
-            <figure className="mt-8">
-              {/* Explicit width/height + aspect ratio: no layout shift. */}
-              <picture>
-                <source type="image/avif" srcSet={`/media/${illustration.asset_id}/article.avif`} />
-                <source type="image/webp" srcSet={`/media/${illustration.asset_id}/article.webp`} />
-                <img
-                  src={`/media/${illustration.asset_id}/article.png`}
-                  width={1600}
-                  height={900}
-                  alt={illustration.alt[lang] ?? ""}
-                  loading="eager"
-                  decoding="async"
-                  className="block h-auto w-full bg-ground-raised aspect-[16/9] object-cover"
-                />
-              </picture>
+          <figure className="mt-8">
+            <StoryVisual post={post} lang={lang} variant="article" eager />
+            {illustration && (
               <figcaption className="mt-2 font-sans text-small text-ink-faint">
                 {s.illustration_caption}
               </figcaption>
-            </figure>
-          )}
+            )}
+          </figure>
         </header>
 
         <aside

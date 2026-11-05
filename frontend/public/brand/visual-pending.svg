@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <!-- Shown while a story's canonical illustration is being rendered. No text. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141921"/><stop offset=".55" stop-color="#0F1318"/><stop offset="1" stop-color="#0A0D11"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#06B6D4" stop-opacity=".16"/><stop offset="1" stop-color="#06B6D4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <circle cx="800" cy="450" r="360" fill="url(#glow)"/>
+  <circle cx="800" cy="450" r="150" fill="none" stroke="#E6EDF3" stroke-opacity=".18" stroke-width="6"/>
+  <circle cx="800" cy="450" r="82" fill="none" stroke="#E6EDF3" stroke-opacity=".18" stroke-width="6"/>
+  <circle cx="800" cy="450" r="230" fill="none" stroke="#06B6D4" stroke-opacity=".22" stroke-width="2" stroke-dasharray="3 12"/>
+  <circle cx="906" cy="344" r="22" fill="#06B6D4" fill-opacity=".75"/>
+</svg>

@@ -39,6 +39,8 @@ export function slimForFeed(
         evidence: p.evidence
           ? { ...p.evidence, unknowns: [] }
           : undefined,
+        // The row's thumbnail: the story's canonical illustration (id + alt only).
+        media: p.media?.illustration ? { illustration: p.media.illustration } : undefined,
         translations: {
           [lang]: {
             title: c.title,
