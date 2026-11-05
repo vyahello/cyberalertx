@@ -40,6 +40,8 @@ type StringTable = {
   nav_latest: string;
   menu_open: string;
   menu_close: string;
+  nav_menu_open: string;
+  nav_menu_close: string;
   language_label: string;
   telegram: string;
 
@@ -311,6 +313,8 @@ const EN: StringTable = {
   nav_latest: "Latest",
   menu_open: "Menu",
   menu_close: "Close",
+  nav_menu_open: "Open navigation menu",
+  nav_menu_close: "Close navigation menu",
   language_label: "Language",
   telegram: "Telegram",
 
@@ -554,6 +558,8 @@ const UK: StringTable = {
   nav_latest: "Головне",
   menu_open: "Меню",
   menu_close: "Закрити",
+  nav_menu_open: "Відкрити меню навігації",
+  nav_menu_close: "Закрити меню навігації",
   language_label: "Мова",
   telegram: "Telegram",
 
