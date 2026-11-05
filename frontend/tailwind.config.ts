@@ -101,9 +101,13 @@ const config: Config = {
         sm: "2px",
       },
       keyframes: {
+        // The clip box extends past the line boxes (negative insets) so
+        // descenders and accents are never cut, and the animation does not
+        // persist (`backwards`, below): once it ends, nothing is clipped.
+        // A persistent inset(0) cut every g/y/у/р on the last title line.
         reveal: {
-          from: { clipPath: "inset(0 0 100% 0)", transform: "translateY(0.35em)" },
-          to: { clipPath: "inset(0 0 0 0)", transform: "translateY(0)" },
+          from: { clipPath: "inset(-0.3em -0.15em 100% -0.15em)", transform: "translateY(0.35em)" },
+          to: { clipPath: "inset(-0.3em -0.15em -0.45em -0.15em)", transform: "translateY(0)" },
         },
         rise: {
           from: { opacity: "0", transform: "translateY(18px)" },
@@ -115,7 +119,7 @@ const config: Config = {
         },
       },
       animation: {
-        reveal: "reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) both",
+        reveal: "reveal 0.9s cubic-bezier(0.16, 1, 0.3, 1) backwards",
         rise: "rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both",
         "sheet-in": "sheet-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
       },
