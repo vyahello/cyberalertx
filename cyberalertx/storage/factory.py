@@ -92,8 +92,9 @@ def build_threat_post_cache(cache_path: Path) -> "ThreatPostStore":
     Returns:
         * JSON-only `ThreatPostCache` when STORAGE_BACKEND=json (default).
         * `DualWriteThreatPostCache(primary=JSON, secondary=PG)` when
-          STORAGE_BACKEND=dual. Reads PG-preferred with JSON fallback;
-          writes go to both.
+          STORAGE_BACKEND=dual. Reads JSON first; a JSON miss is answered
+          from an in-memory PG key index (no per-item query, O27); writes
+          go to both.
 
     Caller (cyberalertx.ai.generator.build_default_generator) passes the
     existing on-disk cache path so the JSON layer keeps its location.
@@ -115,7 +116,9 @@ def build_threat_post_cache(cache_path: Path) -> "ThreatPostStore":
         from .dual_write import DualWriteThreatPostCache
         get_engine()
         secondary = PgThreatPostStore()
-        return DualWriteThreatPostCache(primary=primary, secondary=secondary)
+        cache = DualWriteThreatPostCache(primary=primary, secondary=secondary)
+        cache.warm_index_async()   # O27: first request must not pay for the index
+        return cache
     except Exception as exc:
         logger.warning(
             "CYBERALERTX_STORAGE_BACKEND=dual but PG threat-post cache setup "

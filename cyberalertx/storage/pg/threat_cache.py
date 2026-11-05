@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ...ai.models import ThreatPost
@@ -117,6 +117,35 @@ class PgThreatPostStore:
                     yield ThreatPost.from_dict(row[0])
                 except (KeyError, ValueError, TypeError):
                     continue
+
+    def keys(self) -> frozenset[tuple[str, str]]:
+        """Every (fingerprint, locale) present. One query, keys only.
+
+        The dual-write cache uses this as an index so a JSON miss for a key
+        Postgres does not have costs no round-trip at all (O27).
+        """
+        with get_engine().connect() as conn:
+            rows = conn.execute(select(threat_posts.c.fingerprint, threat_posts.c.locale))
+            return frozenset((str(fp), str(loc)) for fp, loc in rows)
+
+    def get_many(self, keys: Iterable[tuple[str, str]]) -> dict[tuple[str, str], ThreatPost]:
+        """Fetch several renders in one query per 500 keys. Malformed rows are skipped."""
+        wanted = list(dict.fromkeys(keys))
+        out: dict[tuple[str, str], ThreatPost] = {}
+        if not wanted:
+            return out
+        cols = (threat_posts.c.fingerprint, threat_posts.c.locale, threat_posts.c.payload)
+        with get_engine().connect() as conn:
+            for i in range(0, len(wanted), 500):
+                chunk = wanted[i:i + 500]
+                stmt = select(*cols).where(
+                    tuple_(threat_posts.c.fingerprint, threat_posts.c.locale).in_(chunk))
+                for fp, loc, payload in conn.execute(stmt):
+                    try:
+                        out[(str(fp), str(loc))] = ThreatPost.from_dict(payload)
+                    except (KeyError, ValueError, TypeError):
+                        continue
+        return out
 
     def __len__(self) -> int:
         with get_engine().connect() as conn:
