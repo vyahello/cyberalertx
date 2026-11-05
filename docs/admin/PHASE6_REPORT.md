@@ -1,8 +1,8 @@
 # Phase 6 — Admin control room: final report
 
-> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+> **Status: historical record.** Paths such as `$APP_HOME-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
 
-All work was done in `/home/cax/cax-redesign` (branch `redesign/cti-platform`).
+All work was done in `$APP_HOME-redesign` (branch `redesign/cti-platform`).
 
 Nothing was deployed, committed or pushed. No real publishing was activated
 and no messages were sent. Production is unchanged: its git status is clean,

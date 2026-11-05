@@ -253,7 +253,7 @@ python -m cyberalertx.tools.publish cycle --send --limit 1      # plan + deliver
 ### The scheduled timer
 
 `cyberalertx-telegram.timer` keeps its schedule (10 runs a day). The tracked
-unit runs `cycle --send --limit 1` from `/home/cax/cyberalertx/current`.
+unit runs `cycle --send --limit 1` from `$APP_ROOT/current`.
 `ops/release/telegram_activate.sh activate` installs it, imports the ledger,
 cancels the backlog (`baseline --before now`) and enables the timer. The legacy
 `main publish-telegram` command is no longer scheduled. Never run it next to

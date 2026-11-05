@@ -153,7 +153,7 @@ as a second layer in production.
 4. Run §5.
 5. Only then is Stage C eligible.
 
-The production checkout (`/home/cax/cax`, same vulnerable versions) is
+The production checkout (`$APP_HOME`, same vulnerable versions) is
 fixed by deploying RC3, not by patching it in place.
 
 ## 7. Applied and verified (release candidate 3)

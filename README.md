@@ -73,7 +73,7 @@ flowchart LR
   subgraph Sources
     RSS["RSS feeds<br/>EN + UA outlets"]
   end
-  subgraph Backend["Python backend (release: /home/cax/cyberalertx/current)"]
+  subgraph Backend["Python backend (release: $APP_ROOT/current)"]
     RUN["cyberalertx-run<br/>ingest every 30 min<br/>relevance · enrichment · evidence · dedup"]
     GEN["cyberalertx-generate<br/>hourly · EN/UA briefs<br/>scorecard + evidence gate"]
     API["cyberalertx-api<br/>FastAPI :8000<br/>/posts · /admin"]
@@ -259,7 +259,7 @@ flowchart LR
   B --> V["verify<br/>files · tests · pages"]
   V --> S["switch_when_idle.sh<br/>→ release_switch.sh"]
   S --> CUR["current → new release"]
-  CUR --> D[("/home/cax/cax/data<br/>shared")]
+  CUR --> D[("$APP_HOME/data<br/>shared")]
   CUR -. "rollback = switch to an earlier id" .-> B
 ```
 

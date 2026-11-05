@@ -30,16 +30,16 @@ read path.
   refusal logic are in that release, not in older ones).
 * `run` is between cycles, or briefly stopped. The `generate` timer fired more
   than 10 minutes ago, or is stopped.
-* Recent backup: `ls -l /home/cax/backups/data-$(date +%F)*.tar.gz` (cron 03:00).
+* Recent backup: `ls -l $BACKUPS/data-$(date +%F)*.tar.gz` (cron 03:00).
 
 ## 1. Snapshot (2 min)
 
 ```bash
-TS=$(date +%Y%m%d-%H%M); B=/home/cax/backups/o28-resync-$TS; mkdir -m 700 -p $B
-cp -a /home/cax/cax/data/threat_posts.json $B/
+TS=$(date +%Y%m%d-%H%M); B=$BACKUPS/o28-resync-$TS; mkdir -m 700 -p $B
+cp -a $APP_HOME/data/threat_posts.json $B/
 sha256sum $B/threat_posts.json > $B/threat_posts.json.sha256
 # Postgres copy of the one table the tool writes (read-only for the database):
-. /home/cax/stagec-tools/loadenv.sh && loadenv /home/cax/cax/.env   # never `source .env`
+. $OPS_TOOLS/loadenv.sh && loadenv $APP_HOME/.env   # never `source .env`
 docker run --rm -e URL="${CYBERALERTX_PG_URL/postgresql+psycopg:/postgresql:}" postgres:17-alpine \
   sh -c 'pg_dump --no-owner --no-privileges -t public.threat_posts -Fc "$URL"' > $B/threat_posts.pg.dump
 ls -l $B
@@ -52,7 +52,7 @@ loaded with `loadenv`). The tool contacts Postgres only to read. `--cache`
 points at the step-1 snapshot, so the plan and the run see the same file.
 
 ```bash
-cd /home/cax/cyberalertx/current
+cd $APP_ROOT/current
 venv/bin/python -m cyberalertx.tools.import_ai_cache_to_postgres --dry-run \
   --cache $B/threat_posts.json --report $B/plan.json
 ```
@@ -83,7 +83,7 @@ generated since.
 ## 3. Run
 
 ```bash
-cd /home/cax/cyberalertx/current
+cd $APP_ROOT/current
 venv/bin/python -m cyberalertx.tools.import_ai_cache_to_postgres --cache $B/threat_posts.json; echo "exit $?"
 ```
 

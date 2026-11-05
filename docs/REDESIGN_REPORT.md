@@ -1,9 +1,9 @@
 # CyberAlertX transformation — report (3 November 2026)
 
-> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](README.md) for current documents.
+> **Status: historical record.** Paths such as `$APP_HOME-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](README.md) for current documents.
 
-Branch `redesign/cti-platform`, worktree `/home/cax/cax-redesign`, **uncommitted**.
-Production (`/home/cax/cax`, services on :3000/:8000, its data, Postgres,
+Branch `redesign/cti-platform`, worktree `$APP_HOME-redesign`, **uncommitted**.
+Production (`$APP_HOME`, services on :3000/:8000, its data, Postgres,
 Telegram) was **not modified**; nothing was deployed or published.
 
 Legend: ✅ done and verified · 🟡 done, not verified in production conditions · 📋 recommendation only.

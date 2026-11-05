@@ -104,7 +104,7 @@ firing a oneshot CLI command**:
 - `server/systemd/cyberalertx-generate.timer` → every 6h (00,06,12,18 UTC)
 - fires `server/systemd/cyberalertx-generate.service` (Type=oneshot) which runs:
   ```
-  /home/cax/cax/venv/bin/python -m cyberalertx.main generate --limit 4 --use-llm
+  $APP_HOME/venv/bin/python -m cyberalertx.main generate --limit 4 --use-llm
   ```
 - `cmd_generate()` (main.py:131-276) walks the store, finds uncached
   `(fingerprint, locale)` pairs, and renders only the missing ones via
@@ -132,7 +132,7 @@ pydantic-settings):
   binary/token paths). Env vars prefixed `CYBERALERTX_AI_*` / `CYBERALERTX_CLAUDE_CLI_*`.
 
 `.env` is loaded via `python-dotenv` (optional dep; falls back to plain
-`os.getenv`). In prod it's injected by systemd `EnvironmentFile=/home/cax/cax/.env`.
+`os.getenv`). In prod it's injected by systemd `EnvironmentFile=$APP_HOME/.env`.
 Convention: **all app env vars are prefixed `CYBERALERTX_`** (except the raw
 vendor keys `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`).
 
@@ -374,7 +374,7 @@ From `requirements.txt`:
 From `server/README.md` + `server/systemd/*`:
 
 - **Host:** single Ubuntu 24.04 VPS (~2 GB RAM), app user **`cax`**, app dir
-  **`/home/cax/cax`**, venv at `/home/cax/cax/venv`.
+  **`$APP_HOME`**, venv at `$APP_HOME/venv`.
 - **Process manager: systemd** (no Docker, no supervisord). Units:
 
   | Unit | Type | Cadence | Role |
@@ -392,7 +392,7 @@ From `server/README.md` + `server/systemd/*`:
 - **Logs:** **journald** (`journalctl -u <unit>`). nginx logs to
   `/var/log/nginx/`. App-level metrics are JSON files in `data/`
   (`quality_metrics.json`, `source_health.json`) + `feedback.jsonl`.
-- **`.env` in prod:** `/home/cax/cax/.env`, `chmod 600`, injected via systemd
+- **`.env` in prod:** `$APP_HOME/.env`, `chmod 600`, injected via systemd
   `EnvironmentFile=`. Current keys (values redacted):
   `CYBERALERTX_STORAGE_BACKEND`, `CYBERALERTX_PG_URL`, `ANTHROPIC_API_KEY`,
   `CYBERALERTX_AI_PROVIDER`, `CYBERALERTX_AI_MODEL`, `CYBERALERTX_AI_MAX_TOKENS`,
@@ -508,7 +508,7 @@ tests/
 └── test_telegram_publish.py       # selector bar, formatter escaping, ledger dedup, dry-run, httpx mocked
 ```
 
-New env vars (user adds to `/home/cax/cax/.env`; I won't SSH in):
+New env vars (user adds to `$APP_HOME/.env`; I won't SSH in):
 `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_TELEGRAM_CHANNEL_EN`,
 `CYBERALERTX_TELEGRAM_CHANNEL_UA` (optional), and optional tuning knobs
 `CYBERALERTX_TELEGRAM_MIN_LEVEL`, `CYBERALERTX_TELEGRAM_LIMIT`.
@@ -569,7 +569,7 @@ first real run.
 **Ops / secrets**
 - **Credentials:** new `.env` keys — proposed `CYBERALERTX_TELEGRAM_BOT_TOKEN`
   and `CYBERALERTX_TELEGRAM_CHANNEL_ID` (+ a UA channel id if two channels).
-  Confirm naming. These need to be added to `/home/cax/cax/.env` on the VPS by
+  Confirm naming. These need to be added to `$APP_HOME/.env` on the VPS by
   you (I won't SSH in).
 - **Cadence:** if timer-driven, what schedule? Align with the 6h generate
   timer, or more frequent (e.g. hourly) so news is timelier?

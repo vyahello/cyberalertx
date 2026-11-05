@@ -45,10 +45,10 @@ immutable releases, and that script would have bypassed them (O33).
 
 ## What runs on the server
 
-Every unit except analytics loads `/home/cax/cax/.env`. All of them run code
-from the active release, `/home/cax/cyberalertx/current` (analytics and
+Every unit except analytics loads `$APP_HOME/.env`. All of them run code
+from the active release, `$APP_ROOT/current` (analytics and
 Telegram after the O35 migration, `ops/release/o35_units.sh`). Data lives in
-`/home/cax/cax/data` (each release's `data` is a symlink to it).
+`$APP_HOME/data` (each release's `data` is a symlink to it).
 
 | Unit | Type | Cadence | What it does | Calls the AI? |
 |---|---|---|---|---|
@@ -126,7 +126,7 @@ cyberalertx-generate.timer`. Each extra render is an AI call (cost).
 
 ```bash
 ssh <user>@<your-domain>
-cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
 
 # Preview first — shows cost surface, no API calls
 python -m cyberalertx.main generate --limit 5 --use-llm --dry-run
@@ -145,7 +145,7 @@ shows up in the feed. Remove it from every store with one command:
 
 ```bash
 ssh <user>@<your-domain>
-cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
 
 # By URL (paste from browser)
 python -m cyberalertx.tools.delete_post https://<your-domain>/ua/threat/<fingerprint>
@@ -175,7 +175,7 @@ style. Destructive — prunes store and wipes AI cache.
 
 ```bash
 ssh <user>@<your-domain>
-cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
 
 # Dry-run — show what would change
 python -m server.scripts.refresh_feed --dry-run
@@ -223,7 +223,7 @@ exists. The post is a photo (`/media/{asset}/telegram.png`) with the caption.
    Optional: `CYBERALERTX_TELEGRAM_MIN_LEVEL` (default `High`).
 3. Check it without sending anything:
    ```bash
-   cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+   cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
    venv/bin/python -m cyberalertx.tools.publish check-telegram   # bot identity, rights per channel
    venv/bin/python -m cyberalertx.tools.publish cycle            # preview: no --send = nothing sent
    ```
@@ -235,12 +235,12 @@ exists. The post is a photo (`/media/{asset}/telegram.png`) with the caption.
 
 | Action | Command |
 |---|---|
-| Status | `sudo bash /home/cax/cyberalertx/current/ops/release/telegram_activate.sh check` |
+| Status | `sudo bash $APP_ROOT/current/ops/release/telegram_activate.sh check` |
 | **Emergency stop** | `sudo bash …/telegram_activate.sh deactivate` |
 | Next run | `systemctl list-timers --no-pager \| grep telegram` |
 | Last runs | `sudo journalctl -u cyberalertx-telegram.service --since "24h ago"` |
 | Jobs | `venv/bin/python -m cyberalertx.tools.publish status \| pending \| failed \| unknown` |
-| What has been sent | `tail /home/cax/cax/data/telegram_published.jsonl` |
+| What has been sent | `tail $APP_HOME/data/telegram_published.jsonl` |
 
 Re-sending a post is deliberate: `tools.publish retry JOB` for a failed or
 cancelled job. Never edit the ledger to force a resend.
@@ -520,7 +520,7 @@ and empty (did not traverse Cloudflare, or the toggle is off).
 ### Daily use
 
 ```bash
-cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
 
 # Nightly, from the timer: pull every new log line into the store.
 python -m server.analytics ingest
@@ -791,7 +791,7 @@ dig <your-domain> +short                           # should be your CDN IPs
 dig <your-domain> NS +short                        # should match your DNS provider
 
 # JSON ↔ PG parity
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m cyberalertx.tools.compare_storage'
+sudo -u <user> bash -c 'cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && venv/bin/python -m cyberalertx.tools.compare_storage'
 ```
 
 ---
@@ -888,7 +888,7 @@ cyberalertx-frontend` (cheap, no user impact past one ISR window).
 ### 7. JSON ↔ PG drift
 
 ```bash
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
+sudo -u <user> bash -c 'cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env \
   && python -m cyberalertx.tools.compare_storage'
 ```
 
@@ -911,7 +911,7 @@ Sonnet/Opus by accident).
 ### 9. Audience numbers are still plausible
 
 ```bash
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
+sudo -u <user> bash -c 'cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env \
   && python -m server.analytics report --since 7d'
 ```
 
@@ -974,7 +974,7 @@ Postgres unreachable. Network blip → JSON path stays authoritative,
 PG catches up next render. If persistent: check Supabase status,
 verify `CYBERALERTX_PG_URL` in `.env`, test:
 ```bash
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && python -c "from cyberalertx.storage.pg.engine import get_engine; from sqlalchemy import text; print(get_engine().connect().execute(text(\"SELECT 1\")).scalar())"'
+sudo -u <user> bash -c 'cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && python -c "from cyberalertx.storage.pg.engine import get_engine; from sqlalchemy import text; print(get_engine().connect().execute(text(\"SELECT 1\")).scalar())"'
 ```
 
 ### RAM pressure on a small VPS (~2GB)
@@ -1003,7 +1003,7 @@ echo '/swap none swap sw 0 0' | sudo tee -a /etc/fstab
 Stale cache entry from before the title-language validator was added.
 Delete it from PG, regenerate:
 ```bash
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && python -c "
+sudo -u <user> bash -c 'cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && python -c "
 from sqlalchemy import text
 from cyberalertx.storage.pg.engine import get_engine
 with get_engine().begin() as c:
@@ -1053,7 +1053,7 @@ the prune sort and the cap come from `cyberalertx/config.py` +
 
 ```bash
 # Verify the running config picked up max_items=20
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
+sudo -u <user> bash -c 'cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env \
   && python -c "from cyberalertx.config import SETTINGS; print(SETTINGS.max_items_retained)"'
 
 # If it prints 5000 — old code is loaded. git pull + restart:
@@ -1061,7 +1061,7 @@ cd <app-dir> && git pull
 sudo systemctl restart cyberalertx-run cyberalertx-api
 
 # Force a prune right now:
-sudo -u <user> bash -c 'cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env \
+sudo -u <user> bash -c 'cd $APP_ROOT/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv $APP_HOME/.env \
   && python -m server.scripts.refresh_feed'
 ```
 
@@ -1103,12 +1103,12 @@ Postgres data lives on Supabase — restore via their dashboard
 |---|---|
 | Update prod after code change | Build and switch a release: [docs/operations/OPERATIONS.md](../docs/operations/OPERATIONS.md) (never pull + restart in the checkout) |
 | Trigger AI render | `ssh <user>@<your-domain> 'sudo systemctl start cyberalertx-generate.service'` |
-| Manual generate with custom limit | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m cyberalertx.main generate --limit 5 --use-llm'` |
-| Delete a post that slipped through | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
-| Editorial reset (after prompt change) | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m server.scripts.refresh_feed --regen'` |
+| Manual generate with custom limit | `ssh <user>@<your-domain> 'cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && venv/bin/python -m cyberalertx.main generate --limit 5 --use-llm'` |
+| Delete a post that slipped through | `ssh <user>@<your-domain> 'cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && venv/bin/python -m cyberalertx.tools.delete_post <URL_or_fingerprint>'` |
+| Editorial reset (after prompt change) | `ssh <user>@<your-domain> 'cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && venv/bin/python -m server.scripts.refresh_feed --regen'` |
 | Pull prod logs | `ssh <user>@<your-domain> 'sudo journalctl -u cyberalertx-api -n 200 --no-pager'` |
-| Pull the audience report | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m server.analytics report --since 7d'` |
-| Check the analytics store | `ssh <user>@<your-domain> 'cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && venv/bin/python -m server.analytics status'` |
+| Pull the audience report | `ssh <user>@<your-domain> 'cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && venv/bin/python -m server.analytics report --since 7d'` |
+| Check the analytics store | `ssh <user>@<your-domain> 'cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && venv/bin/python -m server.analytics status'` |
 | Check AI timer next-fire | `ssh <user>@<your-domain> 'systemctl list-timers --no-pager \| grep generate'` |
 | Pull prod data backup | `scp <user>@<your-domain>:~/backups/data-*.tar.gz ~/Downloads/` |
 | Sync local → prod data | `rsync -avz data/ <user>@<your-domain>:<app-dir>/data/` |
@@ -1192,9 +1192,9 @@ don't load at all, so a fresh deploy can't expose them by accident.
 1. Generate a password and add it to `<app-dir>/.env`. It must be at least 24
    characters; shorter ones are refused.
    ```bash
-   echo "CYBERALERTX_ADMIN_TOKEN=$(openssl rand -hex 32)" >> /home/cax/cax/.env
-   chmod 600 /home/cax/cax/.env
-   grep CYBERALERTX_ADMIN_TOKEN /home/cax/cax/.env   # copy it into your password manager
+   echo "CYBERALERTX_ADMIN_TOKEN=$(openssl rand -hex 32)" >> $APP_HOME/.env
+   chmod 600 $APP_HOME/.env
+   grep CYBERALERTX_ADMIN_TOKEN $APP_HOME/.env   # copy it into your password manager
    ```
 2. Restart the API: `sudo systemctl restart cyberalertx-api`
 3. Open `https://cyberalertx.com/admin/`. The browser shows a login prompt.

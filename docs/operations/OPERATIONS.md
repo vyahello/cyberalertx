@@ -6,48 +6,53 @@ Telegram publishing and recovery. Stage C documents in `docs/release/` are the
 historical record of how this layout was introduced
 ([docs index](../README.md)).
 
+**Paths.** Host locations are written as placeholders. `$APP_ROOT` holds the
+releases and `current`. `$APP_HOME` holds `.env` and the persistent `data/`.
+`$OPS_TOOLS` holds the installed operator scripts, and `$BACKUPS` the
+backups. The actual values are recorded on the host, not in this repository.
+
 **Tracked vs host-only.** Everything under `ops/release/` and `server/` is
 version-controlled; the host runs installed copies:
 
 | Tracked in Git | Installed on the host as | Purpose |
 |---|---|---|
-| `ops/release/release_switch.sh` | `/home/cax/stagec-tools/release_switch.sh` | make a release active (forward or back) |
-| `ops/release/switch_when_idle.sh` | `/home/cax/stagec-tools/switch_when_idle.sh` | wait for idle writers, then switch |
-| `ops/release/api_json_reads.sh` | `/home/cax/stagec-tools/c8_api_json_reads.sh` | JSON-only API override (recovery) |
+| `ops/release/release_switch.sh` | `$OPS_TOOLS/release_switch.sh` | make a release active (forward or back) |
+| `ops/release/switch_when_idle.sh` | `$OPS_TOOLS/switch_when_idle.sh` | wait for idle writers, then switch |
+| `ops/release/api_json_reads.sh` | `$OPS_TOOLS/c8_api_json_reads.sh` | JSON-only API override (recovery) |
 | `ops/release/o35_units.sh` | run from a checkout | move analytics + held Telegram to `current` (applied) |
 | `ops/release/telegram_activate.sh` | run from `current` | Telegram activate / emergency stop / check (§7) |
-| `ops/release/verify_release.py`, `settings_check.py`, `loadenv.sh` | `/home/cax/stagec-tools/` | provenance check, resolved settings, safe `.env` loader |
+| `ops/release/verify_release.py`, `settings_check.py`, `loadenv.sh` | `$OPS_TOOLS/` | provenance check, resolved settings, safe `.env` loader |
 | `server/systemd/*` | `/etc/systemd/system/` | units, timers, the Telegram hold drop-in (installed by `telegram_activate.sh`) |
 | `server/backup.sh` | `/usr/local/bin/cax-backup` (cron 03:00) | daily `data/` archive |
 
-Host-only (never in Git): `/home/cax/cax/.env`, `/home/cax/stagec-tools/api-json-backend.env`,
+Host-only (never in Git): `$APP_HOME/.env`, `$OPS_TOOLS/api-json-backend.env`,
 `/etc/cron.d/cax-backup`, TLS keys, the Stage C one-off scripts
 (`c5_*`, `c7_*`, `c9_*`, `d1_switch.sh`, `release_rollback.sh`: superseded,
 kept for the record).
 
 Install or update the host copies from a reviewed checkout of `main`:
-`install -m 0755 ops/release/{release_switch.sh,switch_when_idle.sh,verify_release.py,settings_check.py,loadenv.sh} /home/cax/stagec-tools/`.
+`install -m 0755 ops/release/{release_switch.sh,switch_when_idle.sh,verify_release.py,settings_check.py,loadenv.sh} $OPS_TOOLS/`.
 
 ## 1. Layout
 
 ```
-/home/cax/cax/                       canonical git checkout of GitHub main (development only)
-/home/cax/cax/.env                   production environment, mode 600 — never in a release, never in Git
-/home/cax/cax/data/                  persistent data (JSON stores, media, analytics) — shared by every release
-/home/cax/cyberalertx/releases/<id>/ immutable releases: git archive of one commit + venv + frontend build
+$APP_HOME/                       canonical git checkout of GitHub main (development only)
+$APP_HOME/.env                   production environment, mode 600 — never in a release, never in Git
+$APP_HOME/data/                  persistent data (JSON stores, media, analytics) — shared by every release
+$APP_ROOT/releases/<id>/ immutable releases: git archive of one commit + venv + frontend build
     RELEASE                          provenance: commit, tree, archive/lock hashes, versions, test results
-    data -> /home/cax/cax/data       symlink, never a copy
-/home/cax/cyberalertx/current        symlink to the active release (switched atomically)
-/home/cax/cyberalertx/staging/<id>/  build-time data snapshot and logs for that release
-/home/cax/backups/                   daily data archives + per-change backup directories
+    data -> $APP_HOME/data       symlink, never a copy
+$APP_ROOT/current        symlink to the active release (switched atomically)
+$APP_ROOT/staging/<id>/  build-time data snapshot and logs for that release
+$BACKUPS/                   daily data archives + per-change backup directories
 ```
 
 Release ids are `YYYYMMDD-HHMM-<short sha>`. Code resolves `data/` through its
 own release directory (`cyberalertx/config.py` uses `Path(__file__).resolve()`),
 so `current/data` is the live data. A release directory has no `.env` on its
 search path, so code started from it never auto-loads the checkout's `.env`;
-the units pass `EnvironmentFile=/home/cax/cax/.env`, and shells use
-`. ops/release/loadenv.sh && loadenv /home/cax/cax/.env` (**never** `source .env`:
+the units pass `EnvironmentFile=$APP_HOME/.env`, and shells use
+`. ops/release/loadenv.sh && loadenv $APP_HOME/.env` (**never** `source .env`:
 an unquoted value aborts the parse and later variables silently stay unset).
 
 ## 2. Four different operations
@@ -68,29 +73,29 @@ From a reviewed commit of `main` whose CI passed. Staging ports 8190/3190 must b
 
 ```bash
 SHA=<40-char commit>; ID=$(date +%Y%m%d-%H%M)-${SHA:0:7}
-R=/home/cax/cyberalertx/releases/$ID; SNAP=/home/cax/cyberalertx/staging/$ID
-mkdir -p $R && git -C /home/cax/cax archive $SHA | tar -x -C $R
-python3 -I /home/cax/stagec-tools/verify_release.py $R /home/cax/cax $SHA        # 0 mismatched, exit 0
+R=$APP_ROOT/releases/$ID; SNAP=$APP_ROOT/staging/$ID
+mkdir -p $R && git -C $APP_HOME archive $SHA | tar -x -C $R
+python3 -I $OPS_TOOLS/verify_release.py $R $APP_HOME $SHA        # 0 mismatched, exit 0
 python3 -m venv $R/venv && $R/venv/bin/pip install -q --upgrade pip \
   && $R/venv/bin/pip install -q -r $R/requirements.lock && $R/venv/bin/pip check
 # data snapshot for prerendering (the release reads it until it is linked to live data)
-mkdir -p $SNAP/data && cp -a /home/cax/cax/data/{items.json,threat_posts.json,media} $SNAP/data/ && ln -s $SNAP/data $R/data
+mkdir -p $SNAP/data && cp -a $APP_HOME/data/{items.json,threat_posts.json,media} $SNAP/data/ && ln -s $SNAP/data $R/data
 (cd $R && env -i HOME=$HOME PATH=/usr/bin:/bin CYBERALERTX_STORAGE_BACKEND=json \
    venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8190 > $SNAP/api.log 2>&1 &)
-cp -a /home/cax/cax/frontend/.env.production $R/frontend/.env.production
+cp -a $APP_HOME/frontend/.env.production $R/frontend/.env.production
 (cd $R/frontend && npm ci --no-audit --no-fund && API_URL=http://127.0.0.1:8190 NEXT_TELEMETRY_DISABLED=1 npm run build) > $SNAP/build.log 2>&1
 # verify inside the release
 (cd $R && env -i HOME=$HOME PATH=/usr/bin:/bin venv/bin/python -m pytest -q -p no:cacheprovider | tail -1)
 (cd $R && venv/bin/python -m mypy | tail -1); (cd $R/frontend && npm run -s type-check && npm audit --omit=dev | tail -1)
 # pages on 3190 against the staging API, then stop both (only processes whose cwd is inside $R)
 # link live data, record provenance, protect code
-ln -sfn /home/cax/cax/data $R/data.tmp && mv -T $R/data.tmp $R/data
-{ echo "release_id=$ID"; echo "commit=$SHA"; echo "tree=$(git -C /home/cax/cax rev-parse $SHA^{tree})"
+ln -sfn $APP_HOME/data $R/data.tmp && mv -T $R/data.tmp $R/data
+{ echo "release_id=$ID"; echo "commit=$SHA"; echo "tree=$(git -C $APP_HOME rev-parse $SHA^{tree})"
   echo "requirements_lock_sha256=$(sha256sum < $R/requirements.lock | cut -d' ' -f1)"
   echo "package_lock_sha256=$(sha256sum < $R/frontend/package-lock.json | cut -d' ' -f1)"
   echo "created_utc=$(date -u +%FT%TZ)"; } > $R/RELEASE
 chmod -R a-w $R/cyberalertx $R/frontend/app $R/frontend/lib
-python3 -I /home/cax/stagec-tools/verify_release.py $R /home/cax/cax $SHA
+python3 -I $OPS_TOOLS/verify_release.py $R $APP_HOME $SHA
 ```
 
 The 5 Nov 2026 cutover followed exactly these steps
@@ -101,7 +106,7 @@ The 5 Nov 2026 cutover followed exactly these steps
 1. **Backup first** (§6): `threat_posts.json`, `items.json`, the current
    `RELEASE`, unit files and drop-ins, `.env` hash + mode (never its contents),
    and a `pg_dump -t public.threat_posts` when Postgres is in use.
-2. `sudo bash /home/cax/stagec-tools/switch_when_idle.sh <release-id>`
+2. `sudo bash $OPS_TOOLS/switch_when_idle.sh <release-id>`
    * waits up to 10 min for `generate` to be inactive and no ingest cycle to be
      running; fails closed (exit 3, nothing switched) if they stay busy or their
      state cannot be read; never stops a writer;
@@ -110,9 +115,9 @@ The 5 Nov 2026 cutover followed exactly these steps
      atomic `current` switch, restart api/frontend/run, wait for `/healthz` and
      `/en` = 200. Output names the previous and the new release, both commits,
      the health result and the command to go back.
-3. Verify: `readlink /home/cax/cyberalertx/current`; each service's
+3. Verify: `readlink $APP_ROOT/current`; each service's
    `readlink /proc/<MainPID>/cwd`; EN/UA feeds; journals since the switch.
-4. **Rollback** = `sudo bash /home/cax/stagec-tools/release_switch.sh <previous-id>`
+4. **Rollback** = `sudo bash $OPS_TOOLS/release_switch.sh <previous-id>`
    (old releases are never deleted). If a switch fails its health check,
    `current` is left on the new release and the exact switch-back command is
    printed: run it.
@@ -144,9 +149,9 @@ The 5 Nov 2026 cutover followed exactly these steps
 
 | What | Where | Made by |
 |---|---|---|
-| `data/` daily archive (14 days kept) | `/home/cax/backups/data-YYYYMMDD-HHMMSS.tar.gz` | cron 03:00 `cax-backup` (`server/backup.sh`) |
-| Per-change backups (cutover, unit migration) | `/home/cax/backups/<change>-<timestamp>/`, mode 700, `SHA256SUMS` | the operator / `o35_units.sh` |
-| Repository refs before consolidation | `/home/cax/backups/repo-consolidation-20261104-2235/` | 4 Nov 2026 |
+| `data/` daily archive (14 days kept) | `$BACKUPS/data-YYYYMMDD-HHMMSS.tar.gz` | cron 03:00 `cax-backup` (`server/backup.sh`) |
+| Per-change backups (cutover, unit migration) | `$BACKUPS/<change>-<timestamp>/`, mode 700, `SHA256SUMS` | the operator / `o35_units.sh` |
+| Repository refs before consolidation | `$BACKUPS/repo-consolidation-20261104-2235/` | 4 Nov 2026 |
 | Postgres | Supabase's own daily backups; `pg_dump` before any write | Supabase / operator |
 
 Verify a backup directory with `(cd <dir> && sha256sum -c SHA256SUMS)` and a
@@ -163,13 +168,13 @@ Job ids are deterministic and the ledger is checked before every send, so a
 re-run cannot post twice.
 
 **The hold is the emergency control.** The drop-in `stage-c-hold.conf`
-(`ConditionPathExists=/home/cax/cyberalertx/STAGE_D_AUTHORIZED`) stays
+(`ConditionPathExists=$APP_ROOT/STAGE_D_AUTHORIZED`) stays
 installed permanently. While the marker exists, runs proceed. Remove it and every
 run is skipped without an error.
 
 | Action | Command (as root) |
 |---|---|
-| Status, read-only | `bash /home/cax/cyberalertx/current/ops/release/telegram_activate.sh check` |
+| Status, read-only | `bash $APP_ROOT/current/ops/release/telegram_activate.sh check` |
 | **Emergency stop** | `bash …/telegram_activate.sh deactivate` (removes the marker, disables the timer) |
 | Activate / resume | `bash …/telegram_activate.sh activate` |
 
@@ -179,7 +184,7 @@ run is skipped without an error.
    reachable, bot is an administrator allowed to post; nothing is sent);
 3. a media run, so current stories have their illustration;
 4. backup of the units, ledger and job store to
-   `/home/cax/backups/telegram-activation-*`;
+   `$BACKUPS/telegram-activation-*`;
 5. installs the tracked units;
 6. **baseline**: cancels the Telegram jobs of every article published before
    now, so there is no backlog and no replay;
@@ -198,7 +203,7 @@ accumulated meanwhile.
 
 ```bash
 journalctl -u cyberalertx-telegram -n 50 --no-pager          # last runs
-cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
 venv/bin/python -m cyberalertx.tools.publish status           # jobs by state
 venv/bin/python -m cyberalertx.tools.publish pending          # what is due next
 ```
@@ -210,7 +215,7 @@ Structure, accuracy rules and a measured before/after comparison:
 
 **Threads** stays off: `CYBERALERTX_THREADS_PUBLISH=0`. Resolved flags,
 including `review_mode` (production: `flag`):
-`cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && PYTHONPATH=. venv/bin/python ops/release/settings_check.py`.
+`cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && PYTHONPATH=. venv/bin/python ops/release/settings_check.py`.
 
 ## 8. Services
 
@@ -228,7 +233,7 @@ including `review_mode` (production: `flag`):
 | Symptom | Action |
 |---|---|
 | New release unhealthy after a switch | `release_switch.sh <previous-id>` (printed by the failed switch) |
-| Dual-mode API slow, `PG key index load failed`, feeds empty | `sudo bash /home/cax/stagec-tools/c8_api_json_reads.sh apply` (JSON-only API, restarts only the API); diagnose; re-sync (§5) before `revert` |
+| Dual-mode API slow, `PG key index load failed`, feeds empty | `sudo bash $OPS_TOOLS/c8_api_json_reads.sh apply` (JSON-only API, restarts only the API); diagnose; re-sync (§5) before `revert` |
 | Postgres unreachable | nothing to do for readers (JSON); writers log `dual-write: PG … FAILED` and continue; re-sync after recovery |
 | `threat_posts.json` unreadable | readers fail closed (no stale Postgres fallback); writes refuse; restore the file from the newest backup |
 | A feed keeps failing (e.g. CISA `http_403`) | `/admin/sources` shows `Fetch failing: <error>`; the source backs off (30 min doubling, max 24 h for refusals, 6 h for transient errors) and recovers by itself |

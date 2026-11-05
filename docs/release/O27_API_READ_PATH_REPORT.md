@@ -200,5 +200,5 @@ CPU-bound rendering, the same in both backends.
 3. Remove the drop-in: `c8_api_json_reads.sh revert`. Watch the
    `PG key index loaded` line and `/ua` timings; the frontend journal must show
    no "This operation was aborted".
-4. Rollback of step 3: `sudo bash /home/cax/stagec-tools/c8_api_json_reads.sh apply` (re-applies the drop-in). Rollback
+4. Rollback of step 3: `sudo bash $OPS_TOOLS/c8_api_json_reads.sh apply` (re-applies the drop-in). Rollback
    of step 1: `release_switch.sh <previous release>` (then `release_rollback.sh`).

@@ -3,9 +3,9 @@
 > **Status: historical record** of the Phase 7 readiness review (4 Nov 2026). Open items moved to [OPEN_ISSUES.md](OPEN_ISSUES.md).
 
 **Date:** 4 Nov 2026
-**Worktree:** `/home/cax/cax-redesign`, branch `redesign/cti-platform`, HEAD
+**Worktree:** `$APP_HOME-redesign`, branch `redesign/cti-platform`, HEAD
 `73257f0` plus uncommitted Phase 1–7 work (preserved).
-**Production:** `/home/cax/cax`, branch `main`, HEAD `73257f0`, clean, untouched.
+**Production:** `$APP_HOME`, branch `main`, HEAD `73257f0`, clean, untouched.
 
 Nothing was deployed, committed, pushed, published or sent. No production
 data, service, timer, environment variable or database was changed. No paid AI
@@ -369,7 +369,7 @@ No SLA is implied.
 | Python | `requirements.txt` (ranges) and **`requirements.lock`** (exact set tested in Phase 7: fastapi 0.162.0, starlette 1.10.0, anyio 4.16.0, cryptography 50.0.2, SQLAlchemy 2.0.57, psycopg 3.3.7, pydantic 2.14.2, httpx 0.28.1). `pip-audit`: none. Full suite and mypy pass in that venv. |
 | Node | `frontend/package-lock.json`; upgrade pending (O1) |
 | Build-time env (`frontend/.env.production`) | `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_UMAMI_WEBSITE_ID`. API_URL defaults to `127.0.0.1:8000`. |
-| Runtime env (`/home/cax/cax/.env`, names only) | Existing: `ANTHROPIC_API_KEY`, `CYBERALERTX_ADMIN_TOKEN`, `CYBERALERTX_AI_*`, `CYBERALERTX_CLAUDE_CLI_BIN`, `CYBERALERTX_INTERVAL_MIN`, `CYBERALERTX_OTHER_VHOSTS`, `CYBERALERTX_PG_URL`, `CYBERALERTX_RSS_PROXY_URL`, `CYBERALERTX_STORAGE_BACKEND=dual`, `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_TELEGRAM_CHANNEL_EN/UA`, `CYBERALERTX_TELEGRAM_MIN_LEVEL=Medium`, `CYBERALERTX_UA`. **No new variable is required for Stage B/C.** |
+| Runtime env (`$APP_HOME/.env`, names only) | Existing: `ANTHROPIC_API_KEY`, `CYBERALERTX_ADMIN_TOKEN`, `CYBERALERTX_AI_*`, `CYBERALERTX_CLAUDE_CLI_BIN`, `CYBERALERTX_INTERVAL_MIN`, `CYBERALERTX_OTHER_VHOSTS`, `CYBERALERTX_PG_URL`, `CYBERALERTX_RSS_PROXY_URL`, `CYBERALERTX_STORAGE_BACKEND=dual`, `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_TELEGRAM_CHANNEL_EN/UA`, `CYBERALERTX_TELEGRAM_MIN_LEVEL=Medium`, `CYBERALERTX_UA`. **No new variable is required for Stage B/C.** |
 
 ## 14. Feature flags and settings (defaults read from code)
 
@@ -431,7 +431,7 @@ See OPEN_ISSUES.md (F1–F3 fixed; O1–O24 open or accepted).
 ## 19. Manual actions required from the administrator
 
 1. **Authorize Stage B** (release candidate build; no service change).
-2. **Back up** `/home/cax/cax/data` and the `.env` file, and take a Supabase
+2. **Back up** `$APP_HOME/data` and the `.env` file, and take a Supabase
    backup (DEPLOYMENT_RUNBOOK §2).
 3. **Decide** on the fact-sheet call budget (O7) and confirm review mode
    `flag`.

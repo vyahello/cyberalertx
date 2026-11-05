@@ -19,10 +19,10 @@
 ## 2. Before any rollback
 
 ```bash
-TS=$(date +%Y%m%d-%H%M); mkdir -p /home/cax/backups/rollback-$TS
-cp -a /home/cax/cax/data/items.json /home/cax/cax/data/threat_posts.json \
-      /home/cax/cax/data/telegram_published.jsonl /home/cax/backups/rollback-$TS/
-[ -f /home/cax/cax/data/publish_jobs.json ] && cp -a /home/cax/cax/data/publish_jobs.json /home/cax/backups/rollback-$TS/
+TS=$(date +%Y%m%d-%H%M); mkdir -p $BACKUPS/rollback-$TS
+cp -a $APP_HOME/data/items.json $APP_HOME/data/threat_posts.json \
+      $APP_HOME/data/telegram_published.jsonl $BACKUPS/rollback-$TS/
+[ -f $APP_HOME/data/publish_jobs.json ] && cp -a $APP_HOME/data/publish_jobs.json $BACKUPS/rollback-$TS/
 ```
 
 Note any `outcome_unknown` jobs on `/admin/publishing`. Check those messages
@@ -48,19 +48,19 @@ sudo systemctl start cyberalertx-telegram.timer
 
 ## 4. Undo the release (switch `current` back to an earlier release)
 
-Since 4 Nov 2026 `/home/cax/cax` is the canonical checkout of GitHub `main`
+Since 4 Nov 2026 `$APP_HOME` is the canonical checkout of GitHub `main`
 (SINGLE_REPOSITORY_CONSOLIDATION_REPORT.md). It is **not** a rollback target
 any more: it holds new code with the old venv and build. Roll back between
 immutable releases only:
 
 ```bash
-ls /home/cax/cyberalertx/releases/                 # pick the previous release id
-sudo bash /home/cax/stagec-tools/release_switch.sh <release-id>   # tracked: ops/release/release_switch.sh
+ls $APP_ROOT/releases/                 # pick the previous release id
+sudo bash $OPS_TOOLS/release_switch.sh <release-id>   # tracked: ops/release/release_switch.sh
 # (until the host copy is installed: the older release_rollback.sh, same logic)
 ```
 
 The script refuses unless the target release records a commit, has its venv
-and frontend build, links `data` to `/home/cax/cax/data`, and the api, run,
+and frontend build, links `data` to `$APP_HOME/data`, and the api, run,
 generate and frontend units all run from `current`. It switches `current`
 atomically, restarts api, frontend and run, and waits for `/healthz` and
 `/en`. It never touches `.env`, the API JSON-reads drop-in, the Telegram
@@ -69,12 +69,12 @@ switches back. [tested with mocks and against the real releases' preflight;
 not executed]
 
 `c7_rollback.sh` (Stage C) now refuses with exit 3, because it restarted the
-site from `/home/cax/cax`.
+site from `$APP_HOME`.
 
 **Going back to the legacy (pre-Stage C) application** is no longer a
 one-step rollback. Its code is kept as the local tag
 `legacy-production-2026-11-04` (`73257f0`) and in
-`/home/cax/backups/repo-consolidation-20261104-2235/cyberalertx-all-refs.bundle`.
+`$BACKUPS/repo-consolidation-20261104-2235/cyberalertx-all-refs.bundle`.
 Build it as a release with the Stage C procedure (git archive of the tag,
 venv, frontend build, `data` link), then switch to it with
 `release_switch.sh`. The data notes below apply.

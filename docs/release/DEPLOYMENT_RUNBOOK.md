@@ -11,10 +11,10 @@
 
 | Part | Today |
 |---|---|
-| Code, venv, data, env | One git checkout: `/home/cax/cax` (`main` @ `73257f0`), venv `/home/cax/cax/venv`, data `/home/cax/cax/data` (233 MB), env `/home/cax/cax/.env` (0600) |
+| Code, venv, data, env | One git checkout: `$APP_HOME` (`main` @ `73257f0`), venv `$APP_HOME/venv`, data `$APP_HOME/data` (233 MB), env `$APP_HOME/.env` (0600) |
 | Units | Root-owned copies in `/etc/systemd/system/` (**they differ from `server/systemd/` in git**: ingest runs `--interval 30` live) |
-| `cyberalertx-api.service` | `WorkingDirectory=/home/cax/cax`, `…/venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8000` |
-| `cyberalertx-frontend.service` | `WorkingDirectory=/home/cax/cax/frontend`, `npm start`, `PORT=3000` |
+| `cyberalertx-api.service` | `WorkingDirectory=$APP_HOME`, `…/venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8000` |
+| `cyberalertx-frontend.service` | `WorkingDirectory=$APP_HOME/frontend`, `npm start`, `PORT=3000` |
 | `cyberalertx-run.service` | `… cyberalertx.main run --interval 30` |
 | `cyberalertx-generate.service` + `.timer` | Hourly; `generate --limit 1 --use-llm`; `TimeoutStartSec=300` |
 | `cyberalertx-telegram.service` + `.timer` | 10× a day at :15; `publish-telegram --limit 1`; `TimeoutStartSec=300` |
@@ -25,15 +25,15 @@
 ## 1. Target layout
 
 ```
-/home/cax/cyberalertx/
+$APP_ROOT/
   releases/
     20261105-1000-<sha>/        immutable: git archive of the reviewed commit
       venv/                     built here from requirements.lock
       frontend/node_modules, frontend/.next   built here
-      data -> /home/cax/cax/data             shared, never copied
+      data -> $APP_HOME/data             shared, never copied
   current -> releases/20261105-1000-<sha>    atomic symlink switch
-/home/cax/cax/.env               stays the EnvironmentFile (shared config)
-/home/cax/cax                    canonical git checkout of main (since 4 Nov 2026); NOT a rollback target
+$APP_HOME/.env               stays the EnvironmentFile (shared config)
+$APP_HOME                    canonical git checkout of main (since 4 Nov 2026); NOT a rollback target
                                  (rollback = release_switch.sh <previous-release>, OPERATIONS.md §4)
 ```
 
@@ -45,17 +45,17 @@ symlink) then points at the live data [assumption, follows from
 ## 2. Prerequisites and backups (before Stage B)
 
 1. **A reviewed commit.** The Phase 1–7 work is uncommitted in
-   `/home/cax/cax-redesign`. Commit it on `redesign/cti-platform` yourself and
+   `$APP_HOME-redesign`. Commit it on `redesign/cti-platform` yourself and
    note the SHA. This includes `frontend/assets/fonts/` and
    `requirements.lock`.
 2. **Stage B authorized.**
 3. **Backups:**
 
    ```bash
-   TS=$(date +%Y%m%d-%H%M); mkdir -p /home/cax/backups/$TS
-   tar -C /home/cax/cax -czf /home/cax/backups/$TS/data.tgz data      # 233 MB
-   cp -a /home/cax/cax/.env /home/cax/backups/$TS/env.bak && chmod 600 /home/cax/backups/$TS/env.bak
-   sudo cp -a /etc/systemd/system/cyberalertx-* /home/cax/backups/$TS/
+   TS=$(date +%Y%m%d-%H%M); mkdir -p $BACKUPS/$TS
+   tar -C $APP_HOME -czf $BACKUPS/$TS/data.tgz data      # 233 MB
+   cp -a $APP_HOME/.env $BACKUPS/$TS/env.bak && chmod 600 $BACKUPS/$TS/env.bak
+   sudo cp -a /etc/systemd/system/cyberalertx-* $BACKUPS/$TS/
    ```
 
 4. **Supabase backup** (before migration 005). Use the Supabase dashboard
@@ -63,10 +63,10 @@ symlink) then points at the live data [assumption, follows from
    client needs installing. Never print the URL:
 
    ```bash
-   set -a; . /home/cax/cax/.env; set +a
+   set -a; . $APP_HOME/.env; set +a
    URL="${CYBERALERTX_PG_URL/postgresql+psycopg:/postgresql:}"
    docker run --rm -e URL="$URL" postgres:16-alpine sh -c 'pg_dump --no-owner "$URL"' \
-     > /home/cax/backups/$TS/supabase.sql
+     > $BACKUPS/$TS/supabase.sql
    ```
 
    If the pooler refuses `pg_dump`, use the dashboard backup.
@@ -75,9 +75,9 @@ symlink) then points at the live data [assumption, follows from
 
 ```bash
 SHA=<reviewed commit>; ID=$(date +%Y%m%d-%H%M)-${SHA:0:7}
-R=/home/cax/cyberalertx/releases/$ID
+R=$APP_ROOT/releases/$ID
 mkdir -p "$R"
-git -C /home/cax/cax-redesign archive "$SHA" | tar -x -C "$R"
+git -C $APP_HOME-redesign archive "$SHA" | tar -x -C "$R"
 
 # Python: exactly the set tested in Phase 7 (pip-audit clean)
 python3 -m venv "$R/venv"
@@ -85,11 +85,11 @@ python3 -m venv "$R/venv"
 "$R/venv/bin/pip" install -r "$R/requirements.lock"      # includes cryptography 50.0.2
 
 # Frontend: same build-time config as production
-cp /home/cax/cax/frontend/.env.production "$R/frontend/.env.production"
+cp $APP_HOME/frontend/.env.production "$R/frontend/.env.production"
 ( cd "$R/frontend" && npm ci && npm run build )
 
 # Shared data (symlink, never a copy)
-ln -s /home/cax/cax/data "$R/data"
+ln -s $APP_HOME/data "$R/data"
 chmod -R a-w "$R/cyberalertx" "$R/frontend/app" "$R/frontend/lib"   # optional: immutable code
 ```
 
@@ -115,7 +115,7 @@ against a staging API over a data snapshot, then points `data` at the live data.
    the json backend so nothing is written to Postgres:
 
    ```bash
-   cd "$R" && set -a && . /home/cax/cax/.env && set +a
+   cd "$R" && set -a && . $APP_HOME/.env && set +a
    CYBERALERTX_STORAGE_BACKEND=json venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8190 &
    (cd frontend && API_URL=http://127.0.0.1:8190 PORT=3190 npx next start -p 3190 -H 127.0.0.1 &)
    curl -sf 127.0.0.1:8190/healthz; curl -sf -o /dev/null -w '%{http_code}\n' 127.0.0.1:3190/en
@@ -128,7 +128,7 @@ against a staging API over a data snapshot, then points `data` at the live data.
 4. **Publication dry run.** It writes nothing, sends nothing and calls no AI:
 
    ```bash
-   cd "$R" && set -a && . /home/cax/cax/.env && set +a
+   cd "$R" && set -a && . $APP_HOME/.env && set +a
    venv/bin/python -m cyberalertx.tools.publish cycle --limit 1    # prints "preview only"
    venv/bin/python -m cyberalertx.tools.pg_migrate --status        # shows 005 pending
    ```
@@ -139,12 +139,12 @@ against a staging API over a data snapshot, then points `data` at the live data.
    venv/bin/python -c "import cyberalertx.config as c; print(c.DATA_DIR.resolve())"
    ```
 
-   It must print `/home/cax/cax/data`.
+   It must print `$APP_HOME/data`.
 
 ## 5. Migration 005 (needs authorization; safe before or after §6)
 
 ```bash
-cd "$R" && set -a && . /home/cax/cax/.env && set +a
+cd "$R" && set -a && . $APP_HOME/.env && set +a
 venv/bin/python -m cyberalertx.tools.pg_migrate --status
 venv/bin/python -m cyberalertx.tools.pg_migrate          # applies 005 only
 venv/bin/python -m cyberalertx.tools.pg_migrate --status # 005 ✓
@@ -170,17 +170,17 @@ sudo systemctl stop cyberalertx-generate.timer cyberalertx-telegram.timer
 systemctl is-active cyberalertx-generate.service cyberalertx-telegram.service   # both must be inactive
 
 # 2. point `current` at the release
-ln -sfn /home/cax/cyberalertx/releases/$ID /home/cax/cyberalertx/current
+ln -sfn $APP_ROOT/releases/$ID $APP_ROOT/current
 
 # 3. install the unit changes (paths only; commands, users and timers unchanged)
-sudo sed -i 's#WorkingDirectory=/home/cax/cax/frontend#WorkingDirectory=/home/cax/cyberalertx/current/frontend#' \
+sudo sed -i 's#WorkingDirectory=$APP_HOME/frontend#WorkingDirectory=$APP_ROOT/current/frontend#' \
   /etc/systemd/system/cyberalertx-frontend.service
 for u in api run generate telegram; do
-  sudo sed -i -e 's#WorkingDirectory=/home/cax/cax$#WorkingDirectory=/home/cax/cyberalertx/current#' \
-              -e 's#/home/cax/cax/venv/bin/python#/home/cax/cyberalertx/current/venv/bin/python#' \
+  sudo sed -i -e 's#WorkingDirectory=$APP_HOME$#WorkingDirectory=$APP_ROOT/current#' \
+              -e 's#$APP_HOME/venv/bin/python#$APP_ROOT/current/venv/bin/python#' \
               /etc/systemd/system/cyberalertx-$u.service
 done
-#   EnvironmentFile=/home/cax/cax/.env stays as it is.
+#   EnvironmentFile=$APP_HOME/.env stays as it is.
 #   cyberalertx-analytics: optional, same two substitutions.
 sudo systemctl daemon-reload
 systemctl cat cyberalertx-api cyberalertx-telegram | grep -E 'WorkingDirectory|ExecStart'   # review
@@ -231,7 +231,7 @@ the same unit and timer.
 **Dry run (no effect):**
 
 ```bash
-cd /home/cax/cyberalertx/current && set -a && . /home/cax/cax/.env && set +a
+cd $APP_ROOT/current && set -a && . $APP_HOME/.env && set +a
 venv/bin/python -m cyberalertx.tools.publish cycle --limit 1        # preview; check targets and text
 ```
 
@@ -240,7 +240,7 @@ venv/bin/python -m cyberalertx.tools.publish cycle --limit 1        # preview; c
 ```bash
 sudo systemctl stop cyberalertx-telegram.timer
 systemctl is-active cyberalertx-telegram.service                     # inactive
-cd /home/cax/cyberalertx/current && set -a && . /home/cax/cax/.env && set +a
+cd $APP_ROOT/current && set -a && . $APP_HOME/.env && set +a
 venv/bin/python -m cyberalertx.tools.publish plan                    # creates jobs; imports the ledger
 venv/bin/python -m cyberalertx.tools.publish status                  # Telegram: published (imported) + scheduled
 sudo sed -i 's#-m cyberalertx.main publish-telegram --limit 1#-m cyberalertx.tools.publish cycle --send --limit 1#' \
@@ -293,5 +293,5 @@ shared ledger keeps the legacy command from re-sending what the new one sent.
   ```
 
 - **Release retention:** keep the current release plus the two previous ones,
-  plus the old `/home/cax/cax` checkout until the first release has run for
+  plus the old `$APP_HOME` checkout until the first release has run for
   2 weeks.

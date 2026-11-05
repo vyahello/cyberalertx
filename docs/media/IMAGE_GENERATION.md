@@ -138,7 +138,7 @@ store; their pages return 404, so they need no image.
 ## 6. Operations
 
 ```bash
-cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env
 venv/bin/python -m cyberalertx.tools.media backfill            # plan, read-only
 venv/bin/python -m cyberalertx.tools.media backfill --batch 50 # generate up to 50
 venv/bin/python -m cyberalertx.tools.media status              # counts and failures

@@ -442,4 +442,4 @@ re-rendering.
 Scripts used for this audit are not committed (they live in the session
 scratchpad). Each count above names its field and pattern; the patterns are
 listed in the style guide tables (§14–§17) and can be re-run with
-`/home/cax/cax/venv/bin/python -I` over `data/threat_posts.json`.
+`$APP_HOME/venv/bin/python -I` over `data/threat_posts.json`.

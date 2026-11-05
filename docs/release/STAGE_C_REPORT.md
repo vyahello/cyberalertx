@@ -12,12 +12,12 @@ off until their own stages.
 | | |
 |---|---|
 | Commit | `4fa7a63a982b8a79b5c511fcc56d1d53c2f85c14`, tree `fea7201c…` (identical to RC3's tree) |
-| Release | `/home/cax/cyberalertx/releases/20261104-1626-4fa7a63`, with `current` → it |
+| Release | `$APP_ROOT/releases/20261104-1626-4fa7a63`, with `current` → it |
 | Provenance | All 352 files match the commit's git blob hashes; 0 extra files (before and after the build). `RELEASE` records archive `3f341613…`, `requirements.lock` `88205da4…`, `package-lock.json` `1ee37afd…`. |
 | Dependencies | venv == `requirements.lock` (pip check OK; pip-audit: none). Next.js **15.5.29** (1 copy), sharp **0.35.5** (2 copies, same version). npm audit 0 (full and runtime). The GHSA-pc58 fix is present. |
 | Tests in the release | pytest 1372 passed, 5 skipped; mypy clean (119 files); smoke: pages 200, 30/30 cards, `/_next/image` 404 |
-| Data | `data` → `/home/cax/cax/data` (live). No rehearsal path; the prerender used a staging API over a data snapshot. |
-| Old application | `/home/cax/cax` untouched (`main` @ `73257f0`, clean), with its own venv and build |
+| Data | `data` → `$APP_HOME/data` (live). No rehearsal path; the prerender used a staging API over a data snapshot. |
+| Old application | `$APP_HOME` untouched (`main` @ `73257f0`, clean), with its own venv and build |
 
 ## Timeline
 
@@ -40,7 +40,7 @@ off until their own stages.
 
 ## Backups (mode 700; secret and data files 600)
 
-`/home/cax/backups/stagec-20261104-1626-4fa7a63/`. Full checksums are in `SHA256SUMS` there.
+`$BACKUPS/stagec-20261104-1626-4fa7a63/`. Full checksums are in `SHA256SUMS` there.
 
 | File | sha256 (first 16) | Verification |
 |---|---|---|
@@ -52,7 +52,7 @@ off until their own stages.
 | `quiesced-files/{items.json, threat_posts.json, telegram_published.jsonl}` | `f4beef67…`, `2acdb140…`, `6dd63a4b…` | byte-identical at quiesce |
 | 9 unit files, `frontend.env.production` | in `SHA256SUMS` | — |
 
-The earlier backup `/home/cax/backups/stagec-20261104-1613-4fa7a63/` is kept and intact.
+The earlier backup `$BACKUPS/stagec-20261104-1613-4fa7a63/` is kept and intact.
 
 ## Migration 005 (production Supabase)
 
@@ -72,12 +72,12 @@ The earlier backup `/home/cax/backups/stagec-20261104-1613-4fa7a63/` is kept and
 
 | Unit | Before | Now |
 |---|---|---|
-| `cyberalertx-api` | `/home/cax/cax` | release; drop-in `stage-c-json-reads.conf` (O27) |
-| `cyberalertx-frontend` | `/home/cax/cax/frontend` (Next 15.5.18) | release `frontend` (Next 15.5.29) |
-| `cyberalertx-run` | `/home/cax/cax`, enabled | release, enabled |
-| `cyberalertx-generate(.timer)` | `/home/cax/cax`, timer enabled | release; timer re-enabled 17:34 |
-| `cyberalertx-telegram(.timer)` | legacy, timer enabled | **unchanged unit, timer disabled + hold drop-in** (`ConditionPathExists=/home/cax/cyberalertx/STAGE_D_AUTHORIZED`, marker absent) |
-| `cyberalertx-analytics(.timer)` | `/home/cax/cax` | unchanged (code identical; `--dry-run` OK) |
+| `cyberalertx-api` | `$APP_HOME` | release; drop-in `stage-c-json-reads.conf` (O27) |
+| `cyberalertx-frontend` | `$APP_HOME/frontend` (Next 15.5.18) | release `frontend` (Next 15.5.29) |
+| `cyberalertx-run` | `$APP_HOME`, enabled | release, enabled |
+| `cyberalertx-generate(.timer)` | `$APP_HOME`, timer enabled | release; timer re-enabled 17:34 |
+| `cyberalertx-telegram(.timer)` | legacy, timer enabled | **unchanged unit, timer disabled + hold drop-in** (`ConditionPathExists=$APP_ROOT/STAGE_D_AUTHORIZED`, marker absent) |
+| `cyberalertx-analytics(.timer)` | `$APP_HOME` | unchanged (code identical; `--dry-run` OK) |
 
 Unit edits are paths only: 2 lines each for api/run/generate, 1 for frontend; 0 for telegram and analytics.
 
@@ -140,7 +140,7 @@ O27–O32 (see OPEN_ISSUES.md). The two to act on:
 
 ## Rollback readiness
 
-- **Site back to the old app:** `sudo bash /home/cax/stagec-tools/c7_rollback.sh` (tested). It restores the 4 unit files from the backup, restarts the old API and frontend, and leaves all writers off. The API drop-in may stay; the old code supports JSON.
+- **Site back to the old app:** `sudo bash $OPS_TOOLS/c7_rollback.sh` (tested). It restores the 4 unit files from the backup, restarts the old API and frontend, and leaves all writers off. The API drop-in may stay; the old code supports JSON.
 - **Before re-enabling legacy writers:** read C14 and O19. The old ingest drops relevance fields from `items.json`, and old code has no review gate.
 - **Database:** migration 005 can stay, because old code ignores the columns. Otherwise use 006, or restore `supabase-quiesced.dump`.
 - **Data:** never overwrite `data/` without an explicit decision. The rollback point is `prod-data-quiesced.tgz`.

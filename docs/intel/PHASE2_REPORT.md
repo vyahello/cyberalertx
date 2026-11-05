@@ -1,9 +1,9 @@
 # Phase 2 report — intelligence core (3 November 2026)
 
-> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+> **Status: historical record.** Paths such as `$APP_HOME-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
 
-Worktree `/home/cax/cax-redesign`, branch `redesign/cti-platform`,
-**uncommitted**. `/home/cax/cax` unchanged (clean, `73257f0`). Nothing deployed,
+Worktree `$APP_HOME-redesign`, branch `redesign/cti-platform`,
+**uncommitted**. `$APP_HOME` unchanged (clean, `73257f0`). Nothing deployed,
 published or sent; no production environment variables, Postgres/Supabase or
 Telegram touched. **AI calls used: 0.**
 
@@ -122,7 +122,7 @@ applied**; relevance fields are JSON-only until `005_relevance.sql` (specified i
 
 ## 13. Before production deployment (exact steps)
 1. Review and commit the branch; deploy from a **separate release directory**,
-   not by editing `/home/cax/cax` in place.
+   not by editing `$APP_HOME` in place.
 2. Keep `CYBERALERTX_REVIEW_MODE=flag` (unset = flag). Leave
    `CYBERALERTX_HIDE_OUT_OF_SCOPE` unset initially.
 3. Run `tests/test_pg_review_live.py` once against a **Supabase test project**

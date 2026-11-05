@@ -1,8 +1,8 @@
 # Phase 4 — Publication Engine: final report
 
-> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+> **Status: historical record.** Paths such as `$APP_HOME-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
 
-Built and tested in `/home/cax/cax-redesign` (branch `redesign/cti-platform`)
+Built and tested in `$APP_HOME-redesign` (branch `redesign/cti-platform`)
 only. Nothing was deployed, committed or pushed. **No Telegram message was
 sent**; every Bot API call ran against `httpx.MockTransport` with fake channel
 ids. Production systemd units, environment, data and database are unchanged.
@@ -307,7 +307,7 @@ None.
   the other; don't run both.
 - Breaking follow-up wording is a simple prefix. It needs editorial review
   before it is enabled.
-- An untracked file `/home/cax/cax/.e` (53 bytes, 3 Nov 16:23) appeared in
+- An untracked file `$APP_HOME/.e` (53 bytes, 3 Nov 16:23) appeared in
   the production checkout during this session. It was not created by this
   work and was neither read nor touched. The owner should check it.
 

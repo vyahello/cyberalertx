@@ -22,7 +22,7 @@ going live.
   Facebook/Meta account that will own the app.
 - The two Threads profiles, **CyberAlertX EN** and **CyberAlertX UA**. You
   must be able to log in to each of them in a browser.
-- Server access to edit `/home/cax/cax/.env`, the EnvironmentFile of the
+- Server access to edit `$APP_HOME/.env`, the EnvironmentFile of the
   systemd units.
 - The deployed Phase 1–5 code. The callback route
   `/admin/threads/callback` must be live, and the Media Engine card routes
@@ -102,7 +102,7 @@ Business verification may also be requested.
 
 ## 7. Environment configuration
 
-Put these in `/home/cax/cax/.env`. A placeholder template is in
+Put these in `$APP_HOME/.env`. A placeholder template is in
 `docs/threads/threads.env.example`.
 
 | Variable | Value |

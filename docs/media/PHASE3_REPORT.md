@@ -1,12 +1,12 @@
 # Phase 3 — Media Engine: final report
 
-> **Historical record.** Paths such as `/home/cax/cax-redesign` predate the release layout; see [docs/README.md](../README.md) for current documents.
+> **Historical record.** Paths such as `$APP_HOME-redesign` predate the release layout; see [docs/README.md](../README.md) for current documents.
 
 **Status:** branded cards are live in the worktree for every story edition.
 Illustrations are **implemented but not operational**. No image provider is
 configured, so no real image has been generated. Everything was built and
-tested in `/home/cax/cax-redesign` only. Nothing was deployed, committed,
-pushed or sent. Production (`/home/cax/cax`) has a clean git status and no
+tested in `$APP_HOME-redesign` only. Nothing was deployed, committed,
+pushed or sent. Production (`$APP_HOME`) has a clean git status and no
 `data/media/`.
 
 ## 1. Media architecture before this phase

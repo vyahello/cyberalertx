@@ -1,6 +1,6 @@
 # Stage C runbook: controlled manual operation
 
-> **Status: historical record (deprecated as a procedure).** The Stage C cutover of 4 Nov 2026. Commit `4fa7a63`, `REPO=/home/cax/cax-redesign` and the `c5`/`c7`/`c9` scripts belong to that cutover; do not replay them. Current procedure: [OPERATIONS.md](../operations/OPERATIONS.md). Stage D sections (C10–C12) remain the reference for enabling Telegram, which still needs separate authorization.
+> **Status: historical record (deprecated as a procedure).** The Stage C cutover of 4 Nov 2026. Commit `4fa7a63`, `REPO=$APP_HOME-redesign` and the `c5`/`c7`/`c9` scripts belong to that cutover; do not replay them. Current procedure: [OPERATIONS.md](../operations/OPERATIONS.md). Stage D sections (C10–C12) remain the reference for enabling Telegram, which still needs separate authorization.
 
 > **Not executed. Nothing here is authorized yet.** Each step starts only after
 > the administrator gives the approval named on it. Stage D (C12, the Telegram
@@ -9,7 +9,7 @@
 > Revision 2 (4 Nov 2026). It replaces revision 1 because migration 005 was
 > applied while legacy writers were still running. Written against production
 > as inspected read-only on 4 Nov:
-> - `/home/cax/cax` on `main` @ `73257f0`;
+> - `$APP_HOME` on `main` @ `73257f0`;
 > - units as in DEPLOYMENT_RUNBOOK §0;
 > - server time zone EET.
 >
@@ -35,7 +35,7 @@ So the window between the migration and activation could not strip anything *yet
 | Label | Meaning |
 |---|---|
 | **[RO]** | Read-only. No approval needed beyond P0. |
-| **[NEW]** | Writes only new directories (`/home/cax/cyberalertx/…`, `/home/cax/backups/stagec-…`, `~/stagec-tools`) or a throwaway local container. No production effect. |
+| **[NEW]** | Writes only new directories (`$APP_ROOT/…`, `$BACKUPS/stagec-…`, `~/stagec-tools`) or a throwaway local container. No production effect. |
 | **[TEST-DB]** | Writes to the Supabase **test** project. Never production. |
 | **[PROD]** | Production write without sudo: production `data/`, `.env`, production Supabase, or an external channel |
 | **[SUDO]** | Root: systemd units, timers, restarts |
@@ -57,7 +57,7 @@ Never put a secret on a command line, where it lands in history and `ps`. Use `r
 > **dotenv hazard:** `cyberalertx/__init__.py` auto-loads the first `.env`
 > found walking **up from the working directory**. Run release and test
 > commands only from inside `$R` or `$T`, where none is found (checked in C0).
-> **Never from inside `/home/cax/cax`**: that loads production `.env` into
+> **Never from inside `$APP_HOME`**: that loads production `.env` into
 > any process, including one meant to be isolated.
 
 ## Decisions confirmed (item 4 of the request)
@@ -93,12 +93,12 @@ cat > ~/stagec.vars <<'EOF'
 SHA=4fa7a63a982b8a79b5c511fcc56d1d53c2f85c14      # redesign/cti-platform, messages without trailers
 TREE=fea7201cafc42b16b64337a957450c8c971c62e5     # its tree (identical to RC3's source tree)
 ID=YYYYMMDD-HHMM-4fa7a63                          # set once at C1, e.g. $(date +%Y%m%d-%H%M)-4fa7a63
-REPO=/home/cax/cax-redesign
-PROD=/home/cax/cax
-R=/home/cax/cyberalertx/releases/$ID
-SNAP=/home/cax/cyberalertx/staging/$ID
-B=/home/cax/backups/stagec-$ID                    # never name files data-*.tar.gz here: cax-backup rotates that pattern recursively
-TOOLS=/home/cax/stagec-tools
+REPO=$APP_HOME-redesign
+PROD=$APP_HOME
+R=$APP_ROOT/releases/$ID
+SNAP=$APP_ROOT/staging/$ID
+B=$BACKUPS/stagec-$ID                    # never name files data-*.tar.gz here: cax-backup rotates that pattern recursively
+TOOLS=$OPS_TOOLS
 EOF
 chmod 600 ~/stagec.vars; . ~/stagec.vars
 read -rs ADMIN_TOKEN       # admin pages; not echoed
@@ -133,7 +133,7 @@ stat -c '%a %U:%G' $PROD/.env                                                   
 grep -oE '^[A-Z_][A-Z0-9_]*=' $PROD/.env | tr -d = | sort | tr '\n' ' '; echo         # 18 names, none of the 4 pins
 git -C $REPO rev-parse HEAD; git -C $REPO rev-parse $SHA^{tree}                        # = $SHA, = $TREE
 git -C $REPO log --format=%B main..$SHA | grep -ci co-authored                        # 0
-for d in /home/cax/cyberalertx /home/cax /home /; do [ -e $d/.env ] && echo "STOP: $d/.env exists"; done   # nothing
+for d in $APP_ROOT $HOME /home /; do [ -e $d/.env ] && echo "STOP: $d/.env exists"; done   # nothing
 cat /etc/cron.d/cax-backup                                                            # only the 03:00 data backup (reads data/)
 df -h /home | tail -1                                                                 # ≥ 5 GB free
 journalctl -u cyberalertx-run -u cyberalertx-generate -u cyberalertx-telegram --since -6h | grep -cE 'Traceback|ERROR'   # baseline
@@ -166,7 +166,7 @@ $R/venv/bin/pip check
 # 3. data link → a snapshot (it stays on the snapshot until C7)
 mkdir -p $SNAP && cp -a $PROD/data $SNAP/data && ln -s $SNAP/data $R/data
 (cd $R && venv/bin/python -c "import dotenv,cyberalertx.config as c;print(repr(dotenv.find_dotenv(usecwd=True)), c.DATA_DIR.resolve())")
-#    → '' /home/cax/cyberalertx/staging/$ID/data
+#    → '' $APP_ROOT/staging/$ID/data
 # 4. staging API over the snapshot; frontend prerendered against it with the production build config
 ( cd $R && env -i HOME=$HOME PATH=/usr/bin:/bin CYBERALERTX_STORAGE_BACKEND=json \
     venv/bin/python -m cyberalertx.main serve --host 127.0.0.1 --port 8190 > $SNAP/api.log 2>&1 & ); sleep 5
@@ -301,10 +301,10 @@ Established from the **running legacy code** (`main` @ `73257f0`) and the instal
 | `cyberalertx-generate` (hourly oneshot) | **Yes** | `data/threat_posts.json` (AI cache), `quality_metrics.json`; PG `threat_posts` | **No:** timer disabled first; a running job finishes naturally | `ai/generator.py: generate` → `cache.set` on the provider path; `storage/dual_write.py: set` |
 | `cyberalertx-telegram` (10×/day oneshot) | **Yes** | `data/telegram_published.jsonl` (ledger), Telegram channels | **No:** timer disabled; hold drop-in blocks the service until Stage D | `publish/service.py` → `PublishLedger.record` |
 | `cyberalertx-api` (old API) | **Yes, two benign paths** | (1) `data/feedback.jsonl`: append on public `POST /feedback` (size-capped). (2) `data/quality_metrics.json`: atomic rewrite when a post is rendered rule-based (no cached locale). | **Yes.** Neither target is affected data. Nothing else is written: no review state, no ledger, no `items.json`/`threat_posts.json`, no Postgres, no media. | Only routes: `GET /posts…`, `/healthz`, read-only `/admin` (feedback, metrics, sources) and `POST /feedback`. **No review endpoints in the old code** (review state is new). Serve path builds the generator with `use_llm=False` and `_provider=None`; `generate()` calls `cache.set` only after a provider render, and rule-based output is explicitly not cached. `DualWriteThreatPostCache.get` reads JSON, then PG (read-only `SELECT`). `JsonNewsStore.__init__` only loads. `QualityMetrics.bump` → `_flush` (temp + `os.replace`). No `BackgroundTasks`, threads or startup hooks. Observed: `quality_metrics.json` last written 16:01:42 by generate; no API write since. |
-| `cyberalertx-frontend` (old Next.js 15.5.18) | **Indirectly, one path** | Reader feedback via `POST $API/feedback` (`lib/api.ts`) → `feedback.jsonl`. Own ISR cache in `/home/cax/cax/frontend/.next` (not shared, not used by the release). | **Yes** | Only route handler: `feed.xml` (GET). No server actions, no `fs` writes; `middleware.ts` only redirects. |
+| `cyberalertx-frontend` (old Next.js 15.5.18) | **Indirectly, one path** | Reader feedback via `POST $API/feedback` (`lib/api.ts`) → `feedback.jsonl`. Own ISR cache in `$APP_HOME/frontend/.next` (not shared, not used by the release). | **Yes** | Only route handler: `feed.xml` (GET). No server actions, no `fs` writes; `middleware.ts` only redirects. |
 | `cyberalertx-analytics` (daily 03:01 oneshot) | **Yes, own files only** | `data/analytics.sqlite3`, `data/analytics/report.html`; **reads** `items.json` titles and `data/nginx-archive` | **Yes** (code identical in `main` and `4fa7a63`); C5 aborts if it is running | `server/analytics/__init__.py` (DB and archive paths); `__main__.py` reads `_ITEMS_PATH`; last write 03:01:59 |
-| cron `cax-backup` (03:00) | Backups only | `/home/cax/backups/data-*.tar.gz` (reads `data/`; rotates that pattern) | **Yes** | `/usr/local/bin/cax-backup` |
-| Root crontab, `/etc/crontab` | Unknown without sudo / none | — | Verified by `c5_quiesce.sh` preflight as root: aborts if either schedules `/home/cax/cax` or `cyberalertx` | `/etc/crontab`, `cron.{hourly,daily,weekly}`: no CyberAlertX entries |
+| cron `cax-backup` (03:00) | Backups only | `$BACKUPS/data-*.tar.gz` (reads `data/`; rotates that pattern) | **Yes** | `/usr/local/bin/cax-backup` |
+| Root crontab, `/etc/crontab` | Unknown without sudo / none | — | Verified by `c5_quiesce.sh` preflight as root: aborts if either schedules `$APP_HOME` or `cyberalertx` | `/etc/crontab`, `cron.{hourly,daily,weekly}`: no CyberAlertX entries |
 | Manual tools (`server.scripts.refresh_feed`, `tools.delete_post`, `import_ai_cache_to_postgres`) | **Yes** | delete or overwrite items and posts, JSON and PG | **Not to be run** during Stage C | Source docstrings |
 
 **Conclusion:** after C5, no running process can modify `items.json`,
@@ -324,7 +324,7 @@ ls /etc/cron.d/; crontab -l 2>/dev/null | grep -v '^#'
 
 | | |
 |---|---|
-| **Expected** | Exactly the processes in the table: api, frontend and run running from `/home/cax/cax`; no other cyberalertx process; no cron besides `cax-backup` |
+| **Expected** | Exactly the processes in the table: api, frontend and run running from `$APP_HOME`; no other cyberalertx process; no cron besides `cax-backup` |
 | **Risk** | None |
 | **Rollback** | Not needed. An unknown writer means **stop**: add it to this table first. |
 
@@ -340,7 +340,7 @@ the C7 restart (~10 s).
 
 **Approval:** P3. Steps 1–3 are [SUDO], run as **one script**. Step 5 is [NEW] and reads production Supabase.
 
-**Steps 1–3: `sudo bash /home/cax/stagec-tools/c5_quiesce.sh`.** Revision 3 of the script; the full source is in Appendix B.
+**Steps 1–3: `sudo bash $OPS_TOOLS/c5_quiesce.sh`.** Revision 3 of the script; the full source is in Appendix B.
 
 Why a script, and what it checks:
 
@@ -351,7 +351,7 @@ Why a script, and what it checks:
 | **Running oneshots** | Waits for `generate`/`telegram` to finish **naturally**, including queued start jobs. It never stops them. After 420 s (more than their `TimeoutStartSec=300`) it **aborts**, names the unit still active, and installs no hold. |
 | **Stopping `run`** | Only in a verified idle window: `disable`, then `stop` (bounded to 120 s). Then it checks `inactive`, `disabled` and **`Result=success`**, and that no new `Running job` appeared during the stop; otherwise it aborts with **INTERRUPTED**. The legacy SIGTERM handler shuts the scheduler down without waiting for a job, which is why the idle check comes first. |
 | **Fail-fast** | `set -Eeuo pipefail` with an ERR trap. Every `disable`, `stop`, `mkdir`, write and `daemon-reload` is checked, and so is the resulting state. On any failure it prints the partial state, says "C5 did NOT complete", exits 1, and **reverts nothing**. |
-| **Telegram hold** | Written atomically (temp file + `mv`) to `/etc/systemd/system/cyberalertx-telegram.service.d/stage-c-hold.conf`. After `daemon-reload` it must appear in `DropInPaths` with `NeedDaemonReload=no`, and `systemd-analyze condition ConditionPathExists=/home/cax/cyberalertx/STAGE_D_AUTHORIZED` must evaluate **false**. The marker must be absent before and after. The script never creates it. |
+| **Telegram hold** | Written atomically (temp file + `mv`) to `/etc/systemd/system/cyberalertx-telegram.service.d/stage-c-hold.conf`. After `daemon-reload` it must appear in `DropInPaths` with `NeedDaemonReload=no`, and `systemd-analyze condition ConditionPathExists=$APP_ROOT/STAGE_D_AUTHORIZED` must evaluate **false**. The marker must be absent before and after. The script never creates it. |
 | **Site stays up** | API and frontend must be `active` at preflight and at the end. They are never touched. |
 | **Re-runs** | Idempotent: already-disabled timers, an already-stopped `run` and an identical drop-in are verified, not redone |
 
@@ -363,7 +363,7 @@ Why a script, and what it checks:
   - a SIGTERM-handled exit gives `Result=success`, and a hang gives `Result=timeout`.
 - **Read-only against the live `run` process:** the 16:41:09–16:41:17 cycle was recognized; the detector reported "next due in 1749 s, CPU 0 ticks/2s".
 
-**4. Verify quiescence** [RO, no sudo]: `bash /home/cax/stagec-tools/c5_verify_quiet.sh 120` (source in Appendix C).
+**4. Verify quiescence** [RO, no sudo]: `bash $OPS_TOOLS/c5_verify_quiet.sh 120` (source in Appendix C).
 
 It refuses unless `run`, `generate` and `telegram` are inactive, the timers disabled and the hold loaded. Then, for 120 s:
 - **`data/`:** every changed file must be `data/feedback.jsonl` or `data/quality_metrics.json` (top level only). Any other change, including new files, fails.
@@ -427,13 +427,13 @@ grep -c '^CYBERALERTX_REVIEW_MODE=' $PROD/.env.new                              
 stat -c '%a %U:%G' $PROD/.env.new && mv $PROD/.env.new $PROD/.env                                                # 600 cax:cax; atomic
 # 2. point the release at the live data and at `current`
 ln -sfn $PROD/data $R/data
-(cd $R && venv/bin/python -c "import dotenv,cyberalertx.config as c;print(repr(dotenv.find_dotenv(usecwd=True)), c.DATA_DIR.resolve())")   # '' /home/cax/cax/data
-ln -sfn $R /home/cax/cyberalertx/current
+(cd $R && venv/bin/python -c "import dotenv,cyberalertx.config as c;print(repr(dotenv.find_dotenv(usecwd=True)), c.DATA_DIR.resolve())")   # '' $APP_HOME/data
+ln -sfn $R $APP_ROOT/current
 # 3. units: paths only, for api, frontend, run, generate. NOT telegram (held), NOT analytics (unchanged).
-sudo sed -i 's#^WorkingDirectory=/home/cax/cax/frontend$#WorkingDirectory=/home/cax/cyberalertx/current/frontend#' /etc/systemd/system/cyberalertx-frontend.service
+sudo sed -i 's#^WorkingDirectory=$APP_HOME/frontend$#WorkingDirectory=$APP_ROOT/current/frontend#' /etc/systemd/system/cyberalertx-frontend.service
 for u in api run generate; do
-  sudo sed -i -e 's#^WorkingDirectory=/home/cax/cax$#WorkingDirectory=/home/cax/cyberalertx/current#' \
-              -e 's#/home/cax/cax/venv/bin/python#/home/cax/cyberalertx/current/venv/bin/python#' /etc/systemd/system/cyberalertx-$u.service
+  sudo sed -i -e 's#^WorkingDirectory=$APP_HOME$#WorkingDirectory=$APP_ROOT/current#' \
+              -e 's#$APP_HOME/venv/bin/python#$APP_ROOT/current/venv/bin/python#' /etc/systemd/system/cyberalertx-$u.service
 done
 sudo systemctl daemon-reload
 for u in api frontend run generate telegram; do echo "== $u"; diff $B/cyberalertx-$u.service /etc/systemd/system/cyberalertx-$u.service; done
@@ -540,11 +540,11 @@ the first new generate run; watch it:
 python3 - <<'EOF'                         # [RO] no values printed
 import re,os
 r=lambda p:dict(re.findall(r'^(CYBERALERTX_TELEGRAM_[A-Z_]+)=(.*)$',open(os.path.expanduser(p)).read(),re.M))
-t,p=r('~/secrets/telegram-test.env'),r('/home/cax/cax/.env')
+t,p=r('~/secrets/telegram-test.env'),r('$APP_HOME/.env')
 for k in ('CYBERALERTX_TELEGRAM_BOT_TOKEN','CYBERALERTX_TELEGRAM_CHANNEL_EN','CYBERALERTX_TELEGRAM_CHANNEL_UA'):
     print(k,'DISTINCT' if t.get(k) and t.get(k)!=p.get(k) else 'SAME/MISSING: STOP')
 EOF
-T=/home/cax/cyberalertx/telegram-test/$ID; mkdir -p $T
+T=$APP_ROOT/telegram-test/$ID; mkdir -p $T
 git -C $REPO archive $SHA | tar -x -C $T && cp -a $PROD/data $T/data          # a real copy, never a symlink   [NEW]
 (cd $T && $R/venv/bin/python -c "import dotenv,cyberalertx.config as c;print(repr(dotenv.find_dotenv(usecwd=True)), c.DATA_DIR)")   # '' $T/data
 TT() { (cd $T && env -i HOME=$HOME PATH=/usr/bin:/bin bash -c "set -a; . ~/secrets/telegram-test.env; set +a;
@@ -631,13 +631,13 @@ startable.
 . ~/stagec.vars
 systemctl is-enabled cyberalertx-telegram.timer; systemctl is-active cyberalertx-telegram.service   # disabled, inactive
 cp -a $PROD/data/telegram_published.jsonl $B/ledger.before-stage-d                                   # [NEW]
-( cd /home/cax/cyberalertx/current && loadenv $PROD/.env
+( cd $APP_ROOT/current && loadenv $PROD/.env
   venv/bin/python -m cyberalertx.tools.publish cycle --limit 1      # [RO] preview
   venv/bin/python -m cyberalertx.tools.publish plan                 # [PROD] creates jobs; imports the ledger as "published"
   venv/bin/python -m cyberalertx.tools.publish status )
 # one edit: release paths + the new command; the legacy command disappears from the unit
-sudo sed -i -e 's#^WorkingDirectory=/home/cax/cax$#WorkingDirectory=/home/cax/cyberalertx/current#' \
-            -e 's#/home/cax/cax/venv/bin/python -m cyberalertx.main publish-telegram --limit 1#/home/cax/cyberalertx/current/venv/bin/python -m cyberalertx.tools.publish cycle --send --limit 1#' \
+sudo sed -i -e 's#^WorkingDirectory=$APP_HOME$#WorkingDirectory=$APP_ROOT/current#' \
+            -e 's#$APP_HOME/venv/bin/python -m cyberalertx.main publish-telegram --limit 1#$APP_ROOT/current/venv/bin/python -m cyberalertx.tools.publish cycle --send --limit 1#' \
             /etc/systemd/system/cyberalertx-telegram.service
 sudo rm -r /etc/systemd/system/cyberalertx-telegram.service.d          # the hold is no longer needed: the old command is gone
 sudo systemctl daemon-reload
@@ -684,7 +684,7 @@ sudo systemctl enable --now cyberalertx-telegram.timer                 # Persist
 
 ---
 
-**Rollback after the O27 hotfix.** `c7_rollback.sh` restores the four unit files but does not remove the API drop-in `cyberalertx-api.service.d/stage-c-json-reads.conf`. The old API also supports the JSON backend, so the drop-in is harmless after a rollback and keeps the old site fast. To remove it **before** rolling back, run `sudo bash /home/cax/stagec-tools/c8_api_json_reads.sh revert` while the API still runs from the release. After a rollback, remove it by hand (`sudo rm -r /etc/systemd/system/cyberalertx-api.service.d && sudo systemctl daemon-reload && sudo systemctl restart cyberalertx-api`).
+**Rollback after the O27 hotfix.** `c7_rollback.sh` restores the four unit files but does not remove the API drop-in `cyberalertx-api.service.d/stage-c-json-reads.conf`. The old API also supports the JSON backend, so the drop-in is harmless after a rollback and keeps the old site fast. To remove it **before** rolling back, run `sudo bash $OPS_TOOLS/c8_api_json_reads.sh revert` while the API still runs from the release. After a rollback, remove it by hand (`sudo rm -r /etc/systemd/system/cyberalertx-api.service.d && sudo systemctl daemon-reload && sudo systemctl restart cyberalertx-api`).
 
 ## Appendix A: helper scripts (write them to `$TOOLS` [NEW])
 
@@ -762,7 +762,7 @@ Both scripts were tested on 4 Nov 2026, in scratch only:
 # =============================================================================
 # CyberAlertX Stage C, step C5 (STAGE_C_RUNBOOK.md rev. 2): quiesce the legacy writers.
 #
-#   sudo bash /home/cax/stagec-tools/c5_quiesce.sh
+#   sudo bash $OPS_TOOLS/c5_quiesce.sh
 #
 # Order (each step verified before the next; any failure stops the script):
 #   0. Preflight: root, unit files, API+frontend active, journal readable, Stage D marker ABSENT.
@@ -796,7 +796,7 @@ if [ "${C5_TEST:-0}" = 1 ]; then
   MARKER=${C5_MARKER:?}
 else
   SYSTEMCTL=systemctl; JOURNALCTL=journalctl; ANALYZE=systemd-analyze
-  UNIT_DIR=/etc/systemd/system; PROC=/proc; MARKER=/home/cax/cyberalertx/STAGE_D_AUTHORIZED
+  UNIT_DIR=/etc/systemd/system; PROC=/proc; MARKER=$APP_ROOT/STAGE_D_AUTHORIZED
 fi
 CRON_FILES=${C5_CRON_FILES:-"/var/spool/cron/crontabs/root /etc/crontab"}   # read as root in preflight
 [ "${C5_TEST:-0}" = 1 ] || CRON_FILES="/var/spool/cron/crontabs/root /etc/crontab"
@@ -893,7 +893,7 @@ done
 $JOURNALCTL -u "$RUN" -n 1 --no-pager >/dev/null 2>&1 || fail "cannot read the journal of $RUN"
 # No other scheduler may run legacy code against data/ (root's crontab is unreadable without sudo).
 for c in $CRON_FILES; do
-  if [ -f "$c" ] && grep -vE '^[[:space:]]*#' "$c" | grep -qE '/home/cax/cax|cyberalertx'; then
+  if [ -f "$c" ] && grep -vE '^[[:space:]]*#' "$c" | grep -qE '$APP_HOME|cyberalertx'; then
     fail "$c schedules CyberAlertX/legacy commands; add them to the C4 inventory first"
   fi
 done
@@ -1003,7 +1003,7 @@ echo "  telegram hold: $DROPIN (loaded); Stage D marker: absent"
 # CyberAlertX Stage C, C5 step 4: prove production state is quiet after c5_quiesce.sh.
 # Runs as cax, no sudo, read-only (it never writes data/, .env or the database).
 #
-#   bash /home/cax/stagec-tools/c5_verify_quiet.sh [seconds]      (default 120)
+#   bash $OPS_TOOLS/c5_verify_quiet.sh [seconds]      (default 120)
 #
 # PASS only if, over the whole window:
 #   * no file under data/ changed, except the ALLOWED legacy-API writes that remain
@@ -1019,9 +1019,9 @@ WINDOW=${1:-120}
 if [ "${C5Q_TEST:-0}" = 1 ]; then
   DATA=${C5Q_DATA:?}; PGURL_CMD=${C5Q_PGURL_CMD:?}; SYSTEMCTL=${C5Q_SYSTEMCTL:-systemctl}; PSQL_CMD=${C5Q_PSQL_CMD:?}
 else
-  DATA=/home/cax/cax/data; SYSTEMCTL=systemctl
+  DATA=$APP_HOME/data; SYSTEMCTL=systemctl
   # URL from .env via the parser (never `. .env`), passed to the container by name only.
-  PGURL_CMD='. /home/cax/stagec-tools/loadenv.sh; loadenv /home/cax/cax/.env; printf %s "${CYBERALERTX_PG_URL/postgresql+psycopg:/postgresql:}"'
+  PGURL_CMD='. $OPS_TOOLS/loadenv.sh; loadenv $APP_HOME/.env; printf %s "${CYBERALERTX_PG_URL/postgresql+psycopg:/postgresql:}"'
   PSQL_CMD='docker run --rm -i -e URL postgres:17-alpine sh -c "psql \"\$URL\" -X -q -tA -v ON_ERROR_STOP=1"'
 fi
 ALLOWED='^(feedback\.jsonl|quality_metrics\.json|\.quality_metrics\..*\.tmp)$'

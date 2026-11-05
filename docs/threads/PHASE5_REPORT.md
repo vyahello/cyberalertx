@@ -1,8 +1,8 @@
 # Phase 5 — Threads integration: final report
 
-> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+> **Status: historical record.** Paths such as `$APP_HOME-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
 
-Everything was done in `/home/cax/cax-redesign` (branch `redesign/cti-platform`).
+Everything was done in `$APP_HOME-redesign` (branch `redesign/cti-platform`).
 
 - Nothing was deployed, committed or pushed.
 - **No real Threads request was made and no post was sent.**

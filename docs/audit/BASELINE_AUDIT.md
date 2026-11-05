@@ -1,6 +1,6 @@
 # CyberAlertX — Baseline audit (2 November 2026)
 
-> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+> **Status: historical record.** Paths such as `$APP_HOME-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
 
 Snapshot of the product before the redesign branch `redesign/cti-platform`.
 Everything here was observed in the repository at `73257f0`, in the live site
@@ -23,10 +23,10 @@ statement is an inference, it says so.
 | Edge | nginx behind Cloudflare | |
 
 **Operational risk found during the audit:** the production services run
-directly out of the git checkout at `/home/cax/cax`. Editing Python there puts
+directly out of the git checkout at `$APP_HOME`. Editing Python there puts
 the change live at the next hourly `generate`; running `npm run build` there
 replaces the `.next` directory the live `next start` serves. All work on this
-branch was therefore done in a separate worktree (`/home/cax/cax-redesign`)
+branch was therefore done in a separate worktree (`$APP_HOME-redesign`)
 with a copy of the data and no `.env` (JSON-only, no Postgres, no Telegram).
 
 ## 2. Existing functionality (preserved)

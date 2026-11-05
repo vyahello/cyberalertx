@@ -72,8 +72,8 @@ the module docstrings and `server/README.md` (ops).
 **The key invariant:** AI costs money/time, so it runs in exactly **one**
 place — `generate`. Everything else only *reads* what `generate` produced.
 
-All units except analytics load `/home/cax/cax/.env` and run the active
-immutable release through `/home/cax/cyberalertx/current` (§10).
+All units except analytics load `$APP_HOME/.env` and run the active
+immutable release through `$APP_ROOT/current` (§10).
 
 ---
 
@@ -243,7 +243,7 @@ Bot API sendPhoto(https://cyberalertx.com/media/{asset}/telegram.png, caption)
 - **Channel-fatal errors** (bad chat id, bot not admin, bad token) pause that
   channel; transient errors retry with backoff.
 - **Cost-safe:** publishing reads only cached renders; it never calls the AI.
-- **Gate:** the unit's drop-in requires `/home/cax/cyberalertx/STAGE_D_AUTHORIZED`;
+- **Gate:** the unit's drop-in requires `$APP_ROOT/STAGE_D_AUTHORIZED`;
   removing it stops publishing. Details: [publish/PUBLICATION_ENGINE.md](publish/PUBLICATION_ENGINE.md).
 
 ---
@@ -283,10 +283,10 @@ Code: `cyberalertx/ai/providers/claude_cli_provider.py`.
 ## 10. Deployment model
 
 ```
-/home/cax/cyberalertx/releases/<YYYYMMDD-HHMM-sha>/   immutable: one commit + venv + frontend build
-        └── data -> /home/cax/cax/data               shared persistent data
-/home/cax/cyberalertx/current -> releases/<active>   switched atomically; units run from here
-/home/cax/cax/                                       git checkout (development) + .env + data/
+$APP_ROOT/releases/<YYYYMMDD-HHMM-sha>/   immutable: one commit + venv + frontend build
+        └── data -> $APP_HOME/data               shared persistent data
+$APP_ROOT/current -> releases/<active>   switched atomically; units run from here
+$APP_HOME/                                       git checkout (development) + .env + data/
 ```
 
 A release is built once from a reviewed commit, verified file by file, and
