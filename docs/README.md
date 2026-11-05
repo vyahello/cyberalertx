@@ -11,6 +11,7 @@ marked as such at the top.
 |---|---|
 | [architecture.md](architecture.md) | Components, data flow, storage model, deployment model |
 | [operations/OPERATIONS.md](operations/OPERATIONS.md) | Release layout, build / switch / rollback, backups, consistency model, publishing hold, recovery |
+| [media/IMAGE_GENERATION.md](media/IMAGE_GENERATION.md) | Article illustrations: host findings, SVG generator, ComfyUI status, backfill |
 | [release/OPEN_ISSUES.md](release/OPEN_ISSUES.md) | Register of open and resolved issues |
 | [release/O28_RECONCILIATION_RUNBOOK.md](release/O28_RECONCILIATION_RUNBOOK.md) | JSON → Postgres re-sync procedure |
 | [release/ROLLBACK_RUNBOOK.md](release/ROLLBACK_RUNBOOK.md) | Undoing Stage D; migration 005 notes |
@@ -27,8 +28,8 @@ marked as such at the top.
 | [editorial/UKRAINIAN_CYBERSECURITY_GLOSSARY.md](editorial/UKRAINIAN_CYBERSECURITY_GLOSSARY.md) | Ukrainian terminology |
 | [editorial/BENCHMARK_EXAMPLES.md](editorial/BENCHMARK_EXAMPLES.md) | Before/after brief examples |
 | [intel/INTELLIGENCE.md](intel/INTELLIGENCE.md), [intel/STORIES_AND_EVIDENCE.md](intel/STORIES_AND_EVIDENCE.md) | Story clustering, scoring, relevance |
-| [media/MEDIA_ENGINE.md](media/MEDIA_ENGINE.md) | Share cards and illustrations |
-| [publish/PUBLICATION_ENGINE.md](publish/PUBLICATION_ENGINE.md) | Telegram publication engine (held) |
+| [media/MEDIA_ENGINE.md](media/MEDIA_ENGINE.md) | Share cards, asset store, illustration routes |
+| [publish/PUBLICATION_ENGINE.md](publish/PUBLICATION_ENGINE.md) | Telegram publication engine: queue, ledger, message format |
 | [admin/ADMIN_DASHBOARD.md](admin/ADMIN_DASHBOARD.md) | `/admin` control room |
 
 ## Historical records

@@ -44,7 +44,7 @@ the module docstrings and `server/README.md` (ops).
                               │               │
                               │   ┌───────────┴───────────┐
    ┌─────────────────┐        │   │ nginx :443 (TLS)      │
-   │ Telegram Bot API│◀───────│   │ cyberalertx-telegram  │ HELD (disabled)
+   │ Telegram Bot API│◀───────│   │ cyberalertx-telegram  │ timer 10×/day, hold marker
    │   ↓             │  send  │   │ .timer → publish      │ reads threat_posts cache
    │ @cyberalertx_en │        │   └───────────────────────┘ writes telegram_published.jsonl
    │ @cyberalertx_ua │        │                                                            │
@@ -63,11 +63,11 @@ the module docstrings and `server/README.md` (ops).
 | Service | Type / cadence | Responsibility | Calls the AI? |
 |---|---|---|---|
 | **cyberalertx-run** | always-on, ingest every **30 min** | The ingest pipeline: fetch RSS → clean → filter → enrich → evidence → rank → persist. Deterministic. | ❌ never |
-| **cyberalertx-generate** | timer, **hourly** (`--limit 1`) | Turns the newest raw NewsItem into localized **ThreatPosts** (EN + UA) via the Claude CLI, scores them, caches them. | ✅ **only one** |
+| **cyberalertx-generate** | timer, **hourly** (`--limit 1`) | Turns the newest raw NewsItem into localized **ThreatPosts** (EN + UA) via the Claude CLI, scores them, caches them. Then the media run draws missing story illustrations (SVG, no AI). | ✅ **only one** |
 | **cyberalertx-api** | always-on, FastAPI `:8000` | HTTP feed (`/posts`, `/healthz`, `/feedback`) and `/admin`. Merges items + cached renders. | ❌ never |
 | **cyberalertx-frontend** | always-on, Next.js `:3000` | Renders the website (SSR + ISR), fetching from the API. | ❌ never |
 | **cyberalertx-analytics** | timer, daily 03:00 | Visitor statistics from the nginx log into `data/analytics.sqlite3`. | ❌ never |
-| **cyberalertx-telegram** | timer **disabled** — HELD | Telegram publication; held until Stage D (`stage-c-hold.conf`). Threads publishing is also off. | ❌ never |
+| **cyberalertx-telegram** | timer, **10×/day** | Publication queue: one post per channel per run, with the story illustration. Runs only while the hold marker exists ([operations §7](operations/OPERATIONS.md#7-telegram)). Threads publishing is off. | ❌ never |
 
 **The key invariant:** AI costs money/time, so it runs in exactly **one**
 place — `generate`. Everything else only *reads* what `generate` produced.
@@ -125,6 +125,8 @@ unsupported claims for review (mode `flag`: the post stays visible);
 | `data/threat_posts.json` | AI renders, keyed `fingerprint:locale` | generate | api, telegram |
 | **Postgres** (Supabase) | shadow copy of both tables | run, generate (dual-write) | parity checks / future read path |
 | `data/telegram_published.jsonl` | "already posted" ledger | telegram | telegram (dedup) |
+| `data/publish_jobs.json` | publication jobs (state, attempts, schedule) | telegram | telegram, api (`/admin/publishing`) |
+| `data/media/assets.json`, `data/media/files/` | illustration metadata and SVG files (content-addressed) | generate (media run) | api, frontend (`/media/…`), telegram |
 | `data/feedback.jsonl`, `*_metrics.json`, `source_health.json` | observability | api, run | you (`/admin/*`) |
 
 **Storage backend** is selected by `CYBERALERTX_STORAGE_BACKEND`:
@@ -197,40 +199,52 @@ flow (rebuild → Cloudflare purge → @WebpageBot).
 
 ---
 
-## 7. The Telegram publish path (cyberalertx-telegram)
+## 7. Illustrations and the Telegram publish path
 
-> **Held since Stage C (4 Nov 2026):** the unit's drop-in requires `/home/cax/cyberalertx/STAGE_D_AUTHORIZED` (absent) and its timer is disabled. This section describes the path as it will run after Stage D.
+**Illustrations** (`cyberalertx/media/`, after every `generate` run):
 
 ```
-list NewsItems (items.json)
-   │  tier filter: trusted / verified only
+public stories (items.json, with a published brief), newest first
+   │  visual brief from verified fields: event (evidence-gated) + scene (technology) + seed (story key)
    ▼
-for each configured channel (en, ua), newest first:
-   render_if_cached(item, locale)   ── cache hit? else skip (NEVER calls Claude)
-      │
-      ▼
-   qualifies?  threat_level ≥ High  OR  actionability = urgent_action
-      │
-      ▼
-   quality gate: non-empty title, right script for the locale
-      │
-      ▼
-   already in ledger?  → skip
-      │
-      ▼
-   format HTML (level emoji, bold title, summary, quick facts,
-                CVE→NVD links, "Read more" → our site)
-      │
-      ▼
-   Bot API sendMessage → channel   → record fingerprint:locale in the ledger
+same brief hash as the stored asset?  → reuse
+   │ no
+   ▼
+local ComfyUI (disabled) ─fail/absent─▶ SVG renderer (svg_art.py) ─▶ sanitize ─▶ data/media/files/<sha>.svg
+                                                                                 data/media/assets.json
+website  /media/{asset}/{article,og,preview,telegram}.{png,webp,avif}  ← rasterized from that one file
 ```
 
-- **Idempotent:** the JSONL ledger means re-runs / reboots never double-post.
-- **Channel-fatal errors** (bad chat id, bot-not-admin, bad token) abort that
-  channel after one attempt instead of retrying every item.
-- **Cost-safe:** it reuses the API's provider-less `_PostService`, so an
-  un-rendered item just yields `None` and is skipped — no AI call ever fires
-  from publishing. Code: `cyberalertx/publish/`.
+Details: [media/IMAGE_GENERATION.md](media/IMAGE_GENERATION.md).
+
+**Telegram** (`cyberalertx/publish/`, `tools.publish cycle --send --limit 1`):
+
+```
+plan: one job per story × locale × destination (deterministic id), within 48 h;
+      the publish ledger is imported, so anything already posted is "published"
+   │
+   ▼
+due job → edition rendered and approved?  else wait (no attempt spent)
+   │
+   ▼
+story illustration validated?  else wait (no attempt spent)
+   │
+   ▼
+format caption (headline, summary, why it matters, status, actions, source, read more)
+   │
+   ▼
+Bot API sendPhoto(https://cyberalertx.com/media/{asset}/telegram.png, caption)
+   → job published + ledger line (never re-sent)
+```
+
+- **Idempotent:** job ids plus the ledger mean re-runs and reboots never
+  double-post. A crash during a send leaves the job `outcome_unknown` for an
+  operator rather than retrying blindly.
+- **Channel-fatal errors** (bad chat id, bot not admin, bad token) pause that
+  channel; transient errors retry with backoff.
+- **Cost-safe:** publishing reads only cached renders; it never calls the AI.
+- **Gate:** the unit's drop-in requires `/home/cax/cyberalertx/STAGE_D_AUTHORIZED`;
+  removing it stops publishing. Details: [publish/PUBLICATION_ENGINE.md](publish/PUBLICATION_ENGINE.md).
 
 ---
 
