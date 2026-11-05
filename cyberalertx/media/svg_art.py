@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 W, H = 1600, 900
-RENDERER_VERSION = "cax-svg-1"
+RENDERER_VERSION = "cax-svg-2"
 
 CYAN = "#06B6D4"
 CYAN_DIM = "#0E7490"
@@ -39,6 +39,7 @@ CYAN_SOFT = "#67E8F9"
 INK = "#E6EDF3"
 FACE_TOP, FACE_LEFT, FACE_RIGHT = "#3A4350", "#29303A", "#1C222A"
 EDGE = "#4A5566"
+RIM = "#8A97A8"
 MUTED = "#4B5563"
 
 
@@ -59,9 +60,16 @@ class Canvas:
     scale: float = 46.0
     ox: float = 800.0
     oy: float = 520.0
+    bbox: list[float] = field(default_factory=lambda: [1e9, 1e9, -1e9, -1e9])
 
     def add(self, s: str) -> None:
         self.parts.append(s)
+
+    def track(self, *pts: tuple[float, float], pad: float = 0.0) -> None:
+        b = self.bbox
+        for x, y in pts:
+            b[0], b[1] = min(b[0], x - pad), min(b[1], y - pad)
+            b[2], b[3] = max(b[2], x + pad), max(b[3], y + pad)
 
     # isometric projection: x to the right-down, y to the left-down, z up
     def iso(self, x: float, y: float, z: float = 0.0) -> tuple[float, float]:
@@ -76,21 +84,32 @@ class Canvas:
         lf = [p(x, y + d, z), p(x + w, y + d, z), p(x + w, y + d, z + h), p(x, y + d, z + h)]
         rt = [p(x + w, y, z), p(x + w, y + d, z), p(x + w, y + d, z + h), p(x + w, y, z + h)]
         op = f' opacity="{_f(opacity)}"' if opacity < 1 else ""
+        # Materials: the default faces are lit gradients (key light from the
+        # upper right), and the two visible top edges catch a rim highlight.
+        top = "url(#mt)" if top == FACE_TOP else top
+        left = "url(#ml)" if left == FACE_LEFT else left
+        right = "url(#mr)" if right == FACE_RIGHT else right
         self.add(f'<g{op}><polygon points="{_pts(lf)}" fill="{left}" stroke="{edge}" stroke-width="1"/>'
                  f'<polygon points="{_pts(rt)}" fill="{right}" stroke="{edge}" stroke-width="1"/>'
-                 f'<polygon points="{_pts(t)}" fill="{top}" stroke="{edge}" stroke-width="1"/></g>')
+                 f'<polygon points="{_pts(t)}" fill="{top}" stroke="{edge}" stroke-width="1"/>'
+                 f'<polyline points="{_pts([t[3], t[2], t[1]])}" fill="none" stroke="{RIM}" stroke-width="1.4" '
+                 f'opacity=".7"/></g>')
+        self.track(*t, *lf, *rt)
         return {"top": t, "left": lf, "right": rt}
 
     def line(self, a: tuple[float, float], b: tuple[float, float], color: str = EDGE, width: float = 1.5,
              opacity: float = 1.0, dash: str = "") -> None:
         d = f' stroke-dasharray="{dash}"' if dash else ""
+        self.track(a, b)
         self.add(f'<line x1="{_f(a[0])}" y1="{_f(a[1])}" x2="{_f(b[0])}" y2="{_f(b[1])}" stroke="{color}" '
                  f'stroke-width="{_f(width)}" opacity="{_f(opacity)}" stroke-linecap="round"{d}/>')
 
     def dot(self, c: tuple[float, float], r: float, color: str = CYAN, opacity: float = 1.0) -> None:
+        self.track(c, pad=r)
         self.add(f'<circle cx="{_f(c[0])}" cy="{_f(c[1])}" r="{_f(r)}" fill="{color}" opacity="{_f(opacity)}"/>')
 
     def glow(self, c: tuple[float, float], r: float, opacity: float = 0.35, color: str = CYAN) -> None:
+        opacity *= 0.6                      # restrained: light marks the subject, it is not the subject
         self.add(f'<circle cx="{_f(c[0])}" cy="{_f(c[1])}" r="{_f(r)}" fill="{color}" opacity="{_f(opacity)}" '
                  f'filter="url(#blur)"/>')
 
@@ -137,6 +156,12 @@ def _rack(cv: Canvas, x: float, y: float, h: float = 4.2, highlight: bool = Fals
         if cv.rng.random() < 0.35:
             led = (a[0] + (b[0] - a[0]) * 0.85, a[1] + (b[1] - a[1]) * 0.85 - 4)
             cv.dot(led, 2.2, CYAN if (highlight and cv.rng.random() < 0.5) else "#5B6675", 0.9)
+    rt = f["right"]
+    for i in range(1, 7):                                                     # side vents
+        t = i / 7
+        a = (rt[0][0] + (rt[3][0] - rt[0][0]) * t, rt[0][1] + (rt[3][1] - rt[0][1]) * t)
+        b = (a[0] + (rt[1][0] - rt[0][0]) * 0.6, a[1] + (rt[1][1] - rt[0][1]) * 0.6)
+        cv.line(a, b, "#161B22", 2, 0.8)
     top = f["top"]
     return ((top[0][0] + top[2][0]) / 2, (top[0][1] + top[2][1]) / 2)
 
@@ -165,35 +190,68 @@ def scene_network_edge(cv: Canvas) -> tuple[float, float]:
     focal = (0.0, 0.0)
     layers = cv.rng.randint(2, 3)
     for i in range(layers):
-        f = cv.box(-2.0, -1.0, i * 0.75, 3.6, 2.0, 0.5, top="#303845" if i == layers - 1 else FACE_TOP)
+        f = cv.box(-2.4, -1.0, i * 0.8, 4.4, 2.0, 0.6, top="#303845" if i == layers - 1 else FACE_TOP)
         right = f["right"]
-        for k in range(7):
-            t = (k + 1) / 8
-            pt = (right[0][0] + (right[1][0] - right[0][0]) * t, right[0][1] + (right[1][1] - right[0][1]) * t - 9)
-            cv.dot(pt, 2.6, CYAN if (i == layers - 1 and k in (2, 5)) else "#566173", 0.95)
+        for k in range(10):                                                   # port bank
+            t = (k + 0.7) / 11
+            a = (right[0][0] + (right[1][0] - right[0][0]) * t, right[0][1] + (right[1][1] - right[0][1]) * t)
+            cv.add(f'<polygon points="{_pts([(a[0] - 6, a[1] - 14), (a[0] + 6, a[1] - 10), (a[0] + 6, a[1] - 2), (a[0] - 6, a[1] - 6)])}" '
+                   f'fill="#12171E" stroke="#3E4856" stroke-width=".8"/>')
+            cv.dot((a[0], a[1] - 19), 2.2, CYAN if (i == layers - 1 and k in (3, 7)) else "#5B6675", 0.95)
         focal = ((f["top"][0][0] + f["top"][2][0]) / 2, (f["top"][0][1] + f["top"][2][1]) / 2)
-    edge_a, edge_b = cv.iso(2.6, -1.0, 0.4), cv.iso(5.5, -1.0, 0.4)
-    cv.line(edge_a, edge_b, CYAN_DIM, 2, 0.6, "6 10")
+    for k in range(2):                                                        # antennas
+        b = cv.iso(-1.8 + k * 1.4, -0.8, layers * 0.8 - 0.2)
+        cv.line(b, (b[0], b[1] - 70), "#5B6675", 3)
+        cv.dot((b[0], b[1] - 70), 4, "#7D8A9C")
+    for k in range(3):                                                        # uplinks leaving the frame
+        a = cv.iso(2.0, -0.6 + k * 0.6, 0.3)
+        cv.line(a, (a[0] + 260, a[1] - 40 + k * 30), "#33404E", 2.5, 0.9)
     return focal
 
 
 def scene_workstation(cv: Canvas) -> tuple[float, float]:
-    cv.box(-1.4, 0.2, 0, 2.8, 1.4, 0.15)
-    cv.box(-0.15, 0.6, 0.15, 0.3, 0.3, 1.0)
-    s = cv.box(-1.6, 0.55, 1.1, 3.2, 0.12, 2.0, top=FACE_TOP, left="#202833")
+    cv.box(-2.2, -0.2, 0, 4.4, 2.2, 0.14, top="#2C343F")                     # desk
+    cv.box(-1.2, 1.0, 0.14, 2.2, 0.7, 0.06, top="#39424F")                    # keyboard
+    for i in range(10):
+        a = cv.iso(-1.1 + i * 0.21, 1.15, 0.2)
+        cv.add(f'<rect x="{_f(a[0] - 5)}" y="{_f(a[1] - 3)}" width="10" height="5" fill="#4A5566" opacity=".8"/>')
+    cv.box(2.5, -0.4, 0, 0.9, 1.6, 2.0)                                       # tower
+    cv.box(-0.15, 0.25, 0.14, 0.3, 0.3, 0.9)                                  # stand
+    s = cv.box(-1.9, 0.2, 1.0, 3.8, 0.12, 2.3, top=FACE_TOP, left="#1C232D")
     lf = s["left"]
-    cx = (lf[0][0] + lf[2][0]) / 2
-    cy = (lf[0][1] + lf[2][1]) / 2
-    cv.add(f'<polygon points="{_pts(lf)}" fill="url(#screen)" opacity=".85"/>')
-    return (cx, cy)
+    scr = [(lf[3][0] + 10, lf[3][1] + 10), (lf[2][0] - 10, lf[2][1] + 10), (lf[1][0] - 10, lf[1][1] - 10),
+           (lf[0][0] + 10, lf[0][1] - 10)]
+    cv.add(f'<polygon points="{_pts(scr)}" fill="url(#screen)" opacity=".9"/>')
+    _screen_tiles(cv, scr, 4, 3, cv.rng.randrange(12))
+    return ((lf[0][0] + lf[2][0]) / 2, (lf[0][1] + lf[2][1]) / 2)
+
+
+def _screen_tiles(cv: Canvas, quad: list[tuple[float, float]], cols: int, rows: int, hot: int) -> None:
+    """App tiles on a (parallelogram) screen: no text, no logos."""
+    (x0, y0), (x1, y1), _, (x3, y3) = quad
+    for r in range(rows):
+        for c in range(cols):
+            u0, v0 = (c + 0.18) / cols, (r + 0.2) / rows
+            u1, v1 = (c + 0.82) / cols, (r + 0.8) / rows
+            def at(u: float, v: float) -> tuple[float, float]:
+                return (x0 + (x1 - x0) * u + (x3 - x0) * v, y0 + (y1 - y0) * u + (y3 - y0) * v)
+            k = r * cols + c
+            cv.add(f'<polygon points="{_pts([at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)])}" '
+                   f'fill="{CYAN if k == hot else "#2E3A48"}" opacity="{".85" if k == hot else ".9"}"/>')
 
 
 def scene_phone(cv: Canvas) -> tuple[float, float]:
-    f = cv.box(-0.6, 0.0, 0, 1.6, 0.18, 3.0, left="#1F2630")
+    # Two handsets: the subject upright, a second one lying behind it.
+    cv.box(2.0, -2.6, 0, 1.5, 2.8, 0.14, top="#2B333E")                       # second handset, set aside
+    f = cv.box(-0.8, 0.0, 0, 1.9, 0.2, 3.7, left="#1A2029")
     lf = f["left"]
-    inset = [(lf[0][0] + 7, lf[0][1] - 9), (lf[1][0] - 7, lf[1][1] - 6), (lf[2][0] - 7, lf[2][1] + 12),
-             (lf[3][0] + 7, lf[3][1] + 9)]
-    cv.add(f'<polygon points="{_pts(inset)}" fill="url(#screen)" opacity=".9"/>')
+    inset = [(lf[3][0] + 9, lf[3][1] + 16), (lf[2][0] - 9, lf[2][1] + 16), (lf[1][0] - 9, lf[1][1] - 12),
+             (lf[0][0] + 9, lf[0][1] - 12)]
+    cv.add(f'<polygon points="{_pts(inset)}" fill="url(#screen)" opacity=".95"/>')
+    hot = cv.rng.randrange(12)
+    _screen_tiles(cv, [inset[0], inset[1], inset[2], inset[3]], 3, 4, hot)
+    notch = ((lf[3][0] + lf[2][0]) / 2, (lf[3][1] + lf[2][1]) / 2 + 9)
+    cv.add(f'<ellipse cx="{_f(notch[0])}" cy="{_f(notch[1])}" rx="16" ry="5" fill="#0C1016"/>')
     return ((lf[0][0] + lf[2][0]) / 2, (lf[0][1] + lf[2][1]) / 2)
 
 
@@ -204,13 +262,22 @@ def scene_web(cv: Canvas) -> tuple[float, float]:
 
 def _browser_frame(cv: Canvas, center: tuple[float, float], w: float, h: float) -> tuple[float, float]:
     x, y = center[0] - w / 2, center[1] - h / 2
+    cv.track((x, y), (x + w, y + h))
+    cv.add(f'<rect x="{_f(x + 14)}" y="{_f(y + 18)}" width="{_f(w)}" height="{_f(h)}" rx="14" fill="#000" opacity=".45"/>')
     cv.add(f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="14" fill="#161B22" '
-           f'stroke="{EDGE}" stroke-width="1.5"/>')
+           f'stroke="#5D6878" stroke-width="1.5"/>')
     cv.add(f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="34" rx="14" fill="#1F2630"/>')
     for i in range(3):
         cv.dot((x + 22 + i * 18, y + 17), 4.5, "#3B4553")
-    cv.add(f'<rect x="{_f(x + 18)}" y="{_f(y + 52)}" width="{_f(w - 36)}" height="{_f(h - 70)}" rx="8" '
-           f'fill="url(#screen)" opacity=".55"/>')
+    cv.add(f'<rect x="{_f(x + 90)}" y="{_f(y + 9)}" width="{_f(w * 0.5)}" height="16" rx="8" fill="#2A323D"/>')
+    px, py, pw = x + 18, y + 52, w - 36
+    cv.add(f'<rect x="{_f(px)}" y="{_f(py)}" width="{_f(pw)}" height="{_f(h * 0.3)}" rx="6" fill="url(#screen)" opacity=".6"/>')
+    for r in range(4):                                                        # page body: blocks, no text
+        yy = py + h * 0.3 + 16 + r * 22
+        if yy > y + h - 20:
+            break
+        cv.add(f'<rect x="{_f(px)}" y="{_f(yy)}" width="{_f(pw * cv.rng.uniform(0.45, 0.62))}" height="9" rx="4" fill="#2C3541"/>')
+        cv.add(f'<rect x="{_f(px + pw * 0.7)}" y="{_f(yy)}" width="{_f(pw * 0.3)}" height="9" rx="4" fill="#252D37"/>')
     return (center[0], center[1] + 15)
 
 
@@ -262,14 +329,22 @@ def scene_containers(cv: Canvas) -> tuple[float, float]:
 
 
 def scene_payments(cv: Canvas) -> tuple[float, float]:
-    f = cv.box(-2.0, -0.8, 0.0, 3.4, 2.2, 0.12, top="#303A47")
-    t = f["top"]
-    cv.line(((t[0][0] * 3 + t[3][0]) / 4, (t[0][1] * 3 + t[3][1]) / 4),
-            ((t[1][0] * 3 + t[2][0]) / 4, (t[1][1] * 3 + t[2][1]) / 4), "#455061", 6)
-    for i in range(cv.rng.randint(3, 5)):
-        c = cv.iso(2.2, 0.4, 0.15 + i * 0.22)
-        cv.add(f'<ellipse cx="{_f(c[0])}" cy="{_f(c[1])}" rx="46" ry="23" fill="{FACE_TOP}" stroke="{EDGE}"/>')
-    return ((t[0][0] + t[2][0]) / 2, (t[0][1] + t[2][1]) / 2)
+    term = cv.box(-1.4, -0.4, 0, 1.6, 1.2, 1.4, top="#303A47")              # card terminal
+    lf = term["left"]
+    for r in range(3):
+        for col in range(3):
+            a = (lf[3][0] + (lf[2][0] - lf[3][0]) * (0.25 + col * 0.25), lf[3][1] + (lf[2][1] - lf[3][1]) * (0.25 + col * 0.25)
+                 + 26 + r * 14)
+            cv.add(f'<rect x="{_f(a[0] - 6)}" y="{_f(a[1])}" width="12" height="8" rx="2" fill="#4A5566"/>')
+    card = cv.box(0.8, -1.2, 1.6, 1.7, 1.1, 0.06, top="#3B4757")              # card, floating
+    ct = card["top"]
+    cv.line(((ct[0][0] * 3 + ct[3][0]) / 4, (ct[0][1] * 3 + ct[3][1]) / 4),
+            ((ct[1][0] * 3 + ct[2][0]) / 4, (ct[1][1] * 3 + ct[2][1]) / 4), "#1E252E", 7)
+    for i in range(cv.rng.randint(3, 5)):                                     # settlement stack
+        c = cv.iso(2.6, 0.9, 0.15 + i * 0.22)
+        cv.add(f'<ellipse cx="{_f(c[0])}" cy="{_f(c[1])}" rx="46" ry="23" fill="url(#mt)" stroke="{EDGE}"/>')
+        cv.track((c[0] - 46, c[1] - 23), (c[0] + 46, c[1] + 23))
+    return ((ct[0][0] + ct[2][0]) / 2, (ct[0][1] + ct[2][1]) / 2)
 
 
 def scene_wallet(cv: Canvas) -> tuple[float, float]:
@@ -309,41 +384,87 @@ def scene_corporate(cv: Canvas) -> tuple[float, float]:
 
 
 def scene_home(cv: Canvas) -> tuple[float, float]:
-    cv.box(-2.4, -0.4, 0, 2.6, 1.8, 0.12)
-    s = cv.box(-2.4, -0.45, 0.12, 2.6, 0.08, 1.6, left="#202833")
-    cv.add(f'<polygon points="{_pts(s["left"])}" fill="url(#screen)" opacity=".7"/>')
-    p = cv.box(1.4, 0.4, 0, 0.9, 0.12, 1.7, left="#1F2630")
-    return ((p["left"][0][0] + p["left"][2][0]) / 2, (p["left"][0][1] + p["left"][2][1]) / 2)
+    cv.box(-2.6, -0.4, 0, 3.0, 1.9, 0.12, top="#2C343F")                     # laptop base
+    s = cv.box(-2.6, -0.45, 0.12, 3.0, 0.08, 1.9, left="#1C232D")
+    lf = s["left"]
+    scr = [(lf[3][0] + 8, lf[3][1] + 8), (lf[2][0] - 8, lf[2][1] + 8), (lf[1][0] - 8, lf[1][1] - 8),
+           (lf[0][0] + 8, lf[0][1] - 8)]
+    cv.add(f'<polygon points="{_pts(scr)}" fill="url(#screen)" opacity=".85"/>')
+    _screen_tiles(cv, scr, 3, 2, cv.rng.randrange(6))
+    p = cv.box(1.4, 0.4, 0, 1.0, 0.14, 2.0, left="#1A2029")                  # phone
+    pl = p["left"]
+    ins = [(pl[3][0] + 6, pl[3][1] + 10), (pl[2][0] - 6, pl[2][1] + 10), (pl[1][0] - 6, pl[1][1] - 8),
+           (pl[0][0] + 6, pl[0][1] - 8)]
+    cv.add(f'<polygon points="{_pts(ins)}" fill="url(#screen)" opacity=".95"/>')
+    _screen_tiles(cv, ins, 2, 3, cv.rng.randrange(6))
+    return ((pl[0][0] + pl[2][0]) / 2, (pl[0][1] + pl[2][1]) / 2)
+
+
+def _person(cv: Canvas, c: tuple[float, float], r: float, color: str) -> None:
+    """An identity: head and shoulders, no face."""
+    cv.add(f'<circle cx="{_f(c[0])}" cy="{_f(c[1] - r * 1.1)}" r="{_f(r * 0.55)}" fill="{color}"/>')
+    cv.add(f'<path d="M{_f(c[0] - r)} {_f(c[1] + r * 0.4)} Q{_f(c[0])} {_f(c[1] - r * 0.9)} {_f(c[0] + r)} {_f(c[1] + r * 0.4)} Z" '
+           f'fill="{color}"/>')
+    cv.track((c[0] - r, c[1] - r * 1.7), (c[0] + r, c[1] + r * 0.4))
 
 
 def scene_cloud(cv: Canvas) -> tuple[float, float]:
     focal = (0.0, 0.0)
+    tops = []
     for i in range(3):
-        f = cv.box(-2.6 + i * 0.3, -1.8 + i * 0.3, i * 0.9, 5.2 - i * 0.6, 3.6 - i * 0.6, 0.18,
-                   top="#2E3743", opacity=0.92 - i * 0.12)
+        f = cv.box(-2.8 + i * 0.3, -1.9 + i * 0.3, i * 1.0, 5.6 - i * 0.6, 3.8 - i * 0.6, 0.22,
+                   top="#2E3743", opacity=0.95 - i * 0.1)
+        tops.append(f["top"])
         focal = ((f["top"][0][0] + f["top"][2][0]) / 2, (f["top"][0][1] + f["top"][2][1]) / 2)
-    for k in range(cv.rng.randint(4, 6)):
-        p = cv.iso(cv.rng.uniform(-2.0, 2.2), cv.rng.uniform(-1.4, 1.4), 2.0)
-        cv.line(p, focal, "#334050", 1.2, 0.8)
-        cv.ring(p, 9, INK if k == 0 else "#5B6675", 2, 0.85)
+    for i in range(cv.rng.randint(4, 6)):                                     # workloads on the lower layers
+        x, y = cv.rng.uniform(-2.3, 1.8), cv.rng.uniform(-1.4, 1.2)
+        cv.box(x, y, 0.22, 0.5, 0.5, cv.rng.uniform(0.3, 0.7))
+    n = cv.rng.randint(3, 5)
+    hot = cv.rng.randrange(n)
+    for k in range(n):                                                        # identities above the top layer
+        p = cv.iso(cv.rng.uniform(-1.6, 1.6), cv.rng.uniform(-1.0, 1.0), 3.0)
+        cv.line(p, focal, "#3A4858", 1.4, 0.9, "4 6")
+        _person(cv, p, 16, INK if k == hot else "#5B6675")
+    key = (focal[0] + 70, focal[1] - 10)                                      # access key
+    cv.ring(key, 13, CYAN_SOFT, 3, 0.9)
+    cv.line((key[0] + 13, key[1]), (key[0] + 54, key[1]), CYAN_SOFT, 3, 0.9)
+    cv.line((key[0] + 44, key[1]), (key[0] + 44, key[1] + 10), CYAN_SOFT, 3, 0.9)
     return focal
 
 
 def scene_industrial(cv: Canvas) -> tuple[float, float]:
     focal = (0.0, 0.0)
-    for i in range(cv.rng.randint(2, 3)):
-        f = cv.box(-3.0 + i * 1.7, -1.2, 0, 1.3, 0.9, 2.6, top="#2F3743")
-        for k in range(3):
-            pt = (f["left"][0][0] + 18 + k * 16, f["left"][3][1] + 40)
-            cv.dot(pt, 4, CYAN if (i == 0 and k == 1) else "#556070")
+    n = cv.rng.randint(2, 3)
+    for i in range(n):
+        f = cv.box(-3.0 + i * 1.8, -1.2, 0, 1.4, 1.0, 3.0, top="#2F3743")     # control cabinets
+        lf = f["left"]
+        for row in range(3):                                                  # DIN-rail modules
+            for k in range(5):
+                t = (k + 0.5) / 5.6
+                y0 = 0.18 + row * 0.26
+                a = (lf[3][0] + (lf[2][0] - lf[3][0]) * t, lf[3][1] + (lf[2][1] - lf[3][1]) * t + (lf[0][1] - lf[3][1]) * y0)
+                hot = i == 0 and row == 1 and k == 2
+                cv.add(f'<rect x="{_f(a[0] - 6)}" y="{_f(a[1])}" width="12" height="26" fill="{"#1D3A44" if hot else "#232B35"}" '
+                       f'stroke="{CYAN if hot else "#3E4856"}" stroke-width="1"/>')
+                cv.dot((a[0], a[1] + 6), 1.8, CYAN if hot else "#6B7686")
         if i == 0:
-            focal = ((f["left"][0][0] + f["left"][2][0]) / 2, (f["left"][0][1] + f["left"][2][1]) / 2)
-    a, b = cv.iso(-3.5, 1.4, 0.6), cv.iso(4.0, 1.4, 0.6)
-    cv.line(a, b, "#3A4452", 14)
-    cv.line(a, b, "#262E38", 9)
-    v = cv.iso(1.6, 1.4, 0.6)
-    cv.add(f'<polygon points="{_pts([(v[0] - 18, v[1] - 16), (v[0] + 18, v[1] + 16), (v[0] + 18, v[1] - 16), (v[0] - 18, v[1] + 16)])}" '
+            focal = ((lf[0][0] + lf[2][0]) / 2, (lf[0][1] + lf[2][1]) / 2)
+    for z, w in ((0.6, 16), (1.3, 11)):                                       # process pipes
+        a, b = cv.iso(-3.5, 1.5, z), cv.iso(4.2, 1.5, z)
+        cv.line(a, b, "#3A4452", w)
+        cv.line(a, b, "#262E38", w - 5)
+    v = cv.iso(1.6, 1.5, 0.6)
+    cv.add(f'<polygon points="{_pts([(v[0] - 20, v[1] - 18), (v[0] + 20, v[1] + 18), (v[0] + 20, v[1] - 18), (v[0] - 20, v[1] + 18)])}" '
            f'fill="#3A4452" stroke="{EDGE}"/>')
+    g = cv.iso(3.2, 1.5, 1.3)                                                 # gauge
+    cv.add(f'<circle cx="{_f(g[0])}" cy="{_f(g[1] - 34)}" r="22" fill="#1B2129" stroke="{RIM}" stroke-width="2"/>')
+    ang = math.radians(cv.rng.uniform(-40, 60))
+    cv.line((g[0], g[1] - 34), (g[0] + 16 * math.cos(ang), g[1] - 34 - 16 * math.sin(ang)), CYAN_SOFT, 2.5)
+    cv.track((g[0] - 22, g[1] - 56))
+    for k in range(3):                                                        # field sensors
+        p = cv.iso(-2.4 + k * 2.2, 2.6, 0)
+        cv.box(-2.6 + k * 2.2, 2.4, 0, 0.35, 0.35, 0.6)
+        cv.line(p, cv.iso(-2.4 + k * 2.2, 1.5, 0.6), "#33404E", 1.5)
     return focal
 
 
@@ -358,11 +479,11 @@ def scene_ai(cv: Canvas) -> tuple[float, float]:
     for li in range(len(pos) - 1):
         for a in pos[li]:
             for b in pos[li + 1]:
-                cv.line(a, b, "#2C3542", 1.0, 0.8)
+                cv.line(a, b, "#3A4656", 1.4, 0.85)
     for col in pos:
         for p in col:
-            cv.dot(p, 9, FACE_TOP)
-            cv.ring(p, 9, EDGE, 1.5)
+            cv.dot(p, 15, "#3A4350")
+            cv.ring(p, 15, RIM, 2, 0.8)
     return pos[2][len(pos[2]) // 2]
 
 
@@ -596,40 +717,136 @@ OVERLAYS: dict[str, Callable[[Canvas, tuple[float, float]], None]] = {
 def _defs() -> str:
     return (
         '<defs>'
-        '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
-        '<stop offset="0" stop-color="#141921"/><stop offset=".55" stop-color="#0F1318"/>'
-        '<stop offset="1" stop-color="#0A0D11"/></linearGradient>'
+        '<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#121820"/><stop offset=".5" stop-color="#0E1218"/>'
+        '<stop offset="1" stop-color="#090C10"/></linearGradient>'
+        '<linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#151B23"/><stop offset="1" stop-color="#0A0D11"/></linearGradient>'
+        '<linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0" stop-color="{CYAN}" stop-opacity="0"/><stop offset=".5" stop-color="{CYAN}" stop-opacity=".07"/>'
+        f'<stop offset="1" stop-color="{CYAN}" stop-opacity="0"/></linearGradient>'
         '<radialGradient id="vig" cx="50%" cy="50%" r="75%">'
-        '<stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/>'
+        '<stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/>'
         '</radialGradient>'
         '<linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">'
-        f'<stop offset="0" stop-color="{CYAN_DIM}" stop-opacity=".55"/><stop offset="1" stop-color="#0B1520" stop-opacity=".9"/>'
+        f'<stop offset="0" stop-color="{CYAN_DIM}" stop-opacity=".5"/><stop offset="1" stop-color="#0B1520" stop-opacity=".95"/>'
         '</linearGradient>'
+        # Materials: key light from the upper right, cool fill from the left.
+        '<linearGradient id="mt" x1="0" y1="0" x2="1" y2="1">'
+        '<stop offset="0" stop-color="#3A4350"/><stop offset="1" stop-color="#4C5767"/></linearGradient>'
+        '<linearGradient id="ml" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#2D3540"/><stop offset="1" stop-color="#1D232B"/></linearGradient>'
+        '<linearGradient id="mr" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#1F2B34"/><stop offset="1" stop-color="#14191F"/></linearGradient>'
         '<filter id="blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="22"/></filter>'
-        '<filter id="soft" x="-50%" y="-80%" width="200%" height="260%"><feGaussianBlur stdDeviation="90"/></filter>'
+        '<filter id="soft" x="-50%" y="-80%" width="200%" height="260%"><feGaussianBlur stdDeviation="60"/></filter>'
+        '<filter id="dof" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="2.4"/></filter>'
         '</defs>'
     )
 
 
-def _atmosphere(cv: Canvas) -> None:
-    # Perspective floor lines converging on a horizon, very faint.
-    hz = cv.rng.uniform(380, 460)
-    vx = cv.rng.uniform(650, 950)
-    for i in range(-10, 11):
-        cv.line((vx, hz), (vx + i * 170, H + 40), "#1B212A", 1, 0.9)
-    for k in range(1, 7):
-        y = hz + (H - hz) * (k / 7) ** 1.8
-        cv.line((0, y), (W, y), "#191E26", 1, 0.8)
-    for _ in range(cv.rng.randint(30, 50)):
-        cv.dot((cv.rng.uniform(0, W), cv.rng.uniform(0, H)), cv.rng.uniform(0.8, 1.8), "#9FB3C8",
-               cv.rng.uniform(0.05, 0.18))
+# ---------------------------------------------------------------- backdrops (far layer, out of focus)
+
+_FAMILY = {
+    "server_room": "datacenter", "rack": "datacenter", "vm": "datacenter", "containers": "datacenter",
+    "core": "datacenter", "corporate": "city", "mail": "city", "network_edge": "city", "web": "city",
+    "browser": "city", "home": "city", "workstation": "city", "phone": "city", "industrial": "plant",
+    "cloud": "strata", "ai": "strata", "payments": "finance", "wallet": "finance", "pipeline": "plant",
+}
 
 
-def _brand_mark(cv: Canvas) -> None:
-    c = (W - 62, H - 58)
-    cv.ring(c, 17, INK, 2, 0.35)
-    cv.ring(c, 9, INK, 2, 0.35)
-    cv.dot((c[0] + 12, c[1] - 12), 4, CYAN, 0.8)
+def _backdrop(rng: random.Random, family: str, horizon: float) -> str:
+    out: list[str] = []
+    dim = ("#151B23", "#18202A", "#1B232D")
+    if family == "datacenter":
+        for row in range(3):
+            k = 1 - row * 0.22
+            x = rng.uniform(-40, 0)
+            while x < W:
+                h = rng.uniform(150, 230) * k
+                w = rng.uniform(54, 70) * k
+                y = horizon - h + row * 26
+                out.append(f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" fill="{dim[row]}"/>')
+                for _ in range(rng.randint(2, 5)):
+                    out.append(f'<circle cx="{_f(x + w * 0.8)}" cy="{_f(y + rng.uniform(10, h - 10))}" r="1.6" '
+                               f'fill="{CYAN}" opacity="{_f(rng.uniform(0.12, 0.35))}"/>')
+                x += w + rng.uniform(6, 16) * k
+    elif family == "city":
+        tops = []
+        x = rng.uniform(-30, 0)
+        while x < W:
+            w, h = rng.uniform(40, 110), rng.uniform(60, 280)
+            out.append(f'<rect x="{_f(x)}" y="{_f(horizon - h)}" width="{_f(w)}" height="{_f(h)}" fill="{rng.choice(dim)}"/>')
+            for _ in range(rng.randint(0, 6)):
+                out.append(f'<rect x="{_f(x + rng.uniform(6, w - 10))}" y="{_f(horizon - rng.uniform(12, h - 8))}" '
+                           f'width="3" height="3" fill="#7D8A9C" opacity="{_f(rng.uniform(0.08, 0.25))}"/>')
+            tops.append((x + w / 2, horizon - h))
+            x += w + rng.uniform(4, 30)
+        for a, b in zip(tops[::3], tops[2::3]):
+            out.append(f'<line x1="{_f(a[0])}" y1="{_f(a[1])}" x2="{_f(b[0])}" y2="{_f(b[1])}" stroke="{CYAN_DIM}" '
+                       f'stroke-width="1" opacity=".25"/>')
+    elif family == "plant":
+        x = rng.uniform(-20, 40)
+        while x < W:
+            kind = rng.random()
+            if kind < 0.4:
+                w, h = rng.uniform(90, 150), rng.uniform(90, 170)
+                out.append(f'<rect x="{_f(x)}" y="{_f(horizon - h)}" width="{_f(w)}" height="{_f(h)}" fill="{dim[1]}"/>')
+                out.append(f'<ellipse cx="{_f(x + w / 2)}" cy="{_f(horizon - h)}" rx="{_f(w / 2)}" ry="{_f(w / 7)}" fill="{dim[2]}"/>')
+            elif kind < 0.6:
+                w, h = rng.uniform(14, 24), rng.uniform(200, 300)
+                out.append(f'<rect x="{_f(x)}" y="{_f(horizon - h)}" width="{_f(w)}" height="{_f(h)}" fill="{dim[0]}"/>')
+            else:
+                w, h = rng.uniform(120, 220), rng.uniform(50, 110)
+                out.append(f'<rect x="{_f(x)}" y="{_f(horizon - h)}" width="{_f(w)}" height="{_f(h)}" fill="{dim[0]}"/>')
+            x += w + rng.uniform(10, 50)
+        for k in range(3):
+            y = horizon - 30 - k * 34
+            out.append(f'<line x1="0" y1="{_f(y)}" x2="{W}" y2="{_f(y)}" stroke="#1E2630" stroke-width="{6 - k}"/>')
+    elif family == "strata":
+        for k in range(4):
+            y = horizon - 60 - k * 70
+            out.append(f'<ellipse cx="{_f(W / 2 + rng.uniform(-200, 200))}" cy="{_f(y)}" rx="{_f(rng.uniform(600, 900))}" '
+                       f'ry="{_f(rng.uniform(26, 44))}" fill="{dim[k % 3]}" opacity=".9"/>')
+        pts = [(rng.uniform(0, W), rng.uniform(horizon - 330, horizon - 40)) for _ in range(26)]
+        for a, b in zip(pts, pts[1:]):
+            if abs(a[0] - b[0]) < 320:
+                out.append(f'<line x1="{_f(a[0])}" y1="{_f(a[1])}" x2="{_f(b[0])}" y2="{_f(b[1])}" stroke="#2A3542" stroke-width="1"/>')
+        for p in pts:
+            out.append(f'<circle cx="{_f(p[0])}" cy="{_f(p[1])}" r="3" fill="#3A4858"/>')
+    else:                                                                     # finance: ledger towers
+        x = rng.uniform(0, 40)
+        while x < W:
+            w = rng.uniform(40, 60)
+            n = rng.randint(3, 9)
+            for k in range(n):
+                out.append(f'<rect x="{_f(x)}" y="{_f(horizon - (k + 1) * 26)}" width="{_f(w)}" height="22" fill="{dim[k % 3]}"/>')
+            x += w + rng.uniform(16, 40)
+    return f'<g filter="url(#dof)" opacity=".9">{"".join(out)}</g>'
+
+
+# ---------------------------------------------------------------- framing
+
+def _fit(bbox: list[float], tw: float, th: float, cx: float, cy: float, mirror: bool) \
+        -> tuple[str, Callable[[tuple[float, float]], tuple[float, float]], float]:
+    """Scale and place a scene so it fills (tw, th) around (cx, cy)."""
+    x0, y0, x1, y1 = bbox
+    bw, bh = max(x1 - x0, 1.0), max(y1 - y0, 1.0)
+    s = min(tw / bw, th / bh)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    sx = -s if mirror else s
+    transform = f"translate({_f(cx - sx * mx)} {_f(cy - s * my)}) scale({_f(sx)} {_f(s)})"
+
+    def to_screen(p: tuple[float, float]) -> tuple[float, float]:
+        return (cx + sx * (p[0] - mx), cy + s * (p[1] - my))
+    return transform, to_screen, s
+
+
+#: Camera presets: subject anchor (fraction of width) and mirroring.
+_CAMERAS = ((0.5, False), (0.44, True), (0.56, False), (0.4, False), (0.6, True), (0.5, True))
+#: Overlays that bring their own props: no secondary scene next to them.
+_BUSY = frozenset({"script_injection", "botnet", "malware", "disrupted", "breach_confirmed", "breach_unconfirmed",
+                   "phishing", "scam"})
 
 
 @dataclass(frozen=True)
@@ -644,25 +861,63 @@ class VisualBrief:
         return self.scenes[0] if self.scenes else "core"
 
 
+def _brand_mark(cv: Canvas) -> None:
+    c = (W - 62, H - 58)
+    cv.ring(c, 17, INK, 2, 0.35)
+    cv.ring(c, 9, INK, 2, 0.35)
+    cv.dot((c[0] + 12, c[1] - 12), 4, CYAN, 0.8)
+
+
+def _scene_layer(rng: random.Random, name: str) -> tuple[Canvas, tuple[float, float]]:
+    """Draw a scene around the origin; framing happens afterwards (`_fit`)."""
+    sc = Canvas(rng=rng, scale=60.0, ox=0.0, oy=0.0)
+    focal = SCENES.get(name, scene_core)(sc)
+    sc.track(focal)
+    return sc, focal
+
+
 def render_svg(brief: VisualBrief) -> str:
     rng = random.Random(int(hashlib.sha256(brief.seed.encode()).hexdigest()[:16], 16))
-    cv = Canvas(rng=rng, scale=rng.uniform(64, 74), ox=rng.uniform(740, 860), oy=rng.uniform(520, 570))
-    cv.add(f'<rect width="{W}" height="{H}" fill="url(#bg)"/>')
-    _atmosphere(cv)
-    # Ambient rim light behind the scene and a soft ground shadow under it.
-    cv.add(f'<ellipse cx="{_f(cv.ox)}" cy="{_f(cv.oy - 120)}" rx="520" ry="300" fill="{CYAN}" opacity=".10" '
-           f'filter="url(#soft)"/>')
-    cv.add(f'<ellipse cx="{_f(cv.ox)}" cy="{_f(cv.oy + 40)}" rx="430" ry="120" fill="#000" opacity=".55" '
-           f'filter="url(#soft)"/>')
-    focal = SCENES.get(brief.scene, scene_core)(cv)
+    anchor, mirror = _CAMERAS[rng.randrange(len(_CAMERAS))]
+    horizon = rng.uniform(470, 540)
+    parts = [f'<rect width="{W}" height="{H}" fill="url(#bg)"/>',
+             _backdrop(rng, _FAMILY.get(brief.scene, "datacenter"), horizon),
+             f'<rect x="0" y="{_f(horizon)}" width="{W}" height="{_f(H - horizon)}" fill="url(#floor)"/>',
+             f'<rect x="0" y="{_f(horizon - 90)}" width="{W}" height="180" fill="url(#haze)"/>']
+
+    # Mid layer: the story's second technology, smaller, dimmed and out of focus.
+    second = next((s for s in brief.scenes[1:] if s != brief.scene), "")
+    if second and brief.event not in _BUSY:
+        lay, _ = _scene_layer(rng, second)
+        side = 0.83 if anchor <= 0.5 else 0.17
+        tr, _, _ = _fit(lay.bbox, W * 0.24, H * 0.3, W * side, horizon - 40, not mirror)
+        parts.append(f'<g opacity=".5" filter="url(#dof)"><g transform="{tr}">{"".join(lay.parts)}</g></g>')
+
+    # The subject: fitted to fill about half of the frame.
+    main, main_focal = _scene_layer(rng, brief.scene)
+    tw, th = W * rng.uniform(0.5, 0.6), H * rng.uniform(0.56, 0.64)
+    cx, cy = W * anchor, H * 0.54
+    tr, to_screen, scale = _fit(main.bbox, tw, th, cx, cy, mirror)
+    bottom = cy + th / 2
+    parts.append(f'<ellipse cx="{_f(cx)}" cy="{_f(bottom - 10)}" rx="{_f(tw * 0.5)}" ry="{_f(th * 0.12)}" fill="#000" '
+                 f'opacity=".6" filter="url(#soft)"/>')
+    parts.append(f'<ellipse cx="{_f(cx + tw * 0.15)}" cy="{_f(cy - th * 0.3)}" rx="{_f(tw * 0.45)}" ry="{_f(th * 0.35)}" '
+                 f'fill="{CYAN}" opacity=".06" filter="url(#soft)"/>')
+    parts.append(f'<g transform="{tr}">{"".join(main.parts)}</g>')
+
+    # Event overlay in screen space, around the subject's focal point.
+    focal = to_screen(main_focal)
+    ov = Canvas(rng=rng, scale=60.0 * min(scale, 1.2), ox=cx, oy=cy + th * 0.12)
     if brief.campaign_active:
-        ov_campaign_waves(cv, focal)
-    OVERLAYS.get(brief.event, ov_analysis)(cv, focal)
-    cv.add(f'<rect width="{W}" height="{H}" fill="url(#vig)"/>')
-    _brand_mark(cv)
-    body = "".join(cv.parts)
+        ov_campaign_waves(ov, focal)
+    OVERLAYS.get(brief.event, ov_analysis)(ov, focal)
+    parts.extend(ov.parts)
+    parts.append(f'<rect width="{W}" height="{H}" fill="url(#vig)"/>')
+    bm = Canvas(rng=rng)
+    _brand_mark(bm)
+    parts.extend(bm.parts)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
-            f'{_defs()}{body}</svg>')
+            f'{_defs()}{"".join(parts)}</svg>')
 
 
 # ---------------------------------------------------------------- sanitizer
