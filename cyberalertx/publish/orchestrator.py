@@ -30,7 +30,8 @@ from zoneinfo import ZoneInfo
 
 from ..models import NewsItem
 from .config import TelegramSettings
-from .destinations import OPERATOR, RETRYABLE, UNKNOWN, WAITING, DeliveryError, edition_hash
+from .destinations import (INELIGIBLE, OPERATOR, RETRYABLE, UNKNOWN, WAITING, DeliveryError, before_activation,
+                           edition_hash)
 from .jobs import JobStore, PublicationJob, RetryPolicy, _iso, _parse as _parse_ts, job_id
 
 logger = logging.getLogger(__name__)
@@ -326,7 +327,14 @@ def plan(
                 if not qualifies(payload, settings):
                     skip(item, locale, "telegram", "below the channel severity bar")
                     continue
-                proposed[tg_id] = make("telegram", ev=view.breaking.get(story, ""))
+                j = make("telegram", ev=view.breaking.get(story, ""))
+                if before_activation(settings, item.published_at):
+                    # Recorded, never sent: the job id stays taken, so the
+                    # story is not planned again when its edition changes.
+                    j.status, j.completed_at = "cancelled", _iso(now)
+                    j.last_error = "article published before Telegram activation"
+                    j.note(now, "cancelled", reason=j.last_error)
+                proposed[tg_id] = j
             elif policy.breaking_updates and story in view.breaking:
                 ev = view.breaking[story]
                 last = latest(story, locale, "telegram")
@@ -455,6 +463,20 @@ def run(
                     x.note(now, "expired")
             store.update(j.job_id, expire, now)
             report.cancelled.append({"job_id": j.job_id, "reason": "expired (outside publication window)"})
+    # Queued Telegram posts about articles from before activation: cancel,
+    # never send (they may have been planned before the cutoff existed).
+    tg = destinations.get("telegram")
+    tg_settings = getattr(tg, "settings", None)
+    for j in store.all():
+        if (j.status in ("scheduled", "retrying") and j.destination == "telegram"
+                and j.publication_type == "initial" and before_activation(tg_settings, j.article_published_at)):
+            def precut(x: PublicationJob) -> None:
+                if x.status in ("scheduled", "retrying"):
+                    x.status, x.completed_at = "cancelled", _iso(now)
+                    x.last_error = "article published before Telegram activation"
+                    x.note(now, "cancelled", reason=x.last_error)
+            store.update(j.job_id, precut, now)
+            report.cancelled.append({"job_id": j.job_id, "reason": "published before Telegram activation"})
     claimed = store.claim(now, worker, lease_s=policy.lease_seconds, select=select)
     paused: set[tuple[str, str]] = set()
     sent_telegram = 0
@@ -518,6 +540,14 @@ def run(
             prepared = dest.prepare(job, payload)
             delivery = dest.deliver(prepared, mark_sending)
         except DeliveryError as exc:
+            if exc.category == INELIGIBLE:
+                def drop(j: PublicationJob, reason: str = str(exc), t: datetime = clock()) -> None:
+                    j.status, j.claimed_by, j.lease_until, j.phase = "cancelled", "", "", ""
+                    j.completed_at, j.last_error = _iso(t), reason
+                    j.note(t, "cancelled", reason=reason)
+                store.update(job.job_id, drop, clock())
+                report.cancelled.append({"job_id": job.job_id, "reason": str(exc)})
+                continue
             if exc.category == WAITING:
                 def wait(j: PublicationJob, reason: str = str(exc), t: datetime = clock()) -> None:
                     j.status, j.claimed_by, j.lease_until, j.phase = "retrying", "", "", ""

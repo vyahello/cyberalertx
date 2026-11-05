@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 # Severity ordering — mirrors `_LEVEL_WEIGHT` in api/app.py and the frontend's
 # LEVEL_WEIGHT so "minimum level" comparisons agree across every layer.
@@ -64,6 +65,10 @@ class TelegramSettings:
     # until the media run has produced it; it is never posted image-less and
     # never with a publisher's picture. On by default.
     require_illustration: bool = True
+    # When scheduled publishing was (re)activated. Articles published before
+    # it are never sent, even if their edition is finished later: no backlog,
+    # no replay. None = no cutoff (e.g. a fresh install without the marker).
+    activated_at: datetime | None = None
 
     @property
     def min_level_weight(self) -> int:
@@ -104,6 +109,7 @@ def build_telegram_settings() -> TelegramSettings:
         min_level = "High"
 
     return TelegramSettings(
+        activated_at=activation_time(),
         bot_token=(os.getenv("CYBERALERTX_TELEGRAM_BOT_TOKEN") or "").strip() or None,
         channels=channels,
         min_level=min_level,
@@ -122,4 +128,29 @@ def build_telegram_settings() -> TelegramSettings:
     )
 
 
-__all__ = ["TelegramSettings", "build_telegram_settings", "LEVEL_WEIGHT"]
+DEFAULT_MARKER = "/home/cax/cyberalertx/STAGE_D_AUTHORIZED"
+
+
+def activation_time() -> datetime | None:
+    """The Telegram activation cutoff.
+
+    `CYBERALERTX_TELEGRAM_ACTIVATED_AT` (ISO-8601) wins. Otherwise the mtime
+    of the hold marker, which `ops/release/telegram_activate.sh activate`
+    creates (path: `CYBERALERTX_TELEGRAM_MARKER`). Re-activating after a stop
+    moves the cutoff forward, so whatever accumulated meanwhile is not sent.
+    """
+    raw = (os.getenv("CYBERALERTX_TELEGRAM_ACTIVATED_AT") or "").strip()
+    if raw:
+        try:
+            t = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    try:
+        return datetime.fromtimestamp(os.stat(os.getenv("CYBERALERTX_TELEGRAM_MARKER") or DEFAULT_MARKER).st_mtime,
+                                      tz=timezone.utc)
+    except OSError:
+        return None
+
+
+__all__ = ["TelegramSettings", "activation_time", "build_telegram_settings", "LEVEL_WEIGHT"]

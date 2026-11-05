@@ -185,6 +185,12 @@ run is skipped without an error.
    now, so there is no backlog and no replay;
 7. creates the marker and enables the existing timer.
 
+**Activation cutoff.** The time the marker was created is the cutoff: an
+article published before it is never sent, even when its edition is finished
+later. Planning records such a job as cancelled, each run cancels queued ones,
+and the send step refuses as a last guard. `CYBERALERTX_TELEGRAM_ACTIVATED_AT`
+(ISO-8601) overrides the marker time.
+
 If the bot check or the media run fails, nothing has changed yet. The first
 scheduled run is the live verification; no test message is ever sent. To
 resume after a long stop, run `activate` again: its baseline cancels whatever
