@@ -27,13 +27,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          # Production runs Python 3.12 (Ubuntu 24.04) from requirements.lock;
+          # CI tests that exact set, not the looser ranges in requirements.txt.
+          python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements.lock
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
+          pip check
 
       - name: Type-check (mypy)
         # Strict type checking over the cyberalertx package; config lives in
@@ -89,6 +93,6 @@ jobs:
   # API and frontend. Production now runs from immutable release
   # directories (/home/cax/cyberalertx/releases, `current` symlink), and
   # that job would overwrite the rollback checkout and restart services
-  # outside the release procedure (OPEN_ISSUES O33). Deploy with
-  # docs/release/STAGE_C_RUNBOOK.md; release-aware automation is future work.
+  # outside the release procedure (OPEN_ISSUES O33); the script itself was
+  # removed on 5 Nov 2026. Deploy with docs/operations/OPERATIONS.md.
   # ------------------------------------------------------------------

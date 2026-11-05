@@ -1,5 +1,7 @@
 # O28: editorial review-state consistency
 
+> **Status: historical record; deployed and re-synced 5 Nov 2026** ([release record](RELEASE_2026-11-05.md)).
+
 4 November 2026. This investigates the Stage C layout:
 - **API:** JSON store only (drop-in `stage-c-json-reads.conf`);
 - **ingest and generate:** `dual` (JSON plus Postgres);

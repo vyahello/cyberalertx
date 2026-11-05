@@ -1,5 +1,7 @@
 # Frontend dependency remediation plan (O1)
 
+> **Historical record** of the Nov 2026 dependency remediation (Next 15.5.29, sharp 0.35.5); index: [docs/README.md](../README.md).
+
 **Status: APPLIED** on `redesign/cti-platform` (the remediation commit) and
 built into release candidate 3. Sections 1–6 are the original plan and trial.
 §7 records what was applied and verified, including the advisories Next.js

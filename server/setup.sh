@@ -10,6 +10,8 @@
 #   3. UFW firewall (SSH/HTTP/HTTPS).
 #   4. Install Python venv, Node.js 20, nginx, git, rsync.
 #   5. Clone the repo (you'll be prompted for git URL).
+#   It does not build or start the application: releases are built per
+#   docs/operations/OPERATIONS.md.
 #
 # What this does NOT do (do those manually after):
 #   - Configure .env (secrets — never script secrets).
@@ -83,49 +85,21 @@ else
     echo "→ Repo already cloned at ${APP_DIR}"
 fi
 
-# ----- 6. Python venv -------------------------------------------------
-if [[ ! -d "${APP_DIR}/venv" ]]; then
-    echo "→ Creating Python venv + installing requirements"
-    sudo -u "${APP_USER}" bash -c "cd ${APP_DIR} && python3 -m venv venv && ./venv/bin/pip install --quiet --upgrade pip && ./venv/bin/pip install --quiet -r requirements.txt"
-fi
-
-# ----- 7. Frontend build ----------------------------------------------
-if [[ ! -d "${APP_DIR}/frontend/.next" ]]; then
-    echo "→ Building frontend (npm ci + build)"
-    sudo -u "${APP_USER}" bash -c "cd ${APP_DIR}/frontend && npm ci --quiet && npm run build"
-fi
+# Nothing is built in the checkout: production runs from immutable releases
+# under /home/${APP_USER}/cyberalertx/releases (docs/operations/OPERATIONS.md).
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Bootstrap done. Remaining manual steps:"
+echo "Bootstrap done. Next, follow docs/operations/OPERATIONS.md in ${APP_DIR}:"
 echo
-echo "  1. Create ${APP_DIR}/.env (copy from your dev .env, set CYBERALERTX_PG_URL + ANTHROPIC_API_KEY)"
-echo "     sudo nano ${APP_DIR}/.env"
-echo "     sudo chmod 600 ${APP_DIR}/.env"
-echo "     sudo chown ${APP_USER}:${APP_USER} ${APP_DIR}/.env"
-echo
-echo "  2. Run DB migrations + backfill:"
-echo "     sudo -u ${APP_USER} ${APP_DIR}/venv/bin/python -m cyberalertx.tools.pg_migrate"
-echo "     # rsync data/ from dev machine first if you want history"
-echo
-echo "  3. Install systemd units:"
-echo "     sudo cp ${APP_DIR}/server/systemd/*.service /etc/systemd/system/"
-echo "     sudo cp ${APP_DIR}/server/systemd/*.timer /etc/systemd/system/"
-echo "     sudo systemctl daemon-reload"
-echo "     sudo systemctl enable --now cyberalertx-api cyberalertx-run cyberalertx-frontend"
-echo "     # AI auto-render every 6h (2 newest uncached items per fire):"
-echo "     sudo systemctl enable --now cyberalertx-generate.timer"
-echo
-echo "  4. Install nginx config:"
-echo "     sudo cp ${APP_DIR}/server/nginx/cyberalertx.conf /etc/nginx/sites-available/cyberalertx"
-echo "     sudo ln -sf /etc/nginx/sites-available/cyberalertx /etc/nginx/sites-enabled/"
-echo "     sudo rm -f /etc/nginx/sites-enabled/default"
-echo "     sudo nginx -t && sudo systemctl reload nginx"
-echo
-echo "  5. SSL — install Cloudflare Origin Certificate at /etc/ssl/cyberalertx/origin.{crt,key}"
-echo
-echo "  6. Optional: install daily backup cron"
+echo "  1. Create ${APP_DIR}/.env from .env.example (secrets by hand; chmod 600, owner ${APP_USER})."
+echo "  2. Build the first release from a reviewed commit (§3): git archive, venv from"
+echo "     requirements.lock, npm ci + build, data -> ${APP_DIR}/data, RELEASE provenance."
+echo "  3. Point /home/${APP_USER}/cyberalertx/current at it; run migrations FROM the release"
+echo "     (python -m cyberalertx.tools.pg_migrate) if Postgres is used."
+echo "  4. Install server/systemd/* including cyberalertx-telegram.service.d/ (Telegram stays"
+echo "     held: do not create STAGE_D_AUTHORIZED, do not enable its timer)."
+echo "  5. nginx (server/nginx/), Cloudflare origin certificate, backup cron:"
 echo "     sudo cp ${APP_DIR}/server/backup.sh /usr/local/bin/cax-backup"
-echo "     sudo chmod +x /usr/local/bin/cax-backup"
 echo "     echo '0 3 * * * ${APP_USER} /usr/local/bin/cax-backup' | sudo tee /etc/cron.d/cax-backup"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -1,5 +1,7 @@
 # Phase 6 — Admin control room: final report
 
+> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+
 All work was done in `/home/cax/cax-redesign` (branch `redesign/cti-platform`).
 
 Nothing was deployed, committed or pushed. No real publishing was activated

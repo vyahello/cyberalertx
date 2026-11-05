@@ -1,5 +1,7 @@
 # Single repository consolidation — 2026-11-04
 
+> **Status: historical record.** `release_rollback.sh` is superseded by `ops/release/release_switch.sh` ([OPERATIONS.md](../operations/OPERATIONS.md)); `/home/cax/cax-redesign` still exists and can be retired with separate authorization.
+
 `/home/cax/cax` is now the canonical checkout of GitHub `main`. Production
 does not run from it: the website, API, ingest and generator run from the
 immutable release behind `/home/cax/cyberalertx/current`. This change only

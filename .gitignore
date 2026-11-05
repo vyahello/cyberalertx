@@ -31,6 +31,21 @@ dist/
 # ============================================================================
 data/
 
+# Backups, dumps and local databases never belong in Git (they hold
+# production data). Releases and backups live outside the repository.
+*.dump
+*.sql.gz
+*.tar.gz
+*.sqlite3
+*.sqlite3-journal
+*.bak
+*.bak-*
+
+# Logs and coverage output.
+*.log
+.coverage
+htmlcov/
+
 # ============================================================================
 # Frontend (Next.js)
 # ============================================================================

@@ -1,5 +1,7 @@
 # CyberAlertX — Baseline audit (2 November 2026)
 
+> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+
 Snapshot of the product before the redesign branch `redesign/cti-platform`.
 Everything here was observed in the repository at `73257f0`, in the live site
 (https://cyberalertx.com, read-only page loads), in the cached content

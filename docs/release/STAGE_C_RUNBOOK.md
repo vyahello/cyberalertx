@@ -1,5 +1,7 @@
 # Stage C runbook: controlled manual operation
 
+> **Status: historical record (deprecated as a procedure).** The Stage C cutover of 4 Nov 2026. Commit `4fa7a63`, `REPO=/home/cax/cax-redesign` and the `c5`/`c7`/`c9` scripts belong to that cutover; do not replay them. Current procedure: [OPERATIONS.md](../operations/OPERATIONS.md). Stage D sections (C10–C12) remain the reference for enabling Telegram, which still needs separate authorization.
+
 > **Not executed. Nothing here is authorized yet.** Each step starts only after
 > the administrator gives the approval named on it. Stage D (C12, the Telegram
 > scheduler transition) needs its own separate authorization.

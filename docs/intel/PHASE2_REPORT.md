@@ -1,5 +1,7 @@
 # Phase 2 report — intelligence core (3 November 2026)
 
+> **Status: historical record.** Paths such as `/home/cax/cax-redesign` and the deployment steps described here predate the release layout; see [docs/README.md](../README.md) for current documents.
+
 Worktree `/home/cax/cax-redesign`, branch `redesign/cti-platform`,
 **uncommitted**. `/home/cax/cax` unchanged (clean, `73257f0`). Nothing deployed,
 published or sent; no production environment variables, Postgres/Supabase or

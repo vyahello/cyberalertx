@@ -1,460 +1,262 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="CyberAlertX — Today's cybersecurity threats in plain English" width="100%"/>
+  <img src="docs/banner.svg" alt="CyberAlertX — cyber threat briefing" width="100%"/>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vyahello/cyberalertx/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/vyahello/cyberalertx/actions/workflows/ci.yml/badge.svg"/>
-  </a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white"/>
-  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white"/>
-  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white"/>
-  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white"/>
-  <a href="LICENSE">
-    <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"/>
-  </a>
+  <a href="https://github.com/vyahello/cyberalertx/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vyahello/cyberalertx/actions/workflows/ci.yml/badge.svg?branch=main"/></a>
+  <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white"/>
+  <img alt="Next.js 15.5" src="https://img.shields.io/badge/Next.js-15.5-111827?logo=next.js&logoColor=white"/>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-06B6D4"/></a>
+</p>
+
+<p align="center">
+  <b><a href="https://cyberalertx.com">cyberalertx.com</a></b> ·
+  <a href="docs/architecture.md">Architecture</a> ·
+  <a href="docs/operations/OPERATIONS.md">Operations</a> ·
+  <a href="docs/README.md">All docs</a>
 </p>
 
 # CyberAlertX
 
-Cybersecurity intel platform — RSS ingestion → AI editorial render → a calm,
-scannable **website** (en/ua) and auto-published **Telegram channels**. Three
-questions per story: **what happened, who's hit, what to do**.
+**A bilingual cyber threat briefing: what happened, who is affected and what to do — in English and Ukrainian.**
 
-- **Backend** — Python 3.11+ (FastAPI + APScheduler + SQLAlchemy 2.0)
-- **Frontend** — Next.js 15 (App Router, ISR), bilingual `en` / `ua`
-- **AI** — local Claude CLI (subscription) with a deterministic rule-based
-  fallback; Anthropic API path optional. Pipeline runs offline by default.
-- **Distribution** — website + Telegram channels (EN + UA)
-- **Storage** — JSON (authoritative) + PostgreSQL via Supabase (shadow-write,
-  JSON-first reads with PG fallback)
+CyberAlertX reads trusted security sources, keeps what matters to ordinary
+users and IT teams, and turns each story into a short, sourced brief. Evidence
+(is it exploited? was data taken?) is reported separately from severity, so a
+critical-sounding headline never becomes a claim the source does not make.
 
----
+<p align="center">
+  <img src="docs/assets/cyberalertx-home.webp" alt="CyberAlertX homepage: the lead brief with severity, exploitation status, why it matters and what to do, followed by other significant stories" width="100%"/>
+</p>
+<p align="center"><sub>Homepage, English edition (local staging build of the production code, public articles).</sub></p>
 
-## Quick start (JSON only)
+## What it does
 
-The default mode. No database needed.
+| | |
+|---|---|
+| **Collects** | RSS from BleepingComputer, The Hacker News, Krebs on Security, Securelist, CISA and Ukrainian outlets (itc.ua, ain.ua, dev.ua, dou.ua) every 30 minutes |
+| **Filters and enriches** | relevance, category, affected platforms, audience, action priority, source credibility, story deduplication across outlets |
+| **Checks evidence** | exploitation, compromise, campaign status, sponsorship and open questions, from the source text only — kept apart from severity |
+| **Writes** | one brief per story in EN and UA (Claude), with a deterministic rule-based fallback; CVEs, numbers and attribution are checked against the source |
+| **Reviews** | a quality scorecard and an evidence gate flag doubtful briefs for an editor (`/admin/review`); production runs in `flag` mode |
+| **Publishes** | the website with RSS feeds and topic pages. Telegram and Threads publishing exist but are **off** in production |
 
-```bash
-# 1. Backend + frontend deps
-pip install -r requirements.txt
-cd frontend && npm install && cd ..
-
-# 2. Configuration — at minimum set ANTHROPIC_API_KEY if you want AI render
-$EDITOR .env
-
-# 3. First ingest cycle (free, no API calls)
-python -m cyberalertx.main once
-
-# 4. AI render of the top items (paid; requires ANTHROPIC_API_KEY + --use-llm)
-python -m cyberalertx.main generate --limit 15 --use-llm
-
-# 5. Run backend + frontend (two terminals)
-python -m cyberalertx.main serve --port 8000
-cd frontend && npm run dev          # http://localhost:3000
-```
-
-Open `http://localhost:3000/en` or `/ua`.
-
-## Quick start (with Postgres / Supabase)
-
-Same as above but with shadow-write to Postgres. Reads still come from
-JSON for news_items; AI cache reads PG-preferred (JSON fallback).
-
-```bash
-# 1+2 — same as above (deps install)
-
-# 3. Configuration — set BOTH:
-#      ANTHROPIC_API_KEY=sk-ant-...
-#      CYBERALERTX_PG_URL=postgresql://... (Supabase Session pooler, port 5432)
-#      CYBERALERTX_STORAGE_BACKEND=dual
-$EDITOR .env
-
-# 4. Create schema in Postgres (REQUIRED before first `once`)
-python -m cyberalertx.tools.pg_migrate
-
-# 5. (If you already have JSON state) backfill existing data into PG
-python -m cyberalertx.tools.import_to_postgres            # news_items
-python -m cyberalertx.tools.import_ai_cache_to_postgres   # AI cache
-
-# 6. Verify parity — exit code 0 = stores agree
-python -m cyberalertx.tools.compare_storage
-
-# 7. Ingest + AI render (now writes to both stores)
-python -m cyberalertx.main once
-python -m cyberalertx.main generate --limit 15 --use-llm
-
-# 8. Run backend + frontend (two terminals)
-python -m cyberalertx.main serve --port 8000
-cd frontend && npm run dev
-```
-
-**Skipping step 4 (`pg_migrate`) means PG writes will fail silently into
-the logs** — JSON keeps working but Postgres stays empty. Always run
-migrations before flipping `STORAGE_BACKEND=dual`.
-
----
+<details>
+<summary>Mobile layout</summary>
+<p align="center"><img src="docs/assets/cyberalertx-mobile.webp" alt="CyberAlertX homepage on a phone" width="320"/></p>
+</details>
 
 ## Architecture
 
-CyberAlertX is a **batch pipeline**, not a monolith — five small services,
-each with one job, that hand work to each other through shared storage:
-
+```mermaid
+flowchart LR
+  subgraph Sources
+    RSS["RSS feeds<br/>EN + UA outlets"]
+  end
+  subgraph Backend["Python backend (release: /home/cax/cyberalertx/current)"]
+    RUN["cyberalertx-run<br/>ingest every 30 min<br/>relevance · enrichment · evidence · dedup"]
+    GEN["cyberalertx-generate<br/>hourly · EN/UA briefs<br/>scorecard + evidence gate"]
+    API["cyberalertx-api<br/>FastAPI :8000<br/>/posts · /admin"]
+  end
+  subgraph Storage
+    JSON[("JSON in data/<br/>authoritative")]
+    PG[("PostgreSQL / Supabase<br/>mirror (dual-write)")]
+  end
+  WEB["cyberalertx-frontend<br/>Next.js :3000"]
+  READER(("Readers"))
+  RSS --> RUN --> JSON
+  RUN -. mirror .-> PG
+  JSON --> GEN --> JSON
+  GEN -. mirror .-> PG
+  JSON --> API
+  PG -. "key index, fallback only" .-> API
+  API --> WEB --> READER
 ```
-RSS ─▶ [ ingest ] ─▶ items.json ─▶ [ generate ] ─▶ threat_posts ───┬──▶ [ API ] ─▶ [ website ]
-        every 15m       (raw)         every 6h        (rendered)   │
-         no AI        + Claude CLI                                 └─▶ [ telegram ] ─▶ channels
-                                                                        every 6h+15m    en · ua
-```
 
-| Service | Cadence | Job |
-|---|---|---|
-| **run** | every 15 min | Ingest pipeline: RSS → filter → enrich → rank → store. Deterministic, free. |
-| **generate** | every 6 h | Renders raw items into localized posts via the Claude CLI. **The only thing that calls AI.** |
-| **api** | always-on | Read-only FastAPI feed (`/posts`, `/healthz`). Serves cached renders. |
-| **frontend** | always-on | Next.js website (en / ua), SSR + 60 s ISR. |
-| **telegram** | every 6 h +15 min | Publishes qualifying cached posts to the Telegram channels. |
+- **JSON is authoritative** for items and briefs; in `dual` mode every write is
+  mirrored to Postgres. The API reads JSON first and consults Postgres only
+  through an in-memory key index refreshed in the background, so a feed request
+  makes no database queries.
+- **AI runs in one place** — `generate`. Ingest, API and frontend never call it.
+- **Publishing integrations** (Telegram, Threads) are implemented and held
+  until separately authorized.
 
-**The golden rule:** AI is expensive, so it runs in exactly one place —
-`generate`. Ingest, the API, the website, and Telegram only ever *read* what
-`generate` already produced. That's what keeps the bill predictable.
+More: [docs/architecture.md](docs/architecture.md).
 
-> 📖 **Full picture** — component diagram, data stores, one story's end-to-end
-> lifecycle, the Telegram publish path, and the request / Open-Graph flows:
-> **[docs/architecture.md](docs/architecture.md)**.
+## Technology
 
----
+| Layer | Stack |
+|---|---|
+| Backend | Python 3.12, FastAPI, APScheduler, httpx, feedparser, SQLAlchemy 2.0 Core + psycopg 3 |
+| Frontend | Next.js 15.5 (App Router, ISR), React, TypeScript, Tailwind CSS |
+| AI | Claude via the local Claude CLI (default) or the Anthropic API; rule-based fallback |
+| Storage | JSON files (authoritative) + PostgreSQL / Supabase mirror |
+| Quality | pytest, mypy (strict), TypeScript, GitHub Actions |
+| Hosting | Ubuntu 24.04, systemd, nginx behind Cloudflare, immutable releases |
 
-## Storage layers
+## Quick start (local development)
 
-Two stores, both writable, with one source of truth at a time.
-
-| Store | JSON path | PG table | Status |
-|---|---|---|---|
-| News items | `data/items.json` | `news_items` | dual-write, JSON-read |
-| AI cache | `data/threat_posts.json` | `threat_posts` | dual-write, PG-read (JSON fallback) |
-| Source health | `data/source_health.json` | — | JSON only |
-| Quality metrics | `data/quality_metrics.json` | — | JSON only |
-| Feedback | `data/feedback.jsonl` | — | JSON only |
-
-`CYBERALERTX_STORAGE_BACKEND` selects mode:
-- `json` (default) — JSON only. Production-safe MVP.
-- `dual` — JSON + PostgreSQL. JSON stays write-authoritative; AI cache
-  reads PG-first with JSON fallback on miss/error.
-
-Rollback: flip back to `json` in `.env`; nothing breaks.
-
----
-
-## Backend CLI
-
-All under `python -m cyberalertx.main`.
-
-### `once` — one ingest cycle
+Requirements: **Python 3.12**, **Node.js 20**, git. PostgreSQL is optional
+(only for `dual` mode).
 
 ```bash
-python -m cyberalertx.main once
-```
+git clone https://github.com/vyahello/cyberalertx.git
+cd cyberalertx
 
-Fetches every configured RSS feed, runs filter / categorize / rank /
-credibility / signals, persists to store. **Never calls Anthropic.**
-Free.
+# Backend
+python3.12 -m venv venv
+. venv/bin/activate
+pip install -r requirements.lock
+cp .env.example .env              # JSON-only, no AI, no publishing
 
-### `run` — scheduled loop
+python -m cyberalertx.main once   # one ingest cycle: fetches the feeds into data/items.json
+python -m cyberalertx.main serve --port 8000
 
-```bash
-python -m cyberalertx.main run                   # 15-min interval (default)
-python -m cyberalertx.main run --interval 30     # custom interval
-```
-
-Same as `once`, on APScheduler. Use in a tmux/systemd unit for
-continuous ingestion.
-
-### `top` — print stored items as JSON
-
-```bash
-python -m cyberalertx.main top --limit 10
-```
-
-Debug helper. Doesn't touch the AI cache.
-
-### `generate` — AI editorial render
-
-```bash
-# Dry-run first — shows missing cache keys and projected API calls
-python -m cyberalertx.main generate --limit 15 --use-llm --dry-run
-
-# Real render — costs ~$0.01 per item with Haiku 4.5
-python -m cyberalertx.main generate --limit 15 --use-llm
-
-# Force a specific output language for the batch
-python -m cyberalertx.main generate --limit 10 --language ua --use-llm
-
-# Whole store (no limit) — expensive; check --dry-run first
-python -m cyberalertx.main generate --use-llm
-```
-
-Default scope = whole store (within freshness window). `--limit N`
-narrows to top-N by `published_at DESC`. Cache hits are free; only
-missing `(fingerprint, locale)` pairs incur API calls.
-
-### `serve` — FastAPI on uvicorn
-
-```bash
-python -m cyberalertx.main serve                       # 127.0.0.1:8000
-python -m cyberalertx.main serve --port 8000 --reload  # dev w/ auto-reload
-python -m cyberalertx.main serve --host 0.0.0.0        # expose to network
-```
-
-Reads `data/items.json` (or PG news_items in a future PR) and the AI
-cache. Re-reads on every request — pick up `generate` runs without
-restart.
-
-Endpoints:
-- `GET /healthz` — liveness + feed freshness
-- `GET /posts?language=en|ua&limit=N` — homepage feed (default 15,
-  AI-only, newest first)
-- `GET /posts/trending?language=en|ua` — urgent / Critical items
-- `GET /posts/latest` — newest by publish time
-- `GET /posts/{id}` — detail page; renders fallback if cache miss
-- `POST /feedback` — thumbs-up/down signal collection
-- `GET /admin/metrics`, `/admin/sources` — JSON observability
-
-### `publish-telegram` — post to the Telegram channels
-
-```bash
-python -m cyberalertx.main publish-telegram --dry-run      # preview, sends nothing
-python -m cyberalertx.main publish-telegram --limit 5      # publish up to 5 / channel
-python -m cyberalertx.main publish-telegram --language ua  # one channel only
-```
-
-Sends already-rendered, high-signal posts (High/Critical or urgent, from
-trusted sources) to the EN/UA channels. Reuses the cache-only serve path —
-**never calls AI**. Idempotent via `data/telegram_published.jsonl`. Full
-setup + deploy: [`server/README.md`](server/README.md) → "Telegram publishing".
-
----
-
-## Frontend
-
-```bash
+# Frontend (second terminal)
 cd frontend
-npm install               # once
-npm run dev               # dev server on :3000
-npm run build && npm start   # production
-npm run lint
+npm ci
+cp .env.local.example .env.local  # API_URL=http://localhost:8000
+npm run dev                       # http://localhost:3000/en
 ```
 
-`frontend/.env.local` (optional):
-```env
-NEXT_PUBLIC_API_BASE=http://localhost:8000
-```
+**About the feed:** the website lists only AI-written briefs, never the
+rule-based fallback. Without an AI provider the pages render with an empty
+feed; inspect the ingested items with
+`curl 'localhost:8000/posts?language=en&cached_only=false'`, or preview briefs
+without storing them with `python -m cyberalertx.main generate --limit 3`.
+To write real briefs, log in to the Claude CLI (or set `ANTHROPIC_API_KEY` and
+`CYBERALERTX_AI_PROVIDER=anthropic`) and run
+`python -m cyberalertx.main generate --limit 3 --use-llm` — each brief is a paid
+AI call.
 
-Routes:
-- `/` → redirect to default locale
-- `/en` `/ua` → homepage feed
-- `/en/threat/{id}` `/ua/threat/{id}` → detail page
+## Configuration
 
----
+Copy [`.env.example`](.env.example); every variable is optional locally.
 
-## Database (Supabase)
+| Variable | Default | Purpose |
+|---|---|---|
+| `CYBERALERTX_STORAGE_BACKEND` | `json` | `dual` = JSON + Postgres mirror |
+| `CYBERALERTX_PG_URL` | — | Postgres URL (dual mode only) |
+| `CYBERALERTX_PG_CONNECT_TIMEOUT_S` | `10` | Postgres connection-establishment timeout |
+| `CYBERALERTX_PG_INDEX_TTL_SECONDS` | `60` | API key-index refresh interval (dual mode) |
+| `CYBERALERTX_AI_PROVIDER` | `claude_cli` | `claude_cli` or `anthropic` (used only with `--use-llm`) |
+| `CYBERALERTX_REVIEW_MODE` | `flag` | `off` / `flag` / `hold` — see the review process before changing |
+| `CYBERALERTX_ADMIN_TOKEN` | — | enables `/admin` (≥ 24 characters) |
+| `CYBERALERTX_RSS_PROXY_URL` | — | optional proxy prefix for feeds that refuse direct fetches |
+| `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_THREADS_PUBLISH` | unset / `0` | publishing (off) |
 
-PostgreSQL via Supabase. Connection through SQLAlchemy 2.0 + psycopg3
-with sane pool defaults.
+Never commit `.env`. In production it lives outside the releases and is loaded
+by systemd; shells load it with `ops/release/loadenv.sh`, never `source .env`.
 
-### One-time setup
+## Everyday commands
 
-1. Create a Supabase project (free tier is fine for MVP).
-2. **Project Settings → Database → Connection string → Session pooler**.
-   Copy the URL.
-3. Put it into `.env` as `CYBERALERTX_PG_URL`. URL-encode any special
-   characters in the password (e.g. `?` → `%3F`).
-4. Apply schema migrations:
-   ```bash
-   python -m cyberalertx.tools.pg_migrate --status   # show pending
-   python -m cyberalertx.tools.pg_migrate            # apply
-   ```
-5. Backfill existing JSON state:
-   ```bash
-   python -m cyberalertx.tools.import_to_postgres            # news items
-   python -m cyberalertx.tools.import_ai_cache_to_postgres   # AI cache
-   ```
-6. Verify parity:
-   ```bash
-   python -m cyberalertx.tools.compare_storage
-   echo $?   # 0 = stores agree
-   ```
-7. Activate dual-write — in `.env`:
-   ```env
-   CYBERALERTX_STORAGE_BACKEND=dual
-   ```
-
-From now on every `once` / `generate` writes to **both** stores.
-
-### Why Session pooler (port 5432), not Transaction pooler (6543)
-
-Session pooler keeps connections alive per client session — works with
-SQLAlchemy's connection pool and prepared statements. Transaction pooler
-closes after each transaction; fine for serverless / Edge functions, not
-for a sync Python pipeline. Stick with **5432**.
-
-### Migrations
-
-Pure SQL, applied in filename order by the runner:
-
-```
-cyberalertx/storage/pg/migrations/
-├── 001_init.sql                   # news_items + FTS index
-├── 002_threat_posts.sql           # AI cache table
-└── 003_threat_posts_denormalized.sql  # feed-friendly indexes + trigger
-```
-
-Adding a new one: create `004_*.sql`, re-run `pg_migrate`. Idempotent —
-re-applies skip via `schema_migrations` bookkeeping.
-
-### Operational tools
-
-| Command | What |
+| Task | Command |
 |---|---|
-| `python -m cyberalertx.tools.pg_migrate [--status]` | apply pending DDL |
-| `python -m cyberalertx.tools.import_to_postgres [--dry-run] [--limit N]` | one-shot news backfill |
-| `python -m cyberalertx.tools.import_ai_cache_to_postgres [--dry-run]` | one-shot AI cache backfill |
-| `python -m cyberalertx.tools.compare_storage [--full] [--news-only] [--ai-only]` | diff JSON vs PG; exit code 1 on mismatch |
+| One ingest cycle / continuous ingest | `python -m cyberalertx.main once` / `run --interval 30` |
+| Top stored items | `python -m cyberalertx.main top --limit 10` |
+| Preview briefs (no storage, no AI) | `python -m cyberalertx.main generate --limit 3` |
+| Write briefs with AI (paid) | `python -m cyberalertx.main generate --limit 3 --use-llm` (`--dry-run` first) |
+| API server | `python -m cyberalertx.main serve --port 8000` |
+| Review queue | `python -m cyberalertx.main review list --status pending` |
+| Postgres schema | `python -m cyberalertx.tools.pg_migrate --status`, then without `--status` |
+| JSON → Postgres re-sync | `python -m cyberalertx.tools.import_ai_cache_to_postgres --dry-run` |
 
----
-
-## Configuration (`.env`)
-
-All env vars and their effect. Defaults in code are sane — copy only
-what you need to override into `.env`.
-
-### Storage
-
-| Var | Default | Effect |
-|---|---|---|
-| `CYBERALERTX_STORAGE_BACKEND` | `json` | `json` = JSON only; `dual` = JSON + PG (PG-preferred AI reads) |
-| `CYBERALERTX_PG_URL` | unset | Supabase / Postgres URL (use Session pooler, port 5432) |
-| `CYBERALERTX_PG_POOL_SIZE` | `2` | idle pool size |
-| `CYBERALERTX_PG_MAX_OVERFLOW` | `8` | burst capacity above pool |
-| `CYBERALERTX_PG_POOL_RECYCLE_S` | `1800` | connection lifetime |
-
-### AI — Anthropic
-
-| Var | Default | Effect |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | unset | required for `--use-llm` |
-| `CYBERALERTX_AI_PROVIDER` | `anthropic` | provider id (only `anthropic` wired) |
-| `CYBERALERTX_AI_MODEL` | `claude-haiku-4-5-20251001` | model id |
-| `CYBERALERTX_AI_MAX_TOKENS` | `1200` | output token cap |
-| `CYBERALERTX_AI_RETRIES` | `2` | SDK retry budget |
-| `CYBERALERTX_AI_CACHE` | `1` | persist generated posts to disk |
-
-The CLI flag `--use-llm` is the **only** way to enable paid Anthropic
-calls. There is no env var that does it. The FastAPI serve path is
-hard-coded to never call the API — cache hits only, with rule-based
-fallback on miss.
-
-### Pipeline
-
-| Var | Default | Effect |
-|---|---|---|
-| `CYBERALERTX_INTERVAL_MIN` | `15` | scheduler interval for `run` (1-240) |
-| `CYBERALERTX_TIMEOUT` | `15` | HTTP timeout for source fetches |
-| `CYBERALERTX_UA` | `CyberAlertX/0.1 ...` | User-Agent |
-| `CYBERALERTX_MAX_ITEMS` | `5000` | retention cap in JSON store |
-| `CYBERALERTX_HALF_LIFE_H` | `12` | freshness half-life in ranker |
-
-### Tests
-
-| Var | Effect |
-|---|---|
-| `CYBERALERTX_TEST_DB_URL` | enables `tests/test_pg_live.py` (isolated schemas) |
-
----
-
-## Daily workflow
+## Tests and quality checks
 
 ```bash
-# Morning — pull fresh content
-python -m cyberalertx.main once
-
-# AI-render the freshest items (cheap with --limit)
-python -m cyberalertx.main generate --limit 15 --use-llm
-
-# Verify stores agree (with dual mode on)
-python -m cyberalertx.tools.compare_storage
-
-# Run dev environment
-python -m cyberalertx.main serve --port 8000 --reload
-cd frontend && npm run dev
+pytest -q                                  # backend; live-Postgres tests skip unless CYBERALERTX_TEST_DB_URL is set
+mypy                                       # strict, config in pyproject.toml
+cd frontend && npm run type-check && npm run build
 ```
 
-For continuous operation: `python -m cyberalertx.main run` (in tmux /
-systemd) replaces the manual `once`. `generate` stays manual to keep AI
-costs bounded.
+Run the live-Postgres suites against a **throwaway** database only:
+`CYBERALERTX_TEST_DB_URL=postgresql+psycopg://…/test_db pytest -q`. CI runs
+mypy and pytest on Python 3.12 with `requirements.lock`, and the frontend
+type-check and production build, on every push and pull request.
 
----
+## Dependencies
 
-## Troubleshooting
+| File | Role |
+|---|---|
+| `requirements.txt` | allowed version ranges — edit this when the code needs a package |
+| `requirements.lock` | exact versions tested and deployed; CI and releases install it |
+| `pyproject.toml` | tool settings only (mypy); the project is run as a module, not installed |
+| `frontend/package-lock.json` | exact Node dependencies (`npm ci`) |
 
-**`OperationalError: Network is unreachable` on `db.PROJECT.supabase.co`**
-Supabase direct connection resolves only over IPv6. Switch to Session
-pooler URL (`aws-0-REGION.pooler.supabase.com:5432`).
+After changing `requirements.txt`: build a clean Python 3.12 venv, install it,
+run the full suite, then regenerate the lock with `pip freeze > requirements.lock`
+(keep the header comment).
 
-**`invalid connection option "pgbouncer"`**
-You're on Transaction pooler (port 6543) with `?pgbouncer=true`. Use
-Session pooler (5432); psycopg doesn't understand the pgbouncer hint.
+## Data and storage
 
-**`compare_storage` shows field diffs**
-Float precision — already handled with `1e-9` tolerance. If you still
-see diffs, run with `--full` and inspect the actual values; mostly it's
-new defaults (`audience_relevance_score=0.0`) on older items.
+| Store | Content |
+|---|---|
+| `data/items.json` | ingested news items with enrichment (newest 200) |
+| `data/threat_posts.json` | EN/UA briefs, review status and quality scorecard |
+| `data/source_health.json` | per-feed health, including the current fetch error |
+| `data/stories/`, `data/media/`, `data/analytics.sqlite3` | story clusters, share cards, visitor statistics |
+| Postgres `news_items`, `threat_posts`, `story_clusters` | mirror of the JSON stores (migrations 001–005) |
 
-**`generate --use-llm` does nothing (`cache_hits=N`, `missing=0`)**
-You already rendered those `(fingerprint, locale)` pairs. Bump `--limit`
-to widen scope, or `rm data/threat_posts.json && python -m
-cyberalertx.tools.import_ai_cache_to_postgres` (then re-run generate) to
-force a refresh from scratch.
+`data/` is never committed and never copied into a release.
 
-**Homepage shows fewer items than `generate --limit 15`**
-The feed is `cached_only=True` by default and locale-strict. If
-`--limit 15` produced 12 EN renders + 12 UA renders, the EN feed shows
-12 (not 15). Run `generate` for a larger limit to refill.
+## Project structure
 
-**Feed shows English title on `/ua/threat/{id}`**
-Anthropic returned a UA payload with an English title; the read-time
-language gate caught it and dropped the locale. Refresh the cache:
-```bash
-# remove the bad row
-python -c "from cyberalertx.storage.pg.threat_cache import PgThreatPostStore; \
-           from sqlalchemy import text; \
-           from cyberalertx.storage.pg.engine import get_engine; \
-           get_engine().begin().__enter__().execute(text(\"DELETE FROM threat_posts WHERE fingerprint='THE_FP' AND locale='ua'\"))"
-python -m cyberalertx.main generate --limit 20 --use-llm
+```
+cyberalertx/      backend package
+  sources/        RSS fetching, backoff and error classification
+  pipeline/       relevance, enrichment, evidence, dedup, orchestrator
+  ai/             brief generation, templates, scorecard, review
+  storage/        JSON stores, Postgres store, dual-write, migrations
+  api/            FastAPI app and /admin control room
+  intel/ media/ publish/ threads/ observability/ ops/ tools/
+frontend/         Next.js site (app/, components/, lib/, tests/e2e/)
+server/           systemd units, nginx, logrotate, backup, analytics
+ops/release/      release switch, idle-wait, recovery and migration scripts
+tests/            pytest suite
+docs/             architecture, operations, editorial and release records
 ```
 
-**Tests skip `test_pg_live.py`**
-Expected. Set `CYBERALERTX_TEST_DB_URL` to a separate DB to enable.
+## Deployment
 
----
+Production runs from **immutable releases**: each release is one reviewed
+commit with its own venv and frontend build; `current` points at the active
+one; data lives outside the releases.
 
-## Reference
+```mermaid
+flowchart LR
+  C["reviewed commit on main<br/>(CI green)"] --> B["build release<br/>releases/YYYYMMDD-HHMM-sha"]
+  B --> V["verify<br/>files · tests · pages"]
+  V --> S["switch_when_idle.sh<br/>→ release_switch.sh"]
+  S --> CUR["current → new release"]
+  CUR --> D[("/home/cax/cax/data<br/>shared")]
+  CUR -. "rollback = switch to an earlier id" .-> B
+```
 
-- `cyberalertx/` — Python package
-  - `main.py` — CLI entry point (`once`, `run`, `generate`, `serve`, `top`)
-  - `pipeline/` — ingest stages
-  - `ai/` — AI generator, validation, glossary, editorial refinement
-  - `storage/` — JSON + PG backends, factory, dual-write wrappers
-  - `api/app.py` — FastAPI application
-  - `tools/` — operational CLIs (`pg_migrate`, backfills, compare)
-- `frontend/` — Next.js app (see `frontend/README.md` for dev + e2e)
-- `tests/` — pytest suite (`pytest -q` from repo root)
-- `frontend/tests/e2e/` — Playwright smoke + journey suite
-  (`cd frontend && npm run test:e2e:prod`)
-- `.env` — local secrets (gitignored)
-- `data/` — runtime state (gitignored)
+Building, switching, rolling back and migrating are separate operations:
+[docs/operations/OPERATIONS.md](docs/operations/OPERATIONS.md). Nothing deploys
+automatically; CI only tests.
+
+## Documentation
+
+- [Documentation index](docs/README.md) — current, reference and historical documents
+- [Architecture](docs/architecture.md) · [Operations](docs/operations/OPERATIONS.md) · [Open issues](docs/release/OPEN_ISSUES.md)
+- [Editorial review and the evidence gate](docs/editorial/EDITORIAL_REVIEW_PROCESS.md) · [Design system](docs/design/DESIGN_SYSTEM.md)
+- [Server units, logs and analytics](server/README.md) · [Frontend](frontend/README.md)
+
+## Contributing
+
+Work on a branch from `main`, keep changes focused, and open a pull request.
+Before pushing: `pytest -q`, `mypy`, and in `frontend/` `npm run type-check`
+and `npm run build`. Never commit `.env`, `data/` or credentials. Changes that
+affect production (units, migrations, publishing) also need an update to the
+operations documentation.
+
+## Security
+
+Please do not report vulnerabilities in a public issue. Contact the maintainer
+privately through their [GitHub profile](https://github.com/vyahello) and allow
+time for a fix before disclosure.
 
 ## License
 
-[MIT](LICENSE) — © 2026 Volodymyr Yahello. Free to use, modify, and
-redistribute commercially or otherwise; just keep the copyright notice.
+[MIT](LICENSE) © 2026 Volodymyr Yahello

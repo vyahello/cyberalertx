@@ -28,8 +28,9 @@ class SourceConfig:
 _RSS_PROXY_URL: str = os.getenv("CYBERALERTX_RSS_PROXY_URL", "").strip()
 
 # Hosts that historically return 403 to direct fetches. Routed through the
-# proxy when one is configured; otherwise fetched directly (browser UA in
-# Settings.user_agent still helps in most cases).
+# proxy when one is configured; otherwise fetched directly. For www.cisa.gov
+# the proxy does not help either (its edge also refuses the Worker's
+# egress): that source shows as failing with `http_403` and backs off.
 _PROXIED_HOSTS = frozenset({
     "www.cisa.gov",
     "ain.ua",
@@ -52,13 +53,15 @@ def _maybe_proxy(url: str) -> str:
 class Settings:
     fetch_interval_minutes: int = int(os.getenv("CYBERALERTX_INTERVAL_MIN", "15"))
     request_timeout_seconds: int = int(os.getenv("CYBERALERTX_TIMEOUT", "15"))
-    # Realistic browser UA. Cloudflare-fronted sources (ain.ua, dev.ua) and
-    # CISA reject bot-shaped UAs with 403. A vanilla Firefox ESR string
-    # sails through. Override via CYBERALERTX_UA if your feeds rotate
-    # against this signature.
+    # Identifiable application UA (no browser impersonation). Feeds that
+    # refuse automated readers are reported as failing and backed off by
+    # RssSource (see sources/rss.py), never worked around. CISA's edge
+    # answers 403 to data-centre networks whatever the UA (checked 5 Nov
+    # 2026 from the production host, through the RSS proxy and directly).
+    # Override with CYBERALERTX_UA.
     user_agent: str = os.getenv(
         "CYBERALERTX_UA",
-        "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        "CyberAlertX/1.0 (+https://cyberalertx.com)",
     )
     storage_path: Path = DATA_DIR / "items.json"
     # Raw NewsItem retention cap. Auto-prunes oldest items beyond this count

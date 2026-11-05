@@ -1,9 +1,16 @@
 # Tool configuration only. This project is run as a module
 # (`python -m cyberalertx.main`), not pip-installed, so there is no
 # [build-system] / [project] table here — just static-analysis config.
+#
+# Dependencies live in two files on purpose:
+#   requirements.txt   the allowed ranges, edited by hand (what the code needs)
+#   requirements.lock  the exact versions tested and deployed (pip freeze of a
+#                      clean venv after the full suite passed); releases and CI
+#                      install this one. Regenerate it after changing
+#                      requirements.txt (README "Dependencies").
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"   # production interpreter
 files = ["cyberalertx"]
 strict = true
 # Surface the file:line on every error and show the error code so

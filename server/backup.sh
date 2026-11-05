@@ -13,6 +13,9 @@
 # story (Supabase has its own daily snapshots in their UI).
 
 set -euo pipefail
+# The archive holds editorial state and visitor analytics (IP addresses):
+# owner-only, like data/ itself. (Archives made before 5 Nov 2026 were 0664.)
+umask 077
 
 APP_USER="${APP_USER:-cax}"
 APP_DIR="${APP_DIR:-/home/${APP_USER}/cax}"

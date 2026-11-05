@@ -1,5 +1,7 @@
 # Rollback runbook
 
+> **Status: current for its §3 (undo Stage D) and §5 (migration 005 notes); release rollback is [OPERATIONS.md §4](../operations/OPERATIONS.md).**
+
 > Not executed. These are administrator steps (sudo) for the moment a release
 > misbehaves. Each section undoes exactly one stage of DEPLOYMENT_RUNBOOK.md,
 > newest first. Roll back the smallest stage that fixes the problem.
@@ -11,7 +13,7 @@
 | Duplicate or wrong-language posts, or many `outcome_unknown` after the scheduler switch | §3 (Stage D only) |
 | Threads posting problems | Set `CYBERALERTX_THREADS_PUBLISH=0` (takes effect at the next run) |
 | Photo problems | Set `CYBERALERTX_TELEGRAM_ATTACH_IMAGES=0` |
-| Site, API or admin broken, or generate failing after §6 | §4 (whole release: `release_rollback.sh <previous-release>`) |
+| Site, API or admin broken, or generate failing after §6 | §4 (whole release: `release_switch.sh <previous-release>`) |
 | Migration 005 suspected | §5. Usually no action: old code ignores the columns. |
 
 ## 2. Before any rollback
@@ -53,7 +55,8 @@ immutable releases only:
 
 ```bash
 ls /home/cax/cyberalertx/releases/                 # pick the previous release id
-sudo bash /home/cax/stagec-tools/release_rollback.sh <release-id>
+sudo bash /home/cax/stagec-tools/release_switch.sh <release-id>   # tracked: ops/release/release_switch.sh
+# (until the host copy is installed: the older release_rollback.sh, same logic)
 ```
 
 The script refuses unless the target release records a commit, has its venv
@@ -74,7 +77,7 @@ one-step rollback. Its code is kept as the local tag
 `/home/cax/backups/repo-consolidation-20261104-2235/cyberalertx-all-refs.bundle`.
 Build it as a release with the Stage C procedure (git archive of the tag,
 venv, frontend build, `data` link), then switch to it with
-`release_rollback.sh`. The data notes below apply.
+`release_switch.sh`. The data notes below apply.
 
 **Data compatibility when going back** [verified by reading `main`'s code]:
 - **Tolerated:** old code reads `items.json` and `threat_posts.json` written by

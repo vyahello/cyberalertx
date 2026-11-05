@@ -13,7 +13,7 @@ the module docstrings and `server/README.md` (ops).
    EXTERNAL SOURCES           │                 YOUR VPS  (user: cax)        │
                               │                                              │
  ┌──────────────────┐  RSS    │  ┌────────────────────┐                       │
- │ The Hacker News  │────────▶│  │ cyberalertx-run    │  every 15 min         │
+ │ The Hacker News  │────────▶│  │ cyberalertx-run    │  every 30 min         │
  │ BleepingComputer │  fetch  │  │ (APScheduler)      │  INGEST PIPELINE      │
  │ Krebs, Securelist│         │  │ deterministic, $0  │                       │
  │ CISA / itc/ain.. │         │  └─────────┬──────────┘                       │
@@ -26,7 +26,7 @@ the module docstrings and `server/README.md` (ops).
                               │               │ reads                    │ threat_posts│
    ┌─────────────────┐        │   ┌───────────┴───────────┐  dual-write  └───┬────────┘
    │  Claude CLI     │◀───────│   │ cyberalertx-generate  │──────────────────┘
-   │ (subscription   │ render │   │ .timer  every 6h      │ writes
+   │ (subscription   │ render │   │ .timer  hourly        │ writes
    │  OAuth, no key) │───────▶│   │ THE ONLY THING THAT   │   ┌──────────────────────────┐
    └─────────────────┘        │   │ CALLS CLAUDE          │──▶│ data/threat_posts.json   │
                               │   └───────────────────────┘   │ (AI renders, per locale) │
@@ -44,7 +44,7 @@ the module docstrings and `server/README.md` (ops).
                               │               │
                               │   ┌───────────┴───────────┐
    ┌─────────────────┐        │   │ nginx :443 (TLS)      │
-   │ Telegram Bot API│◀───────│   │ cyberalertx-telegram  │ every 6h +15min
+   │ Telegram Bot API│◀───────│   │ cyberalertx-telegram  │ HELD (disabled)
    │   ↓             │  send  │   │ .timer → publish      │ reads threat_posts cache
    │ @cyberalertx_en │        │   └───────────────────────┘ writes telegram_published.jsonl
    │ @cyberalertx_ua │        │                                                            │
@@ -58,39 +58,31 @@ the module docstrings and `server/README.md` (ops).
 
 ---
 
-## 2. The five services (systemd units) — who owns what
+## 2. The services (systemd units) — who owns what
 
-| Service | Type / cadence | Responsibility | Calls Claude? |
+| Service | Type / cadence | Responsibility | Calls the AI? |
 |---|---|---|---|
-| **cyberalertx-run** | always-on, APScheduler every **15 min** | The ingest pipeline: fetch RSS → clean → filter → enrich → rank → persist. Deterministic. | ❌ never |
-| **cyberalertx-generate** | timer, every **6h** (00/06/12/18 UTC) | Turns raw NewsItems into polished, localized **ThreatPosts** via the Claude CLI, caches them. | ✅ **only one** |
-| **cyberalertx-api** | always-on, FastAPI `:8000` | Read-only HTTP feed (`/posts`, `/healthz`, `/feedback`). Merges items + cached renders. | ❌ never |
-| **cyberalertx-frontend** | always-on, Next.js `:3000` | Renders the website (SSR + 60s ISR), fetching from the API. | ❌ never |
-| **cyberalertx-telegram** | timer, every **6h +15min** | Sends qualifying cached posts to the TG channels; dedup via ledger. | ❌ never |
+| **cyberalertx-run** | always-on, ingest every **30 min** | The ingest pipeline: fetch RSS → clean → filter → enrich → evidence → rank → persist. Deterministic. | ❌ never |
+| **cyberalertx-generate** | timer, **hourly** (`--limit 1`) | Turns the newest raw NewsItem into localized **ThreatPosts** (EN + UA) via the Claude CLI, scores them, caches them. | ✅ **only one** |
+| **cyberalertx-api** | always-on, FastAPI `:8000` | HTTP feed (`/posts`, `/healthz`, `/feedback`) and `/admin`. Merges items + cached renders. | ❌ never |
+| **cyberalertx-frontend** | always-on, Next.js `:3000` | Renders the website (SSR + ISR), fetching from the API. | ❌ never |
+| **cyberalertx-analytics** | timer, daily 03:00 | Visitor statistics from the nginx log into `data/analytics.sqlite3`. | ❌ never |
+| **cyberalertx-telegram** | timer **disabled** — HELD | Telegram publication; held until Stage D (`stage-c-hold.conf`). Threads publishing is also off. | ❌ never |
 
 **The key invariant:** AI costs money/time, so it runs in exactly **one**
-place — `generate`. Everything else (ingest, API, frontend, telegram) only
-*reads* what `generate` already produced. That's what keeps cost predictable
-and the mental model simple.
+place — `generate`. Everything else only *reads* what `generate` produced.
 
-### Operational cadence (UTC)
-
-```
-00:00  06:00  12:00  18:00   ── generate fires (Claude renders new items)
-00:15  06:15  12:15  18:15   ── telegram fires (publishes what generate just rendered)
-:00 :15 :30 :45  (every 15m) ── run fires (RSS ingest)
-always-on                    ── api, frontend
-```
-The telegram timer is offset +15 min after generate so a freshly rendered
-batch is publishable in the same cycle it was rendered.
+All units except analytics load `/home/cax/cax/.env` and run the active
+immutable release through `/home/cax/cyberalertx/current` (§10).
 
 ---
 
-## 3. The ingest pipeline (inside cyberalertx-run, every 15 min)
+## 3. The ingest pipeline (inside cyberalertx-run, every 30 min)
 
 ```
 fetch RSS (parallel, httpx + feedparser)
-   │   one bad feed can't break the run
+   │   one bad feed can't break the run; a failing feed backs off
+   │   (30 min doubling, max 24 h for refusals / 6 h for transient errors)
    ▼
 dedup ──▶ normalize ──▶ filter ──▶ categorize ──▶ platforms ──▶ audience
 (fingerprint)  (lang,    (keyword   (vuln/scam/   (Linux,       (sysadmins,
@@ -107,6 +99,21 @@ Output: a `NewsItem` dataclass with ~20 enrichment fields. **No prose is
 written here** — just metadata and scoring. Code: `cyberalertx/pipeline/
 orchestrator.py` wires the stages; each stage is a pure function over a list
 of `NewsItem`.
+
+**Source health** (`data/source_health.json`, `/admin/sources`): per source,
+cycles seen / empty / failed, items fetched and kept, the last successful
+fetch, and the current failure (`last_error` such as `http_403`,
+`consecutive_failures`, `next_attempt_utc`). Feeds are fetched with an
+identifiable User-Agent; a feed whose origin refuses automated readers (CISA,
+O37) shows as failing rather than being worked around.
+
+**Evidence** (`pipeline/evidence.py`): from the source title, excerpt and
+byline only, the separate questions exploitation / compromise / campaign /
+sponsorship / unknowns, kept apart from severity. A label needs a stated
+claim; hedged, negated, capability and statistical wording does not count.
+The generator's scorecard compares each brief with these labels and flags
+unsupported claims for review (mode `flag`: the post stays visible);
+[EDITORIAL_REVIEW_PROCESS.md](editorial/EDITORIAL_REVIEW_PROCESS.md).
 
 ---
 
@@ -149,12 +156,12 @@ content) are deliberately separate: **one NewsItem → up to two ThreatPosts**
 
 ```
 T+0min   BleepingComputer publishes "Everest Forms Pro RCE"
-T+≤15min run: fetches it → scores Critical/urgent → saved to items.json (raw, no prose)
+T+≤30min run: fetches it → scores Critical/urgent → saved to items.json (raw, no prose)
          ↳ at this point it's on NO channel and NOT on the public feed yet
-T+≤6h    generate: picks it (newest, uncached) → Claude CLI writes the UA+EN
+T+≤1h    generate: picks it (newest, uncached) → Claude CLI writes the UA+EN
          ThreatPost (title, summary, quick_facts, CVE refs) → threat_posts.json
          ↳ NOW it appears on the website feed (api serves cached renders only)
-T+≤6h15m telegram: sees it's cached + Critical + trusted + not in ledger →
+(Stage D) telegram: sees it's cached + Critical + trusted + not in ledger →
          formats HTML (CVE→NVD links) → Bot API sendMessage → @cyberalertx_ua/en
          → records fingerprint:locale in telegram_published.jsonl (never re-sent)
 ```
@@ -191,6 +198,8 @@ flow (rebuild → Cloudflare purge → @WebpageBot).
 ---
 
 ## 7. The Telegram publish path (cyberalertx-telegram)
+
+> **Held since Stage C (4 Nov 2026):** the unit's drop-in requires `/home/cax/cyberalertx/STAGE_D_AUTHORIZED` (absent) and its timer is disabled. This section describes the path as it will run after Stage D.
 
 ```
 list NewsItems (items.json)
@@ -254,3 +263,19 @@ Code: `cyberalertx/ai/providers/claude_cli_provider.py`.
 | Process mgmt | systemd (4 long-lived services + 2 timers); logs → journald |
 | Observability | JSON counters + source-health + feedback JSONL, exposed at `/admin/*` |
 ```
+
+---
+
+## 10. Deployment model
+
+```
+/home/cax/cyberalertx/releases/<YYYYMMDD-HHMM-sha>/   immutable: one commit + venv + frontend build
+        └── data -> /home/cax/cax/data               shared persistent data
+/home/cax/cyberalertx/current -> releases/<active>   switched atomically; units run from here
+/home/cax/cax/                                       git checkout (development) + .env + data/
+```
+
+A release is built once from a reviewed commit, verified file by file, and
+never modified. Switching the active release (forward or back) changes only
+the `current` symlink and restarts api, frontend and run. Migrations are a
+separate, manual step. Details: [operations/OPERATIONS.md](operations/OPERATIONS.md).
