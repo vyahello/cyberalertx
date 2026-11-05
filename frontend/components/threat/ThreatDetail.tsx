@@ -86,7 +86,6 @@ export function ThreatDetail({ post, lang }: Props) {
   const evidence = evidenceRows(post, lang);
   const unknowns = unknownsOf(post, lang);
   const topic = topicForCategory(post.category);
-  const illustration = post.media?.illustration;
   const readingSeconds = Math.round((words(c) / WPM[lang]) * 60);
 
   return (
@@ -139,11 +138,6 @@ export function ThreatDetail({ post, lang }: Props) {
           )}
           <figure className="mt-8">
             <StoryVisual post={post} lang={lang} variant="article" eager />
-            {illustration && (
-              <figcaption className="mt-2 font-sans text-small text-ink-faint">
-                {s.illustration_caption}
-              </figcaption>
-            )}
           </figure>
         </header>
 

@@ -141,7 +141,6 @@ type StringTable = {
   detail_related: string;
   detail_jump_actions: string;
   detail_provenance: (source: string) => string;
-  illustration_caption: string;
   detail_not_available_in_locale: string;
   detail_not_available_hint: string;
   detail_not_found_title: string;
@@ -409,8 +408,6 @@ const EN: StringTable = {
   detail_related: "More on this topic",
   detail_jump_actions: "What to do",
   detail_provenance: (source) => `Source: ${source}. Read the original report for full context.`,
-  illustration_caption:
-    "Illustration created for CyberAlertX. It is not a photograph or a screenshot of the incident.",
   detail_not_available_in_locale: "This brief isn't available in English.",
   detail_not_available_hint:
     "Stories from Ukrainian outlets are published in the Ukrainian edition only. You can read it there.",
@@ -659,8 +656,6 @@ const UK: StringTable = {
   detail_related: "Більше на цю тему",
   detail_jump_actions: "Що робити",
   detail_provenance: (source) => `Джерело: ${source}. В оригінальній публікації — повний контекст і подробиці.`,
-  illustration_caption:
-    "Ілюстрацію створено для CyberAlertX. Це не фото й не знімок екрана з інциденту.",
   detail_not_available_in_locale: "Цей матеріал недоступний українською.",
   detail_not_available_hint:
     "Ми не публікуємо частково перекладених матеріалів. Його можна прочитати англійською.",

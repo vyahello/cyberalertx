@@ -73,3 +73,20 @@ test.describe("branded cards", () => {
     }
   });
 });
+
+for (const locale of ["en", "ua"] as const) {
+  test(`article pages carry no illustration disclaimer (${locale})`, async ({ page }) => {
+    await page.goto(`/${locale}`);
+    const href = await page.locator(`a[href^="/${locale}/threat/"]`).first().getAttribute("href");
+    await page.goto(href as string);
+    const body = await page.locator("body").innerText();
+    expect(body).not.toContain("not a photograph");
+    expect(body).not.toContain("Це не фото");
+    expect(await page.locator("main figure figcaption").count()).toBe(0);
+    const img = page.locator("main figure img").first();
+    if (await img.count()) {
+      const alt = (await img.getAttribute("alt")) ?? "";
+      expect(alt).not.toMatch(/not a photograph|не фото/i);
+    }
+  });
+}

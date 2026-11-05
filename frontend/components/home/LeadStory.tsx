@@ -57,7 +57,6 @@ export function LeadStory({ lead, total, lang, now }: Props) {
           >
             <figure className="mb-6">
               <StoryVisual post={lead} lang={lang} variant="og" eager />
-              <figcaption className="sr-only">{s.illustration_caption}</figcaption>
             </figure>
             <h2
               id="lead-title"
