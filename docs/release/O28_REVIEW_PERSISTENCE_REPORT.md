@@ -111,3 +111,25 @@ Not urgent. Production has no review decisions, `--refresh` isn't scheduled (the
   2. Verify that a UA 40-post feed answers in under 0.5 s in `dual` mode on a staging copy.
   3. Deploy as a new release.
   4. Remove the API drop-in with `c8_api_json_reads.sh revert`.
+
+## Update — 5 Nov 2026 (branch `feature/o27-api-latency`, not deployed)
+
+* **O27 read path fixed** as recommended above, without dropping the fallback:
+  the dual cache answers JSON misses from an in-memory Postgres key index plus
+  one batch load of the posts only Postgres has; no per-item query remains
+  (O27_API_READ_PATH_REPORT.md). The fail-closed rule for an unreadable JSON
+  file is checked first, unchanged.
+* **The re-sync tool is ready, not run.**
+  * `tools.import_ai_cache_to_postgres` now computes a plan against Postgres
+    (read-only with `--dry-run`): inserts, updates, review-status transitions,
+    and Postgres-only rows (reported, never deleted).
+  * The real run writes only rows that differ. It re-reads Postgres and fails
+    unless every JSON entry matches. It refuses an unreadable JSON file, and it
+    never writes JSON.
+  * `--report` writes the plan without content.
+  * Tests: `tests/test_import_ai_cache_live.py`, 6 live-PostgreSQL tests, all passing.
+  * Production steps: **O28_RECONCILIATION_RUNBOOK.md**.
+* The order for the release that reverts the O27 hotfix is unchanged:
+  1. deploy;
+  2. re-sync (runbook);
+  3. `c8_api_json_reads.sh revert`.
