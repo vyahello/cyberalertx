@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -47,6 +48,24 @@ RETRYABLE = frozenset({"network", "rate_limit", "temporary"})
 OPERATOR = frozenset({"auth", "permission"})
 #: Never resend automatically — reconcile first.
 UNKNOWN = "unknown_outcome"
+#: The job must never be sent (e.g. the article predates Telegram activation):
+#: the orchestrator cancels it instead of failing or retrying.
+INELIGIBLE = "ineligible"
+
+
+def before_activation(settings: Any, published_at: Any) -> bool:
+    """True when the article was published before Telegram was activated."""
+    cutoff = getattr(settings, "activated_at", None)
+    if cutoff is None or not published_at:
+        return False
+    if isinstance(published_at, str):
+        try:
+            published_at = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    return bool(published_at < cutoff)
 #: Not ready yet (e.g. the story's illustration is still being rendered):
 #: deferred without spending an attempt; expires with the publication window.
 WAITING = "waiting"
@@ -192,6 +211,10 @@ class TelegramDestination:
         chat = self.settings.chat_id_for(job.locale)
         if not chat:
             raise DeliveryError(f"no Telegram channel for {job.locale}", category="permission")
+        # Last guard before anything is sent: never an article from before activation.
+        if job.publication_type == "initial" and before_activation(
+                self.settings, getattr(job, "article_published_at", "") or payload.get("published_at")):
+            raise DeliveryError("article published before Telegram activation", category=INELIGIBLE)
         _required_text(payload, job.locale)
         problem = quality_problem(payload, locale=job.locale)
         if problem:
@@ -268,5 +291,5 @@ class TelegramDestination:
                         content_hash=prepared.content_hash)
 
 
-__all__ = ["DeliveryError", "Delivery", "Destination", "OPERATOR", "Prepared", "RETRYABLE",
+__all__ = ["DeliveryError", "Delivery", "Destination", "INELIGIBLE", "OPERATOR", "before_activation", "Prepared", "RETRYABLE",
            "TelegramDestination", "UNKNOWN", "WAITING", "WebsiteDestination", "card_for", "edition_hash"]
