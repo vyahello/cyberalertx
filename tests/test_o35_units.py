@@ -29,7 +29,11 @@ def host(tmp_path: Path) -> dict[str, str]:
             .replace(f"WorkingDirectory={CUR}", "WorkingDirectory=/home/cax/cax")
         (units / f"cyberalertx-{n}.service").write_text(old)
     (units / "cyberalertx-telegram.service.d").mkdir()
-    shutil.copy(TEMPLATES / "cyberalertx-telegram.service.d" / "stage-c-hold.conf", units / "cyberalertx-telegram.service.d")
+    # A marker path under tmp, never the host's: the real one exists once Telegram is activated.
+    marker = tmp_path / "STAGE_D_AUTHORIZED"
+    hold = (TEMPLATES / "cyberalertx-telegram.service.d" / "stage-c-hold.conf").read_text()
+    (units / "cyberalertx-telegram.service.d" / "stage-c-hold.conf").write_text(
+        hold.replace("/home/cax/cyberalertx/STAGE_D_AUTHORIZED", str(marker)))
     (cur / "venv" / "bin").mkdir(parents=True)
     (cur / "venv" / "bin" / "python").write_text("#!/bin/sh\n"); (cur / "venv" / "bin" / "python").chmod(0o755)
     (cur / "server" / "analytics").mkdir(parents=True); (cur / "server" / "analytics" / "__main__.py").write_text("")
@@ -57,7 +61,7 @@ esac
     (tmp_path / "backups").mkdir()
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TMP": str(tmp_path), "UNITS": str(units),
             "O35_TEST": "1", "O35_SYSTEMCTL": str(sysctl), "O35_UNIT_DIR": str(units), "O35_CURRENT": str(cur),
-            "O35_BACKUPS": str(tmp_path / "backups"), "O35_MARKER": "/home/cax/cyberalertx/STAGE_D_AUTHORIZED"}
+            "O35_BACKUPS": str(tmp_path / "backups"), "O35_MARKER": str(marker)}
 
 
 def test_templates_point_at_current_and_telegram_stays_held() -> None:
