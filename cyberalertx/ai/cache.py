@@ -217,6 +217,12 @@ class ThreatPostCache:
             except (KeyError, ValueError, TypeError):
                 continue
 
+    def keys(self) -> frozenset[tuple[str, str]]:
+        """Every (fingerprint, locale) currently stored (after a freshness check)."""
+        self._maybe_reload()
+        pairs = (k.rpartition(":") for k in list(self._store))
+        return frozenset((fp, loc) for fp, _, loc in pairs)
+
     def __len__(self) -> int:
         return len(self._store)
 

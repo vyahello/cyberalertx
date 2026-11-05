@@ -126,6 +126,18 @@ of `NewsItem`.
 degrades to JSON-only and logs a warning — the pipeline never breaks because
 the DB is unreachable.
 
+**Read path in `dual` mode** (`storage/dual_write.py`): JSON is read first and
+is authoritative. A JSON miss never costs a per-item query (O27): the process
+keeps an index of the `(fingerprint, locale)` keys Postgres holds (one
+keys-only SELECT, refreshed at most every `CYBERALERTX_PG_INDEX_TTL_SECONDS`,
+default 60) and, in the same refresh, loads the few posts Postgres has but
+JSON lacks with one batch query. The index is warmed in the background when
+the cache is built. Own writes and deletes update it immediately; rows another
+process writes **only** to Postgres appear within one TTL. An unreadable JSON
+file fails closed (no Postgres fallback, O28). Since Stage C the production
+API runs with `CYBERALERTX_STORAGE_BACKEND=json` (drop-in
+`stage-c-json-reads.conf`) until this read path is deployed.
+
 **Why two models?** `NewsItem` (metadata) and `ThreatPost` (the readable
 content) are deliberately separate: **one NewsItem → up to two ThreatPosts**
 (en + ua). EN-source items render both locales; UA-source items render UA only

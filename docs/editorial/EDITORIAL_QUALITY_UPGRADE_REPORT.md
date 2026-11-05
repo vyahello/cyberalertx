@@ -322,3 +322,123 @@ The category-specific coverage is in ENGLISH_STYLE_GUIDE §9.1.
 3. Apply the Case A and Case B corrections through the review workflow, as a
    separately approved step.
 4. Verify byline capture on the next BleepingComputer sponsored post.
+
+## 11. Evidence hardening (5 Nov 2026)
+
+Branch `feature/o27-api-latency`. Labels: **[tested]** = isolated copy of
+production data; **[assumption]** = not proven here. Nothing is deployed.
+
+### What was over-broad
+
+| Pattern | Problem | Fix |
+|---|---|---|
+| `\bcampaign\b` in attacks-observed | a topic word: "a campaign could target users" counted as observed attacks | needs an action verb (`campaign targets / delivers / infects …`) or an observer (`observed / tracked / uncovered … campaign`); UA `кампані…` likewise |
+| `\bdata breach\b` in compromise-confirmed | "how to prevent a data breach", "a possible data breach" counted as confirmed exposure | needs someone suffering/disclosing/confirming/linking one, or the breach hitting/affecting/exposing someone, or a fine/settlement for one |
+| `targeted`, `targeting`, `infected`, `hijacked`, `hacked` | adjectives in forecasts ("targeted phishing could hit …") | the whole clause is checked for hedges |
+| KEV | only "KEV catalog" matched | `KEV` alone, negation-aware ("not listed in KEV" does not confirm) |
+| comeback wording | "returned", "resumed", "back online", "rebuilt" missing; "could return" counted | added; forecasts excluded |
+
+### New rule: a hit counts only when its clause asserts it
+
+`_asserted()` checks each hit's own clause (it stops at sentence ends and at
+"but", ", and", ", with", "however", UA «але», «проте» …):
+
+* **hedge** before or inside the hit: could, may (lower-case), might, would,
+  can, potential(ly), possible, if, unless, whether, risk, prevent, avoid,
+  protect/guard/defend against, how to, learn, hypothetical, simulated; UA
+  може, можуть, якщо, потенційно, запобігти, уникнути, «для викрадення …»;
+* **capability** in the few words right before the hit: lets, allows,
+  enables, designed / built / able / intended / aims / tries to, capable of.
+  Only the nearby words count, so "the bug allows RCE, with the flaw actively
+  exploited" still confirms;
+* **negation**: no, not, never, none, nothing, without, denied, n't; UA не, ні,
+  без, немає, жодних;
+* **statistics** (exploitation only): %, per cent, "number/share of",
+  rose/fell by;
+* **non-event formats**: webinar, CTF, podcast.
+
+The brief-side check (`scorecard._asserts`) now also ignores denials ("no
+observed abuse in the wild", «Даних не викрадено») and attributed claims
+("the gang claims it stole", «заявляють, що викрали»), which a brief is
+supposed to write.
+
+Source-side wordings added after reviewing every changed label: present-tense
+headlines ("Hackers Use …", "APT Deploys …", "Lazarus Exploits Windows
+Zero-Day"), victim counts ("compromises 600 npm packages"), "malicious/fake X
+pushes/steals …", "exploited in [ongoing RCE] attacks", "exploited to …",
+"under active use", "attacks exploiting", "observed exploiting", "malicious
+actors are exploiting", "theft of … assets", "vaults downloaded", "API keys
+were exposed", UA «вкрав», «викрадені», «отримали несанкціонований доступ до».
+
+### The nine required cases [tested]
+
+| # | Text | Result |
+|---|---|---|
+| 1 | Researchers warn that a phishing campaign could target users. | not reported (was attacks observed) |
+| 2 | The campaign was investigated, but no attacks were confirmed. | not reported (was attacks observed) |
+| 3 | How organizations can prevent a data breach. | no compromise (was confirmed) |
+| 4 | A company is investigating a possible data breach. | suspected; exposure not confirmed |
+| 5 | Attackers stole customer records. | compromise confirmed |
+| 6 | The vulnerability is listed in CISA KEV. | exploitation confirmed (was not reported) |
+| 7 | The flaw could be exploited. | not reported; gap "exploitation unconfirmed" |
+| 8 | The campaign was disrupted and later resumed. | active (was disrupted) |
+| 9 | The campaign was disrupted, but no evidence of its end is available. | disrupted; gap "campaign end unconfirmed" |
+
+`tests/test_evidence_adversarial.py`: the nine cases plus 33 boundary cases
+(real headlines from the archive, UA hedges and negation). Existing
+`test_editorial_evidence.py` (22) unchanged and passing.
+
+### Effect on stored data [tested]
+
+On the 2,811 source items in the Stage C Postgres snapshot (title + excerpt):
+
+| Label | Before | After | Changed |
+|---|---|---|---|
+| exploitation confirmed / attacks observed / suspected / not reported | 437 / 517 / 21 / 1836 | 472 / 549 / 22 / 1768 | 200 items |
+| compromise confirmed / not confirmed | 435 / 24 | 421 / 24 | 88 items |
+| campaign active / disrupted / unknown | 30 / 59 / 920 | 36 / 58 / 923 | 63 items |
+
+Every changed label was listed and read. Downgrades are topics, forecasts,
+capabilities ("kit built to steal"), claims ("data breach claims"), webinars
+and patch notes. Upgrades are explicit events the old patterns missed
+("zero-day exploited in attacks", "data breach affects 13,000 customers").
+The 200 items currently in `items.json`: 5 / 3 / 11 changes.
+
+### Evidence gate: flag or hold? [tested]
+
+The gate was run on all 4,498 stored editions with a source item:
+
+| | Hard evidence flags |
+|---|---|
+| Before this change | 144 (82 exploitation, 53 compromise, 9 AI authorship) |
+| After | 58 (21 exploitation, 28 compromise, 9 AI authorship), 1.3 % of editions |
+
+A random sample of 25 flags before the last refinements had **about 5 true
+overstatements (~20 % precision)**. Most false flags come from the source
+side: the excerpt is a 1–3 sentence teaser, and the brief legitimately uses
+the full article or idiomatic wording ("in the wild" for released code). All
+58 currently have status `auto`, because stored editions are not re-scored.
+
+**Recommendation: keep `flag` (the default; production sets no
+`CYBERALERTX_REVIEW_MODE`).** `hold` would hide about 1 in 75 new briefs, and
+most of them wrongly. Revisit `hold` for evidence reasons only after:
+1. a week of `/admin/review` data on new briefs shows a true-positive rate of
+   at least 70 % for `unsupported_exploitation` and `unsupported_compromise`;
+2. the gate compares against the same text the generator saw (the full
+   article, if it ever gets it), not only the feed excerpt.
+
+`ai_authorship` is precise (self-referential wording only) and could hold on
+its own; it is rare (9 archived editions). Review mode was not changed.
+
+### Limits
+
+* Pattern-based. It is conservative by design: under-claiming is preferred.
+* Past exploitation still counts ("was exploited in the wild in 2019"); the
+  brief must date it. Only hedged or negated wording is excluded.
+* Evidence is computed when read, so after deployment the API shows the new
+  labels for the whole archive at once (no data migration). Other consumers of
+  `assess` (via `signals.active_exploitation`): the scorecard (new briefs
+  only), `media/engine.py` (card images: already rendered images keep their
+  old badge until regenerated) and `intel/dimensions.py` (story scoring: picks
+  up the new value on the next ingest cycle). Checked by reading the code, not
+  run against production.

@@ -31,7 +31,8 @@
       data -> /home/cax/cax/data             shared, never copied
   current -> releases/20261105-1000-<sha>    atomic symlink switch
 /home/cax/cax/.env               stays the EnvironmentFile (shared config)
-/home/cax/cax                    old checkout: kept untouched as the rollback target
+/home/cax/cax                    canonical git checkout of main (since 4 Nov 2026); NOT a rollback target
+                                 (rollback = release_rollback.sh <previous-release>, ROLLBACK_RUNBOOK §4)
 ```
 
 `config.PROJECT_ROOT` uses `Path(__file__).resolve()`, so code imported through

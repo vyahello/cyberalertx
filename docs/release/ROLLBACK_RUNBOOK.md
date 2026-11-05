@@ -11,7 +11,7 @@
 | Duplicate or wrong-language posts, or many `outcome_unknown` after the scheduler switch | §3 (Stage D only) |
 | Threads posting problems | Set `CYBERALERTX_THREADS_PUBLISH=0` (takes effect at the next run) |
 | Photo problems | Set `CYBERALERTX_TELEGRAM_ATTACH_IMAGES=0` |
-| Site, API or admin broken, or generate failing after §6 | §4 (whole release) |
+| Site, API or admin broken, or generate failing after §6 | §4 (whole release: `release_rollback.sh <previous-release>`) |
 | Migration 005 suspected | §5. Usually no action: old code ignores the columns. |
 
 ## 2. Before any rollback
@@ -44,23 +44,37 @@ sudo systemctl start cyberalertx-telegram.timer
   checks are tested].
 - If the timeout was raised for Threads, set it back to 300 in the same edit.
 
-## 4. Undo the release (back to `/home/cax/cax`, the previous known-good code)
+## 4. Undo the release (switch `current` back to an earlier release)
+
+Since 4 Nov 2026 `/home/cax/cax` is the canonical checkout of GitHub `main`
+(SINGLE_REPOSITORY_CONSOLIDATION_REPORT.md). It is **not** a rollback target
+any more: it holds new code with the old venv and build. Roll back between
+immutable releases only:
 
 ```bash
-sudo systemctl stop cyberalertx-generate.timer cyberalertx-telegram.timer
-systemctl is-active cyberalertx-generate.service cyberalertx-telegram.service   # inactive
-
-# restore the unit files saved in DEPLOYMENT_RUNBOOK §2 (they point at /home/cax/cax)
-sudo cp -a /home/cax/backups/<TS>/cyberalertx-* /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl restart cyberalertx-api cyberalertx-frontend cyberalertx-run
-curl -sf 127.0.0.1:8000/healthz && curl -s -o /dev/null -w '%{http_code}\n' 127.0.0.1:3000/en
-sudo systemctl start cyberalertx-generate.timer cyberalertx-telegram.timer
+ls /home/cax/cyberalertx/releases/                 # pick the previous release id
+sudo bash /home/cax/stagec-tools/release_rollback.sh <release-id>
 ```
 
-The old checkout still has its own venv and its last frontend build, because
-the release never touched it. The `current` symlink can stay; nothing uses it
-after the units are restored.
+The script refuses unless the target release records a commit, has its venv
+and frontend build, links `data` to `/home/cax/cax/data`, and the api, run,
+generate and frontend units all run from `current`. It switches `current`
+atomically, restarts api, frontend and run, and waits for `/healthz` and
+`/en`. It never touches `.env`, the API JSON-reads drop-in, the Telegram
+hold, timers, `data/` or the database. On failure it prints the command that
+switches back. [tested with mocks and against the real releases' preflight;
+not executed]
+
+`c7_rollback.sh` (Stage C) now refuses with exit 3, because it restarted the
+site from `/home/cax/cax`.
+
+**Going back to the legacy (pre-Stage C) application** is no longer a
+one-step rollback. Its code is kept as the local tag
+`legacy-production-2026-11-04` (`73257f0`) and in
+`/home/cax/backups/repo-consolidation-20261104-2235/cyberalertx-all-refs.bundle`.
+Build it as a release with the Stage C procedure (git archive of the tag,
+venv, frontend build, `data` link), then switch to it with
+`release_rollback.sh`. The data notes below apply.
 
 **Data compatibility when going back** [verified by reading `main`'s code]:
 - **Tolerated:** old code reads `items.json` and `threat_posts.json` written by
