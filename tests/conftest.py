@@ -39,3 +39,18 @@ def _isolated_ops_ledgers(tmp_path_factory: pytest.TempPathFactory, monkeypatch:
     monkeypatch.setattr(usage, "USAGE_PATH", base / "ai_usage.jsonl")
     monkeypatch.setattr(app_mod, "_ops_data_dir", lambda: base)
     readmodel.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_media_and_telegram_marker(tmp_path_factory: pytest.TempPathFactory,
+                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The media store (assets, files, image usage log) and the Telegram
+    activation marker: never the real `data/media` or the host's marker."""
+    import cyberalertx.api.app as app_mod
+    from cyberalertx.media import assets
+
+    base: Path = tmp_path_factory.mktemp("media")
+    monkeypatch.setattr(assets, "MEDIA_DIR", base)
+    monkeypatch.setattr(app_mod, "_MEDIA_STORE", None)
+    monkeypatch.setenv("CYBERALERTX_TELEGRAM_MARKER", str(base / "no-marker"))
+    monkeypatch.delenv("CYBERALERTX_TELEGRAM_ACTIVATED_AT", raising=False)

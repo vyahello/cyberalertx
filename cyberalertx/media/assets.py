@@ -174,8 +174,9 @@ def validate_image(data: bytes, *, declared_mime: str = "") -> tuple[str, int, i
 # ---------------------------------------------------------------- store
 
 class MediaStore:
-    def __init__(self, root: Path = MEDIA_DIR) -> None:
-        self.root = Path(root)
+    def __init__(self, root: Path | None = None) -> None:
+        # Resolved at call time (not def time), so tests can redirect MEDIA_DIR.
+        self.root = Path(root) if root is not None else MEDIA_DIR
         self.files = self.root / "files"
         self.index = self.root / "assets.json"
         self.files.mkdir(parents=True, exist_ok=True)
