@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="CyberAlertX — cyber threat briefing" width="100%"/>
-</p>
-
-<p align="center">
   <a href="https://github.com/vyahello/cyberalertx/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vyahello/cyberalertx/actions/workflows/ci.yml/badge.svg?branch=main"/></a>
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white"/>
   <img alt="Next.js 15.5" src="https://img.shields.io/badge/Next.js-15.5-111827?logo=next.js&logoColor=white"/>
