@@ -14,6 +14,7 @@ text attributes the story to another outlet in the same cluster
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -145,12 +146,24 @@ def stable_key(cluster_key: str, members: Sequence[NewsItem], used: set[str]) ->
     for m in members:
         if getattr(m, "story_key", ""):
             counts[m.story_key] = counts.get(m.story_key, 0) + 1
-    if not counts:
+    if counts:
+        oldest = sorted(members, key=lambda m: (m.published_at, m.fingerprint))
+        order = {m.story_key: i for i, m in reversed(list(enumerate(oldest))) if m.story_key}
+        best = max(counts, key=lambda k: (counts[k], -order.get(k, 0)))
+        if best not in used:
+            return best
+    if cluster_key not in used:
         return cluster_key
-    oldest = sorted(members, key=lambda m: (m.published_at, m.fingerprint))
-    order = {m.story_key: i for i, m in reversed(list(enumerate(oldest))) if m.story_key}
-    best = max(counts, key=lambda k: (counts[k], -order.get(k, 0)))
-    return best if best not in used else cluster_key
+    # The fallback is taken too (another story's stored key can equal this
+    # cluster's key): derive a deterministic key from the members, never a
+    # duplicate. Two stories sharing a key share jobs and the illustration.
+    digest = hashlib.sha1("|".join(sorted(m.fingerprint for m in members)).encode()).hexdigest()
+    n = 0
+    while True:
+        key = f"s:{hashlib.sha1(f'{digest}:{n}'.encode()).hexdigest()[:14]}"
+        if key not in used:
+            return key
+        n += 1
 
 
 def build_stories(
