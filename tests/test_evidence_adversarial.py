@@ -168,3 +168,38 @@ def test_adjective_after_a_conjunction_is_not_a_verb() -> None:
     ev = _ev("TeamViewer Flaw Lets Remote Computers Attack Users", "exploit",
              "A malicious or compromised host can exploit the flaw to crash the viewer.")
     assert ev.exploitation not in OBSERVED
+
+
+# ----- O34: brief-side claim check (scorecard) -------------------------------
+def _flags(brief_text: str, source_text: str, category: str = "vulnerability") -> list[str]:
+    from types import SimpleNamespace
+    from cyberalertx.ai.scorecard import _evidence_issues
+    post = SimpleNamespace(title="", short_summary=brief_text, plain_summary="", why_it_matters="",
+                           severity_reason="", detail_body="", quick_facts=[], affected_users=[],
+                           what_to_do=[], if_already_affected=[], what_to_avoid=[], am_i_affected=[])
+    item = NewsItem(title=source_text, source="Test", url="https://e.test/s",
+                    published_at=datetime(2026, 11, 5, tzinfo=timezone.utc), raw_content="", category=category)
+    return [i.code for i in _evidence_issues(post, item=item)]
+
+
+@pytest.mark.parametrize("brief", [
+    "Siemens rebadged it, so the underlying code change has been in the wild for a while.",
+    "Linux kernel vulnerabilities are in the wild, legacy systems remain exposed.",
+    "Discovery via autonomous scanning rather than active exploitation in the wild suggests a low risk.",
+])
+def test_idiomatic_or_denied_in_the_wild_is_not_an_exploitation_claim(brief: str) -> None:
+    assert "unsupported_exploitation" not in _flags(brief, "Vendor patches an out-of-bounds read flaw")
+
+
+@pytest.mark.parametrize("brief", [
+    "Attack logs already observed in the wild against unpatched routers.",
+    "The Chrome zero-day was exploited in the wild.",
+    "The flaw is being actively exploited.",
+])
+def test_real_exploitation_claims_are_still_checked(brief: str) -> None:
+    assert "unsupported_exploitation" in _flags(brief, "Vendor patches an out-of-bounds read flaw")
+
+
+def test_rather_than_negates_the_source_claim_too() -> None:
+    ev = _ev("Researchers found it by scanning rather than active exploitation in the wild.", "vulnerability")
+    assert ev.exploitation != "confirmed"

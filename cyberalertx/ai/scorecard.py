@@ -293,7 +293,7 @@ def _accuracy_issues(report: FactCheckReport | None,
 # its own evidence. Hard issues: they put the post in the editor's queue
 # whatever the score (no AI retry, so no added cost).
 _CLAIM_EXPLOITED = re.compile(
-    r"actively exploited|exploited in the wild|in the wild|under active (?:attack|exploitation)|"
+    r"actively exploited|exploited in the wild|under active (?:attack|exploitation)|"
     r"(?:is|are) being exploited|attackers are exploiting|"
     r"активно експлуат|експлуатують в атаках|уже використовують в атаках|вже використовують в атаках",
     re.I)
@@ -345,6 +345,25 @@ _CONDITIONAL = re.compile(
 _CLAIM_TAIL_END = re.compile(r"[,.;:!?\n]")
 
 
+# "In the wild" alone is also an idiom ("the code change has been in the wild
+# for a while"). It is an exploitation claim only when its sentence talks
+# about exploitation or attacks.
+_CLAIM_IN_THE_WILD = re.compile(r"\bin the wild\b", re.I)
+_EXPLOIT_CONTEXT = re.compile(r"exploit|attack|abus|weaponi[sz]|експлуат|атак", re.I)
+
+
+def _claims_exploitation(text: str) -> bool:
+    if _asserts(_CLAIM_EXPLOITED, text):
+        return True
+    for m in _CLAIM_IN_THE_WILD.finditer(text):
+        start = max(text.rfind(c, 0, m.start()) for c in ".!?\n") + 1
+        ends = [i for i in (text.find(c, m.end()) for c in ".!?\n") if i != -1]
+        sentence = text[start:min(ends) if ends else len(text)]
+        if _EXPLOIT_CONTEXT.search(sentence) and _asserts(_CLAIM_IN_THE_WILD, sentence):
+            return True
+    return False
+
+
 def _asserts(pattern: re.Pattern[str], text: str) -> bool:
     """True when at least one match is stated outright (not hedged, not denied)."""
     from ..pipeline.evidence import _CLAUSE_BREAK, _NEGATION
@@ -382,7 +401,7 @@ def _evidence_issues(post: Any, *, item: Any) -> list[Issue]:
         return issues
     from ..pipeline.evidence import assess
     ev = assess(item)
-    if _asserts(_CLAIM_EXPLOITED, text) and ev.exploitation != "confirmed":
+    if _claims_exploitation(text) and ev.exploitation != "confirmed":
         issues.append(Issue("unsupported_exploitation", "accuracy", "hard",
                             f"brief says exploitation is happening; source: {ev.exploitation}"))
     if _asserts(_CLAIM_STOLEN, text) and ev.compromise != "confirmed":

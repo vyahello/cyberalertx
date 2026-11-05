@@ -264,6 +264,8 @@ _CAPABILITY = _rx(
 )
 _NEGATION = _rx(
     r"\b(?:no|not|never|none|nothing|nor|neither|without|denie[sd]|den(?:y|ying))\b", r"n't\b",
+    # What follows "rather than" / "instead of" is what did NOT happen.
+    r"\brather than\b", r"\binstead of\b", r"\bа не\b", r"\bзамість\b",
     r"\bне\b", r"\bні\b", r"\bбез\b", r"\bнемає\b", r"\bжодн\w*", r"\bзаперечу\w*",
 )
 # Statistics describe a population, not this event ("exploited vulnerabilities
