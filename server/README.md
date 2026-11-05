@@ -13,12 +13,12 @@ server/
 │   ├── cyberalertx-api.service            FastAPI on 127.0.0.1:8000
 │   ├── cyberalertx-run.service            ingest loop (every 30 min)
 │   ├── cyberalertx-frontend.service       Next.js on 127.0.0.1:3000
-│   ├── cyberalertx-generate.service       AI render one-shot (fired by its timer)
+│   ├── cyberalertx-generate.service       AI render one-shot, then the media run (illustrations)
 │   ├── cyberalertx-generate.timer         hourly (:00, up to 3 min random delay)
-│   ├── cyberalertx-telegram.service       Telegram publish one-shot — HELD
+│   ├── cyberalertx-telegram.service       Telegram publication queue one-shot (cycle --send --limit 1)
 │   ├── cyberalertx-telegram.service.d/
-│   │   └── stage-c-hold.conf              ConditionPathExists=…/STAGE_D_AUTHORIZED (absent)
-│   ├── cyberalertx-telegram.timer         installed but DISABLED until Stage D
+│   │   └── stage-c-hold.conf              ConditionPathExists=…/STAGE_D_AUTHORIZED (emergency switch)
+│   ├── cyberalertx-telegram.timer         10×/day at :15 (00, 06, 08 … 22 UTC)
 │   ├── cyberalertx-analytics.service      visitor-stats ingest one-shot
 │   └── cyberalertx-analytics.timer        daily 03:00
 ├── nginx/
@@ -55,8 +55,8 @@ Telegram after the O35 migration, `ops/release/o35_units.sh`). Data lives in
 | `cyberalertx-api` | simple | always on | FastAPI on `127.0.0.1:8000`: `/posts`, `/healthz`, `/admin`. In `dual` mode reads JSON first, Postgres via the O27 key index. | No |
 | `cyberalertx-run` | simple | every 30 min | Ingest cycle: RSS fetch → relevance → categories/audience/evidence → dedup → upsert (JSON + Postgres). Failing feeds back off (`last_error` on `/admin/sources`). | No |
 | `cyberalertx-frontend` | simple | always on | Next.js production server on `127.0.0.1:3000` (SSR + ISR). | No |
-| `cyberalertx-generate.service` | oneshot | hourly timer | `generate --limit 1 --use-llm`: renders the newest uncached item in EN/UA, scores it (review mode `flag`). | **Yes** |
-| `cyberalertx-telegram.service` | oneshot | timer **disabled** | `publish-telegram`; HELD by `stage-c-hold.conf` until Stage D. | No |
+| `cyberalertx-generate.service` | oneshot | hourly timer | `generate --limit 1 --use-llm`: renders the newest uncached item in EN/UA, scores it (review mode `flag`). Then `tools.media run --max-calls 25` draws missing story illustrations (SVG, no AI, no network). | **Yes** (render only) |
+| `cyberalertx-telegram.service` | oneshot | 10×/day timer | `tools.publish cycle --send --limit 1`: one post per channel per run, with the story illustration. Runs only while the `STAGE_D_AUTHORIZED` marker exists. | No |
 | `cyberalertx-analytics.service` | oneshot | daily 03:00 | Pulls new nginx log lines into `data/analytics.sqlite3` (idempotent). | No |
 
 Watch memory with `systemd-cgtop` if you suspect drift (frontend ~250–450 MB,
@@ -194,64 +194,56 @@ Cost of `--regen` at default 20-cap: ~20 items × 1.5 locales × $0.009 ≈
 
 ## Telegram publishing
 
-Sends high-signal, already-AI-rendered posts to Telegram channels. Like AI
-render, it's a **timer-fired one-shot** — decoupled from ingest and from the
-render path. It never calls Anthropic (it only publishes posts `generate`
-already rendered) and is idempotent via a JSONL ledger
-(`data/telegram_published.jsonl`), so re-runs and reboot catch-ups never
-double-post.
+The publication engine (`cyberalertx/publish/`,
+[PUBLICATION_ENGINE.md](../docs/publish/PUBLICATION_ENGINE.md)) posts
+already-rendered stories to the EN and UA channels. Like AI rendering, it is a
+**timer-fired one-shot**. It never calls the AI, and it is idempotent:
+deterministic job ids plus the ledger `data/telegram_published.jsonl` mean
+re-runs and reboot catch-ups never double-post.
 
 ### What gets published
 
-A post is sent to a channel iff **all** hold:
-- it has a persisted AI render in that channel's locale (`generate` ran for it);
+A story gets a Telegram job per channel when **all** of these hold:
+- it was published within the last 48 h;
 - `source_tier ∈ {trusted, verified}`;
-- `threat_level ≥ CYBERALERTX_TELEGRAM_MIN_LEVEL` (default `High`) **OR**
-  `actionability_level == urgent_action`;
-- it isn't already in the publish ledger.
+- the language gate passes (EN channel: English sources; UA channel: English
+  sources in UA translation plus Ukrainian sources);
+- `threat_level ≥ CYBERALERTX_TELEGRAM_MIN_LEVEL` or the action is urgent;
+- it is not already in the ledger.
 
-EN channel = English-source items only. UA channel = English-source (UA
-translation) **plus** Ukrainian-source items — same asymmetric rule as the site.
+It is sent when its edition is rendered and approved **and** its illustration
+exists. The post is a photo (`/media/{asset}/telegram.png`) with the caption.
 
-### One-time setup
+### Setup (once)
 
-1. **Create the bot + channels.** In Telegram, talk to **@BotFather** →
-   `/newbot` → copy the token. Create your channel(s), then **add the bot as an
-   administrator** of each (required for `sendMessage` to a channel).
-2. **Add secrets to `<app-dir>/.env`** (then `chmod 600 .env`):
+1. In Telegram, create the bot with **@BotFather** and add it as an
+   **administrator** of each channel.
+2. In `.env` (mode 600), set `CYBERALERTX_TELEGRAM_BOT_TOKEN`,
+   `CYBERALERTX_TELEGRAM_CHANNEL_EN` and `CYBERALERTX_TELEGRAM_CHANNEL_UA`.
+   Optional: `CYBERALERTX_TELEGRAM_MIN_LEVEL` (default `High`).
+3. Check it without sending anything:
    ```bash
-   CYBERALERTX_TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
-   CYBERALERTX_TELEGRAM_CHANNEL_EN=@your_en_channel      # or a numeric -100… id
-   CYBERALERTX_TELEGRAM_CHANNEL_UA=@your_ua_channel      # optional — omit to disable UA
-   # Optional tuning:
-   # CYBERALERTX_TELEGRAM_MIN_LEVEL=High                 # Low|Medium|High|Critical
-   # CYBERALERTX_TELEGRAM_LIMIT=5                         # max sends per channel per fire
-   # CYBERALERTX_PUBLIC_BASE_URL=https://cyberalertx.com  # deep-link base
+   cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+   venv/bin/python -m cyberalertx.tools.publish check-telegram   # bot identity, rights per channel
+   venv/bin/python -m cyberalertx.tools.publish cycle            # preview: no --send = nothing sent
    ```
-3. **Preview before going live** (no messages sent):
-   ```bash
-   cd /home/cax/cyberalertx/current && source venv/bin/activate && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
-   python -m cyberalertx.main publish-telegram --dry-run
-   # narrow it: --language en   |   cap it: --limit 2
-   ```
-4. **Going live is Stage D, a separately authorized step.** Until then the
-   unit is HELD: `cyberalertx-telegram.service.d/stage-c-hold.conf` requires
-   `/home/cax/cyberalertx/STAGE_D_AUTHORIZED` (absent) and the timer stays
-   disabled. Do not send, create the marker or enable the timer without that
-   authorization (docs/release/STAGE_C_RUNBOOK.md C10–C12).
+4. Activate (as root): `bash ops/release/telegram_activate.sh activate`.
+   It installs the unit, cancels the backlog, creates the marker and enables
+   the timer ([OPERATIONS.md §7](../docs/operations/OPERATIONS.md#7-telegram)).
 
-### Control & inspect
+### Control and inspection
 
 | Action | Command |
 |---|---|
-| Show next fire | `systemctl list-timers --no-pager \| grep telegram` |
-| Trigger now | `sudo systemctl start cyberalertx-telegram.service` |
-| Last fire result | `sudo journalctl -u cyberalertx-telegram.service --since "24h ago"` |
-| Pause publishing | `sudo systemctl disable --now cyberalertx-telegram.timer` |
-| What's been sent | `tail <app-dir>/data/telegram_published.jsonl` |
+| Status | `sudo bash /home/cax/cyberalertx/current/ops/release/telegram_activate.sh check` |
+| **Emergency stop** | `sudo bash …/telegram_activate.sh deactivate` |
+| Next run | `systemctl list-timers --no-pager \| grep telegram` |
+| Last runs | `sudo journalctl -u cyberalertx-telegram.service --since "24h ago"` |
+| Jobs | `venv/bin/python -m cyberalertx.tools.publish status \| pending \| failed \| unknown` |
+| What has been sent | `tail /home/cax/cax/data/telegram_published.jsonl` |
 
-To re-publish a post that was already sent (e.g. after fixing its render),
-delete its line from `data/telegram_published.jsonl` and fire the service.
+Re-sending a post is deliberate: `tools.publish retry JOB` for a failed or
+cancelled job. Never edit the ledger to force a resend.
 
 ---
 

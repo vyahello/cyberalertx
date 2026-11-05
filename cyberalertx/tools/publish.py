@@ -138,6 +138,101 @@ def _run(args: argparse.Namespace, *, with_plan: bool) -> int:
     return 0
 
 
+def cmd_baseline(args: argparse.Namespace) -> int:
+    """Activation baseline: nothing published before `--before` is ever posted.
+
+    Runs `plan` (which imports the publish ledger as published), then cancels
+    every Telegram job that is still scheduled or retrying for an article
+    published before the cutoff — the stories that came in while publishing
+    was held. Cancelled jobs are never re-planned, so the backlog cannot
+    flood the channels later. Website jobs are untouched.
+    """
+    from ..publish.orchestrator import plan
+
+    try:
+        cutoff = datetime.fromisoformat(args.before)
+    except ValueError:
+        print(f"--before must be an ISO timestamp, got {args.before!r}", file=sys.stderr)
+        return 2
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+    settings = build_telegram_settings()
+    store = JobStore(Path(args.jobs))
+    source = _source()
+    res = plan(source, store, now=_now(), settings=settings, destinations=_destinations(settings),
+               ledger_has=_ledger_has(), dry_run=args.dry_run)
+    by_fp = {i.fingerprint: i for i in source.items()}
+    pending = [j for j in (res.created if args.dry_run else store.all())
+               if j.destination == "telegram" and j.status in ("scheduled", "retrying")]
+    old = [j for j in pending if (it := by_fp.get(j.fingerprint)) is None or it.published_at < cutoff]
+    if not args.dry_run:
+        now = _now()
+        for j in old:
+            def cancel(x: PublicationJob) -> None:
+                x.status, x.claimed_by, x.lease_until = "cancelled", "", ""
+                x.last_error = f"activation baseline: published before {cutoff.isoformat()}"
+                x.completed_at = now.isoformat(timespec="seconds")
+                x.note(now, "cancelled", reason="activation baseline")
+            store.update(j.job_id, cancel, now)
+    print(json.dumps({"dry_run": args.dry_run, "cutoff": cutoff.isoformat(), "plan": res.summary(),
+                      "telegram_pending": len(pending), "cancelled_as_backlog": len(old),
+                      "kept": [j.job_id for j in pending if j not in old][: args.show]},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
+def check_telegram(settings: TelegramSettings, client: Any = None) -> dict[str, Any]:
+    """Read-only Bot API checks: getMe, getChat and the bot's rights in each
+    configured channel. Sends nothing; never prints the token or chat ids."""
+    import httpx
+
+    out: dict[str, Any] = {"ok": False, "bot": None, "channels": {}}
+    if not settings.bot_token:
+        out["error"] = "no bot token configured"
+        return out
+    base = f"{settings.api_base}/bot{settings.bot_token}"
+    own = client is None
+    c = client or httpx.Client(timeout=settings.request_timeout_seconds)
+    try:
+        def call(method: str, **params: Any) -> dict[str, Any]:
+            r = c.get(f"{base}/{method}", params=params)
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            if r.status_code != 200 or not body.get("ok"):
+                raise RuntimeError(f"{method}: HTTP {r.status_code} {str(body.get('description') or '')[:120]}")
+            return dict(body["result"])
+        me = call("getMe")
+        out["bot"] = {"username": me.get("username"), "is_bot": me.get("is_bot")}
+        ok = bool(me.get("is_bot"))
+        for loc, chat in sorted(settings.channels.items()):
+            entry: dict[str, Any] = {}
+            try:
+                info = call("getChat", chat_id=chat)
+                member = call("getChatMember", chat_id=chat, user_id=me["id"])
+                entry = {"type": info.get("type"), "title": info.get("title"),
+                         "bot_status": member.get("status"),
+                         "can_post_messages": bool(member.get("can_post_messages"))
+                         or member.get("status") == "creator"}
+                entry["ok"] = entry["type"] == "channel" and entry["bot_status"] in ("administrator", "creator") \
+                    and entry["can_post_messages"]
+            except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+                entry = {"ok": False, "error": str(exc).replace(settings.bot_token, "<token>")}
+            out["channels"][loc] = entry
+            ok = ok and bool(entry.get("ok"))
+        out["ok"] = ok
+    except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+        out["error"] = str(exc).replace(settings.bot_token, "<token>")
+    finally:
+        if own:
+            c.close()
+    return out
+
+
+def cmd_check_telegram(_: argparse.Namespace) -> int:
+    res = check_telegram(build_telegram_settings())
+    print(json.dumps(res, ensure_ascii=False, indent=2))
+    return 0 if res.get("ok") else 1
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     from ..publish.orchestrator import status_counts
 
@@ -222,6 +317,12 @@ def main(argv: list[str] | None = None) -> int:
         r.add_argument("--limit", type=int, default=None, help="Telegram jobs per channel this run")
         r.add_argument("--story", default="", help="only print previews for this fingerprint / story key")
         r.set_defaults(fn=lambda a, wp=with_plan: _run(a, with_plan=wp))
+    sub.add_parser("check-telegram", help="read-only: bot identity and channel rights (sends nothing)").set_defaults(
+        fn=cmd_check_telegram)
+    bl = sub.add_parser("baseline", help="cancel Telegram jobs for articles published before a cutoff (activation)")
+    bl.add_argument("--before", required=True, help="ISO timestamp, e.g. 2026-11-05T14:00:00+00:00")
+    bl.add_argument("--dry-run", action="store_true", help="report what would be cancelled; write nothing")
+    bl.set_defaults(fn=cmd_baseline)
     sub.add_parser("status", help="job counts per destination").set_defaults(fn=cmd_status)
     sub.add_parser("pending", help="scheduled / retrying jobs").set_defaults(
         fn=lambda a: _list(a, ("scheduled", "retrying", "processing")))

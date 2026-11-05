@@ -195,15 +195,38 @@ python -m cyberalertx.tools.publish reconcile JOB --sent 1234   # it is there: r
 python -m cyberalertx.tools.publish reconcile JOB --not-sent    # it is not: send it again
 ```
 
+## Telegram message format
+
+`publish/format.py: render_message`, the same for EN and UA (labels localized):
+
+1. **Headline** in bold.
+2. **Summary**, plain.
+3. **Detail** paragraph, only when it adds facts the summary lacks (a CVE,
+   a product, a number).
+4. **Why it matters:** one sentence, dropped when it repeats the summary.
+5. **Status line:** threat level, plus exploitation or campaign status when
+   known. Compromise ("data exposure confirmed") appears only for incident
+   categories (breach, data leak, ransomware), never for a vulnerability.
+6. **Not yet known:** only for unknowns a reader can act on (exposure, scope,
+   timeline, attribution, whether a campaign is over). It never contradicts a
+   stated fact.
+7. **What to do:** at most two actions, and only when the story justifies
+   them (actionable, high or critical, or exploitation observed).
+8. **Also reported by**, **Source** with its link, **Read more** link to the
+   article, at most two tags.
+
+No emoji prefix, no link preview (the photo is the image). Before/after
+examples: [OPERATIONS.md](../operations/OPERATIONS.md#7-telegram).
+
 ## Media
 
-Telegram uses the Media Engine card for its edition: the `telegram` variant,
-versioned, with the illustration embedded when one exists. This requires
-`CYBERALERTX_TELEGRAM_ATTACH_IMAGES=1`, which is **still off by default**.
-Website jobs record the edition's `og` card.
-
-A missing illustration never matters: cards alone are enough, and no image
-generation is involved.
+Each Telegram post is a photo: the story illustration, `telegram` variant
+(1200×675), at `/media/{asset}/telegram.png` on the public site, the same
+asset as the website. With `CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION=1` (the
+default) a post waits until its illustration exists. It spends no attempt and
+expires with the 48 h window. A refused photo is retried and is never sent as
+text instead. Website jobs record the edition's `og` card. See
+[IMAGE_GENERATION.md](../media/IMAGE_GENERATION.md).
 
 ## Threads (Phase 5)
 
@@ -241,23 +264,17 @@ python -m cyberalertx.tools.publish prune --older-than-days 90
 python -m cyberalertx.tools.publish cycle --send --limit 1      # plan + deliver (the timer's command, once switched)
 ```
 
-### Switching the existing timer (not done; an owner decision)
+### The scheduled timer
 
-`cyberalertx-telegram.timer` stays as it is: 10 fires a day. Only the
-service's command changes:
+`cyberalertx-telegram.timer` keeps its schedule (10 runs a day). The tracked
+unit runs `cycle --send --limit 1` from `/home/cax/cyberalertx/current`.
+`ops/release/telegram_activate.sh activate` installs it, imports the ledger,
+cancels the backlog (`baseline --before now`) and enables the timer. The legacy
+`main publish-telegram` command is no longer scheduled. Never run it next to
+`cycle --send`. Procedure and emergency stop:
+[OPERATIONS.md](../operations/OPERATIONS.md#7-telegram).
 
-```ini
-# server/systemd/cyberalertx-telegram.service
-ExecStart=/home/cax/cax/venv/bin/python -m cyberalertx.tools.publish cycle --send --limit 1
+```bash
+python -m cyberalertx.tools.publish check-telegram              # read-only Bot API check, sends nothing
+python -m cyberalertx.tools.publish baseline --before ISO --dry-run   # what activation would cancel
 ```
-
-Before switching:
-
-1. Deploy.
-2. Run `cycle` without `--send` on the server and read the preview.
-3. Run `plan` once. This imports everything already in the ledger as
-   `published`.
-4. Then switch the command.
-
-Do not run the legacy `publish-telegram` and `cycle --send` side by side: both
-honour the ledger, but the legacy command reads it only once per run.

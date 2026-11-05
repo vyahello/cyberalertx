@@ -1,10 +1,11 @@
 # Media Engine
 
-Every story gets a branded CyberAlertX card. A few high-priority stories can
-also get an editorial illustration, but only once an image provider is
-configured. **None is configured today**, so the engine runs in
-**branded-card-only mode**. The illustration path is implemented and tested
-against a mock provider, but it has never produced a real image.
+Every story gets a branded CyberAlertX card and one editorial illustration.
+Illustrations are drawn on our own server as SVG, at no cost and with no
+external service. How they are generated, the host findings and the ComfyUI
+status are described in [IMAGE_GENERATION.md](IMAGE_GENERATION.md). This
+document covers the shared machinery: cards, the asset store, the routes and
+the admin view.
 
 ## What exists
 
@@ -96,7 +97,8 @@ otherwise it is downgraded to "vulnerability disclosure". Product names from
 fact sheets are described as a *category* and never as a brand. The fixed
 style forbids text, logos, faces, screenshots, terminals, padlocks, hooded
 hackers, matrix rain, neon and photorealism. An illustration must never look
-like evidence. The prompt version is `illus-1`.
+like evidence. The prompt version is `illus-2`; the SVG renderer is
+`cax-svg-1`.
 
 The input hash covers prompt version, event, exploited flag, category and
 products. **Editing a headline does not regenerate an illustration.** A change
@@ -112,39 +114,28 @@ States: `generating` → `validated` | `failed`.
 - **Retries:** a failure keeps its attempt count across runs. After 3
   attempts with the same inputs, the story is skipped until its inputs change
   or `tools.media regenerate` resets it.
-- **Cost cap:** at most `CYBERALERTX_ILLUSTRATION_MAX_PER_RUN` provider calls
-  per run (default 3). Each call is logged to `data/media/usage.jsonl` with
-  model, cost and errors.
+- **Run cap:** at most `CYBERALERTX_ILLUSTRATION_MAX_PER_RUN` generations
+  per run (default 25). Each one is logged to `data/media/usage.jsonl` with
+  method, model or renderer, cost (0 for SVG) and errors.
 - **Validation:** before storing, the bytes must be PNG, JPEG or WebP by magic
-  number, match the declared MIME type, be ≤ 8 MB, and have sides between 768
+  number, or an SVG that passes `sanitize_svg` (see IMAGE_GENERATION.md), match the declared MIME type, be ≤ 8 MB, and have sides between 768
   and 4096 px. Files are named by SHA-256, so the same image is stored once
   and no input can reach a file path.
-- **Never blocking:** an article, its card and its Telegram post never wait on
-  an illustration. Every provider, validation or storage error is caught and
-  recorded.
+- **Not blocking the site:** an article and its card never wait on an
+  illustration; the page shows a branded placeholder meanwhile. A Telegram post
+  does wait for it (`CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION=1`), within the
+  48 h publication window. Every generator, validation or storage error is
+  caught and recorded.
 
-### Provider: the blocker
+### Generators
 
-No image provider is configured. The only AI credential in production
-(`ANTHROPIC_API_KEY`) is for text. Anthropic models do not generate images.
-`CYBERALERTX_IMAGE_PROVIDER` defaults to `none`.
-
-To add one:
-
-1. Write a class with `name` and
-   `generate(prompt, *, width, height, timeout_s) -> GeneratedImage(data, mime, model, cost_usd)`.
-   It should raise `ProviderError` on refusal or bad output and
-   `TimeoutError` on timeout.
-2. Register it with
-   `register_provider("<name>", Cls)`, reading its key from the environment.
-   Never hardcode a key.
-3. Set `CYBERALERTX_IMAGE_PROVIDER=<name>`. Run
-   `python -m cyberalertx.tools.media run --dry-run`, then a real run with
-   `--max-calls 1`.
-4. Look at the result in `/admin/media` and on the article before enabling it
-   on a timer.
-
-Choosing a paid provider is an owner decision. It was deliberately left out.
+The production generator is the server-side SVG renderer. An optional local
+ComfyUI worker (`media/comfyui.py`) is implemented but disabled on the current
+host; SVG is always the fallback. Paid or remote image APIs are not used and
+none is wired in. The `register_provider` seam remains for a future local
+generator: a class with `generate(prompt, *, width, height, timeout_s) ->
+GeneratedImage(data, mime, model, cost_usd, method)` that raises
+`ProviderError` or `TimeoutError`.
 
 ## Storage and URLs
 
@@ -197,27 +188,29 @@ fingerprints), `status`, `attempts`, `last_error`, `cost_usd`, `created_at`,
   "Ілюстрацію створено для CyberAlertX. Це не фото й не знімок екрана з
   інциденту."
 - **Home lead story:** shows the `og` crop of the illustration when present.
-- **Feed rows:** stay text-only by design. A wall of thumbnails would bury the
-  headlines.
+- **Feed rows:** a small `preview` thumbnail (central crop) from the `sm`
+  breakpoint up, decorative (`aria-hidden`), lazy-loaded. On phones the rows
+  stay text-only.
+- **Pending:** until a story's illustration exists, the static
+  `/brand/visual-pending.svg` is shown in its place (no caption).
 
 ## Telegram
 
-`CYBERALERTX_TELEGRAM_ATTACH_IMAGES=1` turns it on. It is **off by default**.
-The existing publisher gains `send_photo()`; no second publisher exists. The
-photo is the edition's `telegram` card URL, versioned by its hash. The card
-already includes the illustration when there is one, so one URL covers both
-modes.
+Every post is sent with `sendPhoto`. The photo is the story illustration at
+`https://cyberalertx.com/media/{asset}/telegram.png` (1200×675), the same
+asset as the website. A post waits while its story has no validated
+illustration; it spends no attempt and expires with the 48 h window. Set
+`CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION=0` to fall back to the edition card
+(`CYBERALERTX_TELEGRAM_ATTACH_IMAGES=1`) or text.
 
-The caption is the usual message trimmed to Telegram's 1024-character limit
-(counted the way Telegram counts it). Parts are dropped in this order:
-hashtags, detail paragraph, corroboration line, action block. As a last resort
-the summary is shortened. Headline and read-more link are always kept.
-
-If `sendPhoto` fails for a single post, that post goes out as text instead.
-Errors that affect the whole channel (401/403, chat not found) stop the
-channel, exactly as text sends already do. Dry run logs the photo URL and
-caption. Telegram fetches the URL itself, so **turn this on only after the
-card routes are live on the public site.**
+The caption is the usual message limited to Telegram's 1024 characters
+(counted the way Telegram counts them). Blocks are dropped in this order: the
+detail paragraph, the action, the status lines, "why it matters". As a last
+resort the summary is trimmed. Headline, source and read-more link are always
+kept. If Telegram refuses a required photo, the post is retried later; it is
+never sent as text instead. Errors that affect the whole channel (401/403,
+chat not found) stop the channel. The message layout is described in
+[PUBLICATION_ENGINE.md](../publish/PUBLICATION_ENGINE.md).
 
 ## Threads
 
@@ -228,21 +221,23 @@ account connection.
 ## Security and copyright
 
 - Images from news sites are never downloaded or republished. Cards are drawn
-  only from our text. Illustrations are original output from a configured
-  provider.
+  only from our text. Illustrations are drawn by our own renderer from
+  verified story fields and never contain text.
 - Every byte is validated by magic number, never by extension or declared
-  type alone. SVG is never accepted from a provider.
+  type alone. SVG is accepted only when it passes the element/attribute
+  allowlist in `sanitize_svg`; the website re-checks before rasterizing.
 - The internal `/media` route is not routed publicly. The admin pages use the
   same token gate and CSP as every other admin page; they run no script and
   show no external images, only links.
-- Provider keys come from the environment only. Nothing is hardcoded and no
-  secret is logged.
+- No image service credentials exist. Nothing is hardcoded and no secret is
+  logged.
 
 ## Operating it
 
 ```bash
 python -m cyberalertx.tools.media run --dry-run     # what would happen
-python -m cyberalertx.tools.media run               # record cards (+ illustrations if a provider is set)
+python -m cyberalertx.tools.media run               # record cards and generate due illustrations
+python -m cyberalertx.tools.media backfill          # plan for existing public stories (--batch N to generate)
 python -m cyberalertx.tools.media status
 python -m cyberalertx.tools.media validate-cards http://127.0.0.1:3000 --limit 20
 python -m cyberalertx.tools.media regenerate s:0a9c51117848e8

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { StoryVisual } from "@/components/media/StoryVisual";
 import { ArrowUpRight } from "lucide-react";
 import { FieldMarks } from "@/components/marks/FieldMarks";
 import { TimeAgo } from "@/components/marks/TimeAgo";
@@ -54,22 +55,10 @@ export function LeadStory({ lead, total, lang, now }: Props) {
             aria-labelledby="lead-title"
             className="on-axis flex flex-col"
           >
-            {lead.media?.illustration && (
-              <figure className="mb-6">
-                <picture>
-                  <source type="image/avif" srcSet={`/media/${lead.media.illustration.asset_id}/og.avif`} />
-                  <source type="image/webp" srcSet={`/media/${lead.media.illustration.asset_id}/og.webp`} />
-                  <img
-                    src={`/media/${lead.media.illustration.asset_id}/og.png`}
-                    width={1200}
-                    height={630}
-                    alt={lead.media.illustration.alt[lang] ?? ""}
-                    className="block h-auto w-full bg-ground-raised aspect-[40/21] object-cover"
-                  />
-                </picture>
-                <figcaption className="sr-only">{s.illustration_caption}</figcaption>
-              </figure>
-            )}
+            <figure className="mb-6">
+              <StoryVisual post={lead} lang={lang} variant="og" eager />
+              <figcaption className="sr-only">{s.illustration_caption}</figcaption>
+            </figure>
             <h2
               id="lead-title"
               className="font-serif font-semibold text-ink tracking-[-0.015em] leading-[1.12]

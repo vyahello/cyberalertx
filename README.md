@@ -39,12 +39,36 @@ critical-sounding headline never becomes a claim the source does not make.
 | **Checks evidence** | exploitation, compromise, campaign status, sponsorship and open questions, from the source text only — kept apart from severity |
 | **Writes** | one brief per story in EN and UA (Claude), with a deterministic rule-based fallback; CVEs, numbers and attribution are checked against the source |
 | **Reviews** | a quality scorecard and an evidence gate flag doubtful briefs for an editor (`/admin/review`); production runs in `flag` mode |
-| **Publishes** | the website with RSS feeds and topic pages. Telegram and Threads publishing exist but are **off** in production |
+| **Illustrates** | one original illustration per story, drawn on the server as SVG from verified facts (no paid or remote image service, no publisher images), shared by the website and Telegram |
+| **Publishes** | the website with RSS feeds and topic pages, and the EN and UA Telegram channels through a scheduled publication queue. Threads publishing exists and is **off** |
+
+<p align="center">
+  <img src="docs/assets/cyberalertx-feed.webp" alt="CyberAlertX feed: each story row with its illustration thumbnail, severity and exploitation status" width="100%"/>
+</p>
+<p align="center"><sub>Feed with story illustrations (local staging build, public articles).</sub></p>
 
 <details>
 <summary>Mobile layout</summary>
 <p align="center"><img src="docs/assets/cyberalertx-mobile.webp" alt="CyberAlertX homepage on a phone" width="320"/></p>
 </details>
+
+## Illustrations
+
+Each public story gets one illustration, used by its card, its article page,
+feeds and Telegram post in both languages. It is drawn on the server by a
+deterministic SVG renderer from the story's verified fields. The scene comes
+from the affected technology: phones, server racks, cloud identity, industrial
+control, mail and more. The event comes from the evidence: an attack path only
+when exploitation is confirmed, records leaving only when an exposure is
+confirmed. There is no text, logo, face or publisher image, and no image
+service or model is involved. These are programmatic illustrations, not
+photographs or AI renders. A local ComfyUI worker is supported but disabled:
+the production host has no GPU and too little free memory
+([details](docs/media/IMAGE_GENERATION.md)).
+
+<p align="center">
+  <img src="docs/assets/cyberalertx-illustrations.webp" alt="Nine CyberAlertX story illustrations on dark backgrounds: isometric workstations, server racks, layered cloud stacks, clusters of systems and a network appliance, with cyan attack paths, scanned components and broken connection lines marking each story's event" width="100%"/>
+</p>
 
 ## Architecture
 
@@ -62,7 +86,10 @@ flowchart LR
     JSON[("JSON in data/<br/>authoritative")]
     PG[("PostgreSQL / Supabase<br/>mirror (dual-write)")]
   end
-  WEB["cyberalertx-frontend<br/>Next.js :3000"]
+  MEDIA["media run<br/>after generate · SVG illustration<br/>one asset per story"]
+  TG["cyberalertx-telegram<br/>timer 10×/day · publication queue<br/>ledger · no backlog"]
+  WEB["cyberalertx-frontend<br/>Next.js :3000<br/>pages + /media rasterizer"]
+  BOT["Telegram Bot API<br/>EN + UA channels"]
   READER(("Readers"))
   RSS --> RUN --> JSON
   RUN -. mirror .-> PG
@@ -71,6 +98,9 @@ flowchart LR
   JSON --> API
   PG -. "key index, fallback only" .-> API
   API --> WEB --> READER
+  GEN --> MEDIA --> JSON
+  JSON --> TG --> BOT --> READER
+  WEB -. "telegram.png (same asset)" .-> BOT
 ```
 
 - **JSON is authoritative** for items and briefs; in `dual` mode every write is
@@ -78,8 +108,10 @@ flowchart LR
   through an in-memory key index refreshed in the background, so a feed request
   makes no database queries.
 - **AI runs in one place** — `generate`. Ingest, API and frontend never call it.
-- **Publishing integrations** (Telegram, Threads) are implemented and held
-  until separately authorized.
+- **Illustrations** are generated after each `generate` run. Telegram sends a
+  story only once its illustration exists. The hold marker
+  `STAGE_D_AUTHORIZED` is the Telegram emergency switch
+  ([operations §7](docs/operations/OPERATIONS.md#7-telegram)); Threads is off.
 
 More: [docs/architecture.md](docs/architecture.md).
 
@@ -143,7 +175,10 @@ Copy [`.env.example`](.env.example); every variable is optional locally.
 | `CYBERALERTX_REVIEW_MODE` | `flag` | `off` / `flag` / `hold` — see the review process before changing |
 | `CYBERALERTX_ADMIN_TOKEN` | — | enables `/admin` (≥ 24 characters) |
 | `CYBERALERTX_RSS_PROXY_URL` | — | optional proxy prefix for feeds that refuse direct fetches |
-| `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_THREADS_PUBLISH` | unset / `0` | publishing (off) |
+| `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_TELEGRAM_CHANNEL_EN/UA` | unset | Telegram destinations; nothing is sent without a token |
+| `CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION` | `1` | a post waits for its story illustration |
+| `CYBERALERTX_ILLUSTRATION_SCOPE` | `all` | `all` public stories or `selective` |
+| `CYBERALERTX_THREADS_PUBLISH` | `0` | Threads (off) |
 
 Never commit `.env`. In production it lives outside the releases and is loaded
 by systemd; shells load it with `ops/release/loadenv.sh`, never `source .env`.
@@ -240,6 +275,7 @@ automatically; CI only tests.
 
 - [Documentation index](docs/README.md) — current, reference and historical documents
 - [Architecture](docs/architecture.md) · [Operations](docs/operations/OPERATIONS.md) · [Open issues](docs/release/OPEN_ISSUES.md)
+- [Article illustrations](docs/media/IMAGE_GENERATION.md) · [Telegram publication engine](docs/publish/PUBLICATION_ENGINE.md)
 - [Editorial review and the evidence gate](docs/editorial/EDITORIAL_REVIEW_PROCESS.md) · [Design system](docs/design/DESIGN_SYSTEM.md)
 - [Server units, logs and analytics](server/README.md) · [Frontend](frontend/README.md)
 

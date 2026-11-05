@@ -11,7 +11,10 @@ import sharp from "sharp";
 import { API_BASE } from "@/lib/api";
 
 export const ASSET_ID_RE = /^[0-9a-f]{16,64}$/;
-const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp"]);
+// SVG sources come only from the server-side renderer and are sanitized by
+// the backend (cyberalertx/media/svg_art.py) before storage; sharp rasterizes
+// them here, so the browser and social networks only ever receive PNG/WebP/AVIF.
+const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]);
 const MAX_BYTES = 8 * 1024 * 1024;
 
 /** Validated source bytes, or null. */
@@ -27,6 +30,7 @@ export async function fetchIllustration(assetId: string): Promise<Buffer | null>
     if (!ALLOWED.has(type)) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0 || buf.length > MAX_BYTES) return null;
+    if (type === "image/svg+xml" && !/^<svg[\s>]/.test(buf.subarray(0, 8).toString("utf8"))) return null;
     const meta = await sharp(buf).metadata();
     if (!meta.width || !meta.height || meta.width < 512 || meta.height < 512) return null;
     return buf;

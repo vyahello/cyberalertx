@@ -44,7 +44,7 @@ ASSET_TYPES = ("branded_card", "editorial_illustration")
 STATUSES = ("pending", "generating", "generated", "validated", "published", "failed", "skipped")
 
 #: Accepted source formats for illustrations, by magic bytes.
-ALLOWED_MIME = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+ALLOWED_MIME = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 MAX_BYTES = 8 * 1024 * 1024
 MIN_SIDE = 768
 MAX_SIDE = 4096
@@ -111,7 +111,18 @@ class MediaAsset:
 # ---------------------------------------------------------------- validation
 
 def sniff(data: bytes) -> tuple[str, int, int]:
-    """(mime, width, height) from the file's own bytes. Raises on anything else."""
+    """(mime, width, height) from the file's own bytes. Raises on anything else.
+
+    SVG is accepted only from the server-side renderer's element subset:
+    `svg_art.sanitize_svg` rejects scripts, foreignObject, images, links,
+    event handlers and external references."""
+    if data[:4] == b"<svg":
+        from .svg_art import UnsafeSvg, sanitize_svg
+        try:
+            w, h = sanitize_svg(data)
+        except UnsafeSvg as exc:
+            raise MediaValidationError(f"unsafe SVG: {exc}") from exc
+        return "image/svg+xml", w, h
     if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
         w, h = struct.unpack(">II", data[16:24])
         return "image/png", w, h
@@ -142,7 +153,7 @@ def sniff(data: bytes) -> tuple[str, int, int]:
             w = 1 + (((b[1] & 0x3F) << 8) | b[0])
             h = 1 + (((b[3] & 0x0F) << 10) | (b[2] << 2) | ((b[1] & 0xC0) >> 6))
             return "image/webp", w, h
-    raise MediaValidationError("not a PNG, JPEG or WebP file")
+    raise MediaValidationError("not a PNG, JPEG, WebP or sanitized SVG file")
 
 
 def validate_image(data: bytes, *, declared_mime: str = "") -> tuple[str, int, int]:

@@ -2,7 +2,7 @@
 
 The current procedure for running production: release layout, building and
 switching releases, rollback, backups, the storage consistency model, the
-publishing hold and recovery. Stage C documents in `docs/release/` are the
+Telegram publishing and recovery. Stage C documents in `docs/release/` are the
 historical record of how this layout was introduced
 ([docs index](../README.md)).
 
@@ -14,9 +14,10 @@ version-controlled; the host runs installed copies:
 | `ops/release/release_switch.sh` | `/home/cax/stagec-tools/release_switch.sh` | make a release active (forward or back) |
 | `ops/release/switch_when_idle.sh` | `/home/cax/stagec-tools/switch_when_idle.sh` | wait for idle writers, then switch |
 | `ops/release/api_json_reads.sh` | `/home/cax/stagec-tools/c8_api_json_reads.sh` | JSON-only API override (recovery) |
-| `ops/release/o35_units.sh` | run from a checkout | move analytics + held Telegram to `current` |
+| `ops/release/o35_units.sh` | run from a checkout | move analytics + held Telegram to `current` (applied) |
+| `ops/release/telegram_activate.sh` | run from `current` | Telegram activate / emergency stop / check (§7) |
 | `ops/release/verify_release.py`, `settings_check.py`, `loadenv.sh` | `/home/cax/stagec-tools/` | provenance check, resolved settings, safe `.env` loader |
-| `server/systemd/*` | `/etc/systemd/system/` | units, timers, the Telegram hold drop-in |
+| `server/systemd/*` | `/etc/systemd/system/` | units, timers, the Telegram hold drop-in (installed by `telegram_activate.sh`) |
 | `server/backup.sh` | `/usr/local/bin/cax-backup` (cron 03:00) | daily `data/` archive |
 
 Host-only (never in Git): `/home/cax/cax/.env`, `/home/cax/stagec-tools/api-json-backend.env`,
@@ -152,16 +153,97 @@ Verify a backup directory with `(cd <dir> && sha256sum -c SHA256SUMS)` and a
 dump with `pg_restore -l <dump>`. Never delete backups or old releases as part
 of a change.
 
-## 7. Publishing hold
+## 7. Telegram
 
-* **Telegram:** `cyberalertx-telegram.service` carries the drop-in
-  `stage-c-hold.conf` (`ConditionPathExists=/home/cax/cyberalertx/STAGE_D_AUTHORIZED`);
-  the marker is absent and `cyberalertx-telegram.timer` is disabled. Do not
-  create the marker, enable the timer or start the service without Stage D
-  authorization.
-* **Threads:** `CYBERALERTX_THREADS_PUBLISH=0`.
-* `cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && PYTHONPATH=. venv/bin/python ops/release/settings_check.py`
-  prints the resolved flags, including `review_mode` (production: `flag`).
+**Scheduling.** `cyberalertx-telegram.timer` (10 runs a day, at :15 past
+00, 06, 08 … 22 UTC) starts `cyberalertx-telegram.service`. The service runs
+`tools.publish cycle --send --limit 1` from `current`: it plans jobs, imports the
+publish ledger and sends at most one post per channel, inside a 48 h window.
+Job ids are deterministic and the ledger is checked before every send, so a
+re-run cannot post twice.
+
+**The hold is the emergency control.** The drop-in `stage-c-hold.conf`
+(`ConditionPathExists=/home/cax/cyberalertx/STAGE_D_AUTHORIZED`) stays
+installed permanently. While the marker exists, runs proceed. Remove it and every
+run is skipped without an error.
+
+| Action | Command (as root) |
+|---|---|
+| Status, read-only | `bash /home/cax/cyberalertx/current/ops/release/telegram_activate.sh check` |
+| **Emergency stop** | `bash …/telegram_activate.sh deactivate` (removes the marker, disables the timer) |
+| Activate / resume | `bash …/telegram_activate.sh activate` |
+
+`activate` runs these steps in order and stops at the first failure:
+1. preflight on the active release;
+2. read-only Bot API check (`check-telegram`: bot identity, each channel
+   reachable, bot is an administrator allowed to post; nothing is sent);
+3. a media run, so current stories have their illustration;
+4. backup of the units, ledger and job store to
+   `/home/cax/backups/telegram-activation-*`;
+5. installs the tracked units;
+6. **baseline**: cancels the Telegram jobs of every article published before
+   now, so there is no backlog and no replay;
+7. creates the marker and enables the existing timer.
+
+If the bot check or the media run fails, nothing has changed yet. The first
+scheduled run is the live verification; no test message is ever sent. To
+resume after a long stop, run `activate` again: its baseline cancels whatever
+accumulated meanwhile.
+
+```bash
+journalctl -u cyberalertx-telegram -n 50 --no-pager          # last runs
+cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env
+venv/bin/python -m cyberalertx.tools.publish status           # jobs by state
+venv/bin/python -m cyberalertx.tools.publish pending          # what is due next
+```
+
+**Message format** ([PUBLICATION_ENGINE.md](../publish/PUBLICATION_ENGINE.md#telegram-message-format)).
+Each post is a photo (the story illustration, same asset as the website) with
+this caption. Before, from the legacy publisher:
+
+```text
+🟠 Storm-2603 breaks into SharePoint servers without leaving files on disk
+The Storm-2603 group broke into a company's SharePoint server and ran its tools from memory, …
+Kaspersky researchers on Securelist analyze a fileless SharePoint intrusion …
+✅ What to do
+• Read Kaspersky's "The SOC Files 5" report on Securelist for its detection guidance.
+• Hunt for Storm-2603 activity on SharePoint servers using the detection methods in that report.
+• Don't treat a clean file scan as proof a SharePoint server is uncompromised.
+Source: Securelist (Kaspersky)
+🔗 Read more — the full brief
+#exploit
+```
+
+After (same story, the publication engine):
+
+```text
+Storm-2603 breaks into SharePoint servers without leaving files on disk
+The Storm-2603 group broke into a company's SharePoint server and ran its tools from memory, …
+Kaspersky researchers on Securelist analyze a fileless SharePoint intrusion …
+Why it matters: Storm-2603 runs its code in memory instead of saving files, so a SharePoint
+server that passes a disk-based antivirus scan can still be compromised.
+Severity: High
+What to do:
+• Read Kaspersky's "The SOC Files 5" report on Securelist for its detection guidance.
+• Hunt for Storm-2603 activity on SharePoint servers using the detection methods in that report.
+Source: Securelist (Kaspersky)            ← linked to the original article
+Read more: the full brief on CyberAlertX
+#exploit
+```
+
+What changed, from a review of 40 live posts (20 EN, 20 UA):
+- The source is always present and linked. Before, it was missing from 15 of
+  the 20 EN posts and 6 of the 20 UA posts.
+- A sentence that repeats the summary is dropped.
+- Status lines state only facts, and compromise is never claimed for a
+  vulnerability.
+- Actions are capped at two and appear only when the story justifies them.
+- The illustration replaces the link preview, which had repeated the headline
+  a third time.
+
+**Threads** stays off: `CYBERALERTX_THREADS_PUBLISH=0`. Resolved flags,
+including `review_mode` (production: `flag`):
+`cd /home/cax/cyberalertx/current && . ops/release/loadenv.sh && loadenv /home/cax/cax/.env && PYTHONPATH=. venv/bin/python ops/release/settings_check.py`.
 
 ## 8. Services
 
@@ -170,9 +252,9 @@ of a change.
 | `cyberalertx-api` | yes | FastAPI :8000 |
 | `cyberalertx-frontend` | yes | Next.js :3000 |
 | `cyberalertx-run` | yes | ingest every 30 min |
-| `cyberalertx-generate` | no (timer, hourly) | next run uses the new `current` |
+| `cyberalertx-generate` | no (timer, hourly) | then the media run (illustrations); next run uses the new `current` |
 | `cyberalertx-analytics` | no (timer, 03:00) | after O35: runs from `current` |
-| `cyberalertx-telegram` | never | held (§7) |
+| `cyberalertx-telegram` | no (timer, 10/day) | runs from `current`; hold marker = on/off switch (§7) |
 
 ## 9. Recovery
 

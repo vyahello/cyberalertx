@@ -20,38 +20,11 @@ from typing import Any, Sequence
 # from the id, so this needs no lookup against the references array).
 _CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 
-# Severity → leading emoji. Calm, not alarmist (matches the product's
-# "alert, not alarmed" design language).
-_LEVEL_EMOJI = {
-    "Critical": "🔴",
-    "High": "🟠",
-    "Medium": "🟡",
-    "Low": "🟢",
-}
 
 # Telegram hard-caps a message at 4096 chars. We aim well below and trim the
 # summary if a render is unusually long.
 _MAX_SUMMARY_CHARS = 600
 
-# ONE action block, not four.
-#
-# The card used to carry "Check if this affects you", "What to do", "What not
-# to do" and "If you're already affected" as separate headed sections. On the
-# live corpus that was four headings and a median of EIGHT bullets on 69% of
-# UA posts and 81% of EN posts — the owner's words were "дуже муляє очі ці 4
-# блоки". A phone reader scrolls past a wall like that; the detail page is
-# where the complete checklist belongs.
-#
-# So the card now prints a single block of at most three lines, drawn from
-# those lists in priority order. The quotas below are what keep the mix
-# useful rather than three restatements of one instruction.
-_MAX_BLOCK_BULLETS = 3
-_QUOTA_ACTIONS = 2
-_QUOTA_AVOID = 1
-_QUOTA_RECOVERY = 1
-#: Fallback paths, used only when there is no action to show at all.
-_MAX_CHECKS = 2
-_MAX_AUDIENCE = 3
 
 # `short_summary` opens with a source-attribution clause by contract
 # (templates.py). The message already names the outlet on its own line, so
@@ -133,64 +106,6 @@ def _is_near_duplicate(candidate: str, chosen: Sequence[str]) -> bool:
         if len(cand & seen) / min(len(cand), len(seen)) >= _DUP_CONTAINMENT:
             return True
     return False
-
-
-def _action_block(content: dict[str, Any], copy: dict[str, str]) -> tuple[str, list[str]]:
-    """The card's single block: (heading, bullets).
-
-    Priority is actions, then the anti-pattern, then recovery, and the
-    ordering is not a preference — it is what the bullets themselves allow.
-
-      * `what_not_to_do` is self-labelling. Every one of the 406 such bullets
-        in the live corpus opens with "Не" or "Don't", so it still reads
-        correctly once its heading is gone, and it earns a slot because a
-        warning is a different speech act from the two actions above it.
-      * `if_already_affected` is NOT self-labelling. Those bullets are bare
-        imperatives — "Змініть", "Перевірте", "Rotate", "Reset" — which under
-        a generic heading would tell every reader to rotate every token they
-        own. It is therefore prefixed with its condition, and only fills a
-        slot the warning left empty.
-      * `am_i_affected` stays off the card entirely while any action exists:
-        the title and the two summary paragraphs already name the affected
-        product, and the detail page keeps the checks.
-
-    Returns the check heading instead when there is no action to show, so the
-    block never promises a step it cannot supply.
-    """
-    actions = _bullets(content.get("what_to_do"), 99)
-    avoid = _bullets(content.get("what_not_to_do"), 99)
-    recovery = _bullets(content.get("if_already_affected"), 99)
-
-    chosen: list[str] = []
-
-    def take(pool: Sequence[str], quota: int, prefix: str = "") -> None:
-        used = 0
-        for bullet in pool:
-            if len(chosen) >= _MAX_BLOCK_BULLETS or used >= quota:
-                return
-            if _is_near_duplicate(bullet, chosen):
-                continue
-            if prefix:
-                bullet = prefix + bullet[:1].lower() + bullet[1:]
-            chosen.append(bullet)
-            used += 1
-
-    take(actions, _QUOTA_ACTIONS)
-    take(avoid, _QUOTA_AVOID)
-    take(recovery, _QUOTA_RECOVERY, prefix=copy["already_prefix"])
-    # Top up rather than ship a one-line block: first with the actions the
-    # quota held back, then with the other two lists, so a post carrying only
-    # a warning still gets one. The quotas shape a full block; they must not
-    # empty a thin one.
-    take(actions, _MAX_BLOCK_BULLETS)
-    take(avoid, _MAX_BLOCK_BULLETS)
-    take(recovery, _MAX_BLOCK_BULLETS, prefix=copy["already_prefix"])
-    if chosen:
-        return (copy["do"], chosen)
-
-    # No instruction of any kind. Fall back to the self-checks, which is the
-    # only other thing a reader can act on.
-    return (copy["check"], _bullets(content.get("am_i_affected"), _MAX_CHECKS))
 
 
 def _strip_attribution(text: str, locale: str) -> str:
@@ -327,7 +242,7 @@ def quality_problem(payload: dict[str, Any], *, locale: str) -> str | None:
         for n, a in enumerate(content.get("what_to_do") or [])
         if str(a).strip()
     ]
-    # Not sliced to what the renderer happens to show: `_action_block` picks
+    # Not sliced to what the renderer happens to show: the action line picks
     # across all three lists and the selection shifts with the post's
     # content, so the gate inspects every bullet that could reach the card.
     checked += [
@@ -363,42 +278,6 @@ def quality_problem(payload: dict[str, Any], *, locale: str) -> str | None:
     return None
 
 
-# Per-locale message furniture. Kept in one table so the two channels stay
-# structurally identical and a reader switching between them recognizes the
-# same skeleton.
-_COPY: dict[str, dict[str, str]] = {
-    "en": {
-        # One label, always. It used to be picked from three strings
-        # depending on whether the post had an analysis section, a severity
-        # rationale or corroborating outlets, which meant the channel showed
-        # "Read more — full analysis and the facts" on one post and "Read
-        # more — why it's rated this way" on the next. The owner read that as
-        # two different links. It is honest on every post: `severity_reason`
-        # is present on 100% of the corpus and never appears on the card, and
-        # the card now shows at most three of the steps the page carries.
-        "read_more": "Read more — the full brief",
-        "check": "Check if this affects you",
-        "affects": "Who this affects",
-        "do": "What to do",
-        #: Prefix for a recovery step promoted into the single block. Those
-        #: bullets are bare imperatives ("Rotate…", "Reset…") that would read
-        #: as instructions to everyone without their original heading.
-        "already_prefix": "If it already hit you: ",
-        "reported_by": "Also reported by",
-        "source": "Source",
-    },
-    "ua": {
-        "read_more": "Читати більше — повний розбір",
-        "check": "Перевірте, чи це вас стосується",
-        "affects": "Кого це стосується",
-        "do": "Що робити",
-        "already_prefix": "Якщо вже зачепило: ",
-        "reported_by": "Також повідомили",
-        "source": "Джерело",
-    },
-}
-
-
 # Hashtags make a post findable inside Telegram's own search and let readers
 # follow one theme across the channel. Only a small curated set — a wall of
 # tags reads as spam and dilutes the ones that matter.
@@ -416,8 +295,6 @@ _CATEGORY_TAG = {
     "botnet": "botnet",
     "social engineering": "socialengineering",
 }
-
-_MAX_HASHTAGS = 4
 
 
 def notify(payload: dict[str, Any]) -> bool:
@@ -438,81 +315,168 @@ def notify(payload: dict[str, Any]) -> bool:
     )
 
 
-def _hashtags(payload: dict[str, Any]) -> str:
-    """Build the trailing hashtag line: urgency, category, platforms."""
+# Evidence status and severity, localized. Severity is potential impact; the
+# status line says what the source establishes. They are never merged.
+_LEVEL_LABEL = {
+    "en": {"Critical": "Critical", "High": "High", "Medium": "Medium", "Low": "Low"},
+    "ua": {"Critical": "Критичний", "High": "Високий", "Medium": "Середній", "Low": "Низький"},
+}
+_STATUS = {
+    "en": {
+        "exploitation:confirmed": "exploitation confirmed",
+        "exploitation:attacks_observed": "attacks observed",
+        "exploitation:suspected": "suspected, not confirmed",
+        "compromise:confirmed": "data exposure confirmed",
+        "compromise:not_confirmed": "exposure not confirmed",
+        "campaign:active": "campaign active",
+        "campaign:disrupted": "campaign disrupted",
+        "campaign:declined": "activity declined",
+    },
+    "ua": {
+        "exploitation:confirmed": "експлуатацію підтверджено",
+        "exploitation:attacks_observed": "зафіксовано атаки",
+        "exploitation:suspected": "підозра, не підтверджено",
+        "compromise:confirmed": "витік підтверджено",
+        "compromise:not_confirmed": "витік не підтверджено",
+        "campaign:active": "кампанія триває",
+        "campaign:disrupted": "кампанію припинено",
+        "campaign:declined": "активність спала",
+    },
+}
+_UNKNOWN = {
+    "en": {"exposure_unconfirmed": "whether data was taken", "exploitation_unconfirmed": "whether it is being exploited",
+           "scope_undisclosed": "how many are affected", "timeline_undisclosed": "when it started",
+           "attribution_unconfirmed": "who is behind it", "campaign_end_unconfirmed": "whether it has really stopped"},
+    "ua": {"exposure_unconfirmed": "чи було викрадено дані", "exploitation_unconfirmed": "чи вразливість уже використовують",
+           "scope_undisclosed": "скільки постраждалих", "timeline_undisclosed": "коли це почалося",
+           "attribution_unconfirmed": "хто за цим стоїть", "campaign_end_unconfirmed": "чи справді це припинилося"},
+}
+_LABELS = {
+    "en": {"why": "Why it matters:", "do": "What to do:", "unknown": "Not yet known:", "source": "Source:",
+           "read": "Read more:", "brief": "the full brief on CyberAlertX", "level": "Severity",
+           "also": "Also reported by"},
+    "ua": {"why": "Чому це важливо:", "do": "Що робити:", "unknown": "Поки невідомо:", "source": "Джерело:",
+           "read": "Детальніше:", "brief": "повний розбір на CyberAlertX", "level": "Рівень",
+           "also": "Також повідомили"},
+}
+_MAX_TAGS = 2
+
+
+def _first_sentence(text: str, limit: int = 260) -> str:
+    text = " ".join(text.split())
+    m = re.match(r"(.+?[.!?…])(\s|$)", text)
+    out = m.group(1) if m else text
+    return out if len(out) <= limit else out[: limit - 1].rsplit(" ", 1)[0] + "…"
+
+
+def status_line(payload: dict[str, Any], locale: str) -> str:
+    """'Severity: High · exploitation confirmed' — severity and evidence side by side."""
+    lab = _LABELS.get(locale, _LABELS["en"])
+    level = str(payload.get("threat_level") or "")
+    parts = []
+    if level:
+        parts.append(f"{lab['level']}: {_LEVEL_LABEL.get(locale, _LEVEL_LABEL['en']).get(level, level)}")
+    ev = payload.get("evidence") or {}
+    st = _STATUS.get(locale, _STATUS["en"])
+    keys = ["exploitation", "campaign"]
+    # Exposure is stated only where it is the story's subject; elsewhere a
+    # capability ("malware that steals data") would read as a confirmed breach.
+    if str(payload.get("category") or "").lower() in _INCIDENT_CATEGORIES:
+        keys.insert(1, "compromise")
+    for key in keys:
+        phrase = st.get(f"{key}:{ev.get(key) or ''}")
+        if phrase:
+            parts.append(phrase)
+    return " · ".join(parts)
+
+
+_INCIDENT_CATEGORIES = frozenset({"breach", "data leak", "ransomware"})
+#: Open questions the SOURCE states ("did not say whether data was taken").
+#: `exploitation_unconfirmed` is inferred from the absence of wording, which
+#: the brief may contradict, so it is never printed in the channel.
+_PRINTABLE_UNKNOWNS = frozenset({"exposure_unconfirmed", "scope_undisclosed", "timeline_undisclosed",
+                                 "attribution_unconfirmed", "campaign_end_unconfirmed"})
+
+
+def _unknown_line(payload: dict[str, Any], locale: str) -> str:
+    unknowns = [u for u in ((payload.get("evidence") or {}).get("unknowns") or [])
+                if u in _PRINTABLE_UNKNOWNS and u in _UNKNOWN.get(locale, _UNKNOWN["en"])]
+    if not unknowns:
+        return ""
+    lab = _LABELS.get(locale, _LABELS["en"])
+    return f"{lab['unknown']} {_UNKNOWN.get(locale, _UNKNOWN['en'])[unknowns[0]]}."
+
+
+def _actions(payload: dict[str, Any], content: dict[str, Any]) -> list[str]:
+    """Up to two actions, when they are justified: High/Critical severity,
+    confirmed exploitation or observed attacks, or a brief marked actionable.
+
+    Two, not one: a single step kept dropping the one that makes the first
+    take effect ("install the patch" without "then reboot"). The full
+    checklist stays on the article page."""
+    ev = payload.get("evidence") or {}
+    justified = (str(payload.get("actionability_level") or "informational") != "informational"
+                 or str(payload.get("threat_level") or "") in ("High", "Critical")
+                 or ev.get("exploitation") in ("confirmed", "attacks_observed"))
+    if not justified:
+        return []
+    out: list[str] = []
+    for a in content.get("what_to_do") or []:
+        a = str(a).strip()
+        if a and not _is_near_duplicate(a, out):
+            out.append(a)
+        if len(out) == 2:
+            break
+    return out
+
+
+def _tags(payload: dict[str, Any]) -> str:
     tags: list[str] = []
-
-    # First, so `_MAX_HASHTAGS` can never slice it off: a post carrying three
-    # platforms plus a category tag would otherwise lose it. Gated by `notify`
-    # so the tag and the push never disagree with each other or with the body.
-    if payload.get("actionability_level") == "urgent_action" and notify(payload):
-        tags.append("urgent")
-
     category = str(payload.get("category", "")).lower()
     if category in _CATEGORY_TAG:
         tags.append(_CATEGORY_TAG[category])
-
     for platform in payload.get("affected_platforms") or []:
         slug = re.sub(r"[^0-9A-Za-z]+", "", str(platform))
         if slug and slug.lower() not in tags:
             tags.append(slug)
-
-    return " ".join(f"#{t}" for t in tags[:_MAX_HASHTAGS])
+    return " ".join(f"#{t}" for t in tags[:_MAX_TAGS])
 
 
 def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> str:
-    """Build the HTML message body for one post in one locale.
+    """Build the HTML post for one edition.
 
-    The skeleton is fixed so a returning subscriber learns where to look:
+        <b>Headline</b>
 
-        <severity emoji> <b>Headline</b>
+        What happened and what is affected (plain_summary).
 
-        Plain-language explanation of what happened.
+        The specifics, only when they add a name, number or product (short_summary).
 
-        The specifics: named product, named actor, the numbers.
+        <b>Why it matters:</b> one grounded sentence (why_it_matters).
 
-        ✅ What to do                      (or 🔎 Check if this affects you,
-        • action                            or 👥 Who this affects)
-        • action
-        • Don't … / If it already hit you: …
+        Severity: High · exploitation confirmed
+        Not yet known: whether data was taken.          (first open question, if any)
 
-        Also reported by BleepingComputer, CISA
-        Source: The Hacker News
-        🔗 Read more — the full brief
+        <b>What to do:</b> one or two actions           (only when actionable)
+
+        Also reported by CISA, The Hacker News          (story clustering, if any)
+        Source: <a>BleepingComputer</a>
+        Read more: <a>the full brief on CyberAlertX</a>
         #vulnerability #Windows
 
-    ONE block of at most three lines, not four headed sections. The complete
-    checklist — every check, every action, every recovery step — stays on the
-    detail page, which is what the read-more link is for.
+    Only fields of the reviewed brief and the evidence labels are used: the
+    post adds nothing the brief and its source do not state. Severity and
+    evidence stay separate. Sections without content are omitted.
 
-    Sections are omitted rather than padded when the post has no content for
-    them, so a thin advisory produces a short post instead of a scaffold of
-    empty headings.
-
-    The block has exactly three outcomes and never a fourth: the actions,
-    else the self-checks when there is no action, else the audience. We never
-    print a heading that promises something the post cannot supply.
-
-    Raises KeyError/ValueError if the payload lacks the requested locale's
-    translation — the caller treats that as "skip this post" (degrade-and-log).
+    Raises ValueError if the edition has no translation or no title.
     """
-    translations = payload.get("translations") or {}
-    content = translations.get(locale)
+    content = (payload.get("translations") or {}).get(locale)
     if not content:
         raise ValueError(f"payload has no '{locale}' translation")
-
     title = (content.get("title") or "").strip()
     if not title:
         raise ValueError("payload translation has no title")
+    lab = _LABELS.get(locale, _LABELS["en"])
 
-    copy = _COPY.get(locale, _COPY["en"])
-
-    # Plain language first, then the specifics. `plain_summary` is written for
-    # a non-technical reader and, on the overwhelming majority of cached posts,
-    # it names no product and no number while `short_summary` does. The message
-    # used to render the plain line alone, so a subscriber read "хакери
-    # зламують сервери компаній через популярну програмну складову" where the
-    # cache already held the named library and the exploitation status.
     plain = (content.get("plain_summary") or "").strip()
     short = (content.get("short_summary") or "").strip()
     summary = plain or short
@@ -523,82 +487,49 @@ def render_message(payload: dict[str, Any], *, locale: str, base_url: str) -> st
         detail = _strip_attribution(short, locale)
         if len(detail) > _MAX_SUMMARY_CHARS:
             detail = ""
+    why = _first_sentence(str(content.get("why_it_matters") or ""))
+    if why and (_is_near_duplicate(why, [summary, detail])):
+        why = ""
 
-    level = payload.get("threat_level", "Low")
-    emoji = _LEVEL_EMOJI.get(level, "⚪")
-
-    fingerprint = payload.get("id", "")
-    link = deep_link(base_url, locale, fingerprint)
-
-    lines: list[str] = [f"{emoji} <b>{_text(title)}</b>"]
-    if summary:
+    lines: list[str] = [f"<b>{_text(title)}</b>"]
+    for para in (summary, detail):
+        if para:
+            lines += ["", _text(para)]
+    if why:
+        lines += ["", f"<b>{_text(lab['why'])}</b> {_text(why)}"]
+    status = status_line(payload, locale)
+    unknown = _unknown_line(payload, locale)
+    if status or unknown:
         lines.append("")
-        lines.append(_text(summary))
-    if detail:
-        lines.append("")
-        lines.append(_text(detail))
-
-    # The card's single action block. At most three lines, drawn across
-    # what_to_do, what_not_to_do and if_already_affected — see
-    # `_action_block` for why that order is forced rather than preferred.
-    #
-    # This replaced four separate headed sections. On the live corpus those
-    # produced a median of eight bullets under four headings on 69% of UA
-    # posts and 81% of EN posts, which is a wall to scroll past on a phone.
-    # The complete checklist stays on the detail page, which is what the
-    # read-more link is for.
-    #
-    # Three outcomes, never a fourth: the action block, else the self-check
-    # heading when the post has no action, else the audience. We do not print
-    # a heading that promises something the post cannot supply.
-    heading, block = _action_block(content, copy)
-    if block:
-        icon = "✅" if heading == copy["do"] else "🔎"
-        lines.append("")
-        lines.append(f"{icon} <b>{_text(heading)}</b>")
-        lines.extend(f"• {_text(b)}" for b in block)
-    else:
-        audience = _bullets(content.get("affected_users"), _MAX_AUDIENCE)
-        if audience:
-            lines.append("")
-            lines.append(f"👥 <b>{_text(copy['affects'])}</b>")
-            lines.extend(f"• {_text(a)}" for a in audience)
+        if status:
+            lines.append(_text(status))
+        if unknown:
+            lines.append(_text(unknown))
+    actions = _actions(payload, content)
+    if len(actions) == 1:
+        lines += ["", f"<b>{_text(lab['do'])}</b> {_text(actions[0])}"]
+    elif actions:
+        lines += ["", f"<b>{_text(lab['do'])}</b>", *(f"• {_text(a)}" for a in actions)]
 
     lines.append("")
-
-    # Corroboration — the payoff of story clustering. "Three outlets reported
-    # this" is a stronger trust signal than anything we could assert about
-    # ourselves, and it is the visible reason we collapsed the duplicates.
     corroborating = _bullets(payload.get("corroborating_sources"), 3)
     if corroborating:
-        lines.append(
-            f"{_text(copy['reported_by'])} {_text(', '.join(corroborating))}"
-        )
-
-    # Attribution. The comment that used to sit here said the AI summary
-    # already names the outlet — true of `short_summary` but the message leads
-    # with `plain_summary`, whose contract forbids an attribution clause, and
-    # the link preview is pinned to our own deep link. Printed only when the
-    # rendered body does not already carry the name, so a summary that opens
-    # "BleepingComputer повідомляє про…" is not repeated.
+        lines.append(f"{_text(lab['also'])} {_text(', '.join(corroborating))}")
     source = str(payload.get("source") or "").strip()
-    if source and source.lower() not in "\n".join(lines).lower():
-        lines.append(f"{_text(copy['source'])}: {_text(source)}")
-
-    lines.append(
-        f'🔗 <a href="{_esc(link)}">'
-        f'{_text(copy["read_more"])}</a>'
-    )
-
-    tags = _hashtags(payload)
+    source_url = str(payload.get("source_url") or "").strip()
+    if source and source_url.startswith(("https://", "http://")):
+        lines.append(f'{_text(lab["source"])} <a href="{_esc(source_url)}">{_text(source)}</a>')
+    elif source:
+        lines.append(f"{_text(lab['source'])} {_text(source)}")
+    link = deep_link(base_url, locale, payload.get("id", ""))
+    lines.append(f'{_text(lab["read"])} <a href="{_esc(link)}">{_text(lab["brief"])}</a>')
+    tags = _tags(payload)
     if tags:
-        lines.append("")
         lines.append(tags)
-
     return "\n".join(lines)
 
 
-__all__ = ["render_message", "deep_link", "quality_problem", "notify"]
+__all__ = ["render_message", "deep_link", "quality_problem", "notify", "status_line"]
 
 
 # Telegram caps a photo caption at 1024 characters after entity parsing
@@ -614,34 +545,40 @@ def visible_length(html_text: str) -> int:
 
 
 def render_caption(payload: dict[str, Any], *, locale: str, base_url: str) -> str:
-    """The message body as a photo caption, within CAPTION_LIMIT.
+    """The post as a photo caption, within CAPTION_LIMIT.
 
-    The full message when it fits (most do). Otherwise sections are dropped
-    from the least to the most essential — hashtags, the detail paragraph,
-    the corroboration line, the action block — and as a last resort the
-    summary is trimmed. Headline and the read-more link are always kept.
+    The full post when it fits (nearly all do). Otherwise blocks are dropped
+    from the least to the most essential: the detail paragraph, the action,
+    the status lines, "why it matters"; as a last resort the summary is
+    trimmed. Headline, source and read-more link are always kept.
     """
     full = render_message(payload, locale=locale, base_url=base_url)
     if visible_length(full) <= CAPTION_LIMIT:
         return full
     blocks = full.split("\n\n")
-    head, tail = blocks[0], blocks[1:]
-    summary = tail[0] if tail and not tail[0].startswith(("✅", "🔎", "👥", "🔗")) else ""
-    read_more = next((ln for b in blocks for ln in b.split("\n") if ln.startswith("🔗")), "")
-    if not read_more:
-        raise ValueError("rendered message has no read-more link")
-    action = next((b for b in tail if b.startswith(("✅", "🔎", "👥"))), "")
-    for candidate in (
-        [head, summary, action, read_more],
-        [head, summary, read_more],
-    ):
-        text = "\n\n".join(p for p in candidate if p)
+    head, links = blocks[0], blocks[-1]
+    middle = blocks[1:-1]
+    lab = _LABELS.get(locale, _LABELS["en"])
+    summary = middle[0] if middle and not middle[0].startswith("<b>") else ""
+    rest = [b for b in middle if b is not summary]
+
+    def kind(b: str) -> int:   # higher = dropped earlier
+        if b.startswith(f"<b>{_text(lab['why'])}"):
+            return 1
+        if b.startswith(f"<b>{_text(lab['do'])}"):
+            return 3
+        if b.startswith(_text(lab["level"])) or b.startswith(_text(lab["unknown"])):
+            return 2
+        return 4               # the detail paragraph
+    keep = sorted(rest, key=kind)
+    while keep:
+        text = "\n\n".join([head, summary, *[b for b in middle if b in keep], links])
         if visible_length(text) <= CAPTION_LIMIT:
             return text
-    budget = CAPTION_LIMIT - visible_length(f"{head}\n\n\n\n{read_more}") - 1
+        keep.pop()
+    budget = CAPTION_LIMIT - visible_length(f"{head}\n\n\n\n{links}") - 1
     plain = html.unescape(_TAG.sub("", summary))
-    if budget < 40:
-        return f"{head}\n\n{read_more}"
+    if budget < 40 or not plain:
+        return f"{head}\n\n{links}"
     trimmed = plain[:budget].rsplit(" ", 1)[0].rstrip(",;:—–- ") + "…"
-    return f"{head}\n\n{_esc(trimmed)}\n\n{read_more}"
-
+    return f"{head}\n\n{_esc(trimmed)}\n\n{links}"

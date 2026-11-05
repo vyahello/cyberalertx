@@ -379,7 +379,7 @@ def test_review_decision_hides_only_that_edition(world: dict[str, Any], tmp_path
 
 # ---------------------------------------------------------------- 5.7 media
 
-def test_cards_per_edition_and_illustration_never_required(world: dict[str, Any], tmp_path: Path) -> None:
+def test_cards_per_edition_and_every_public_story_gets_a_free_svg(world: dict[str, Any], tmp_path: Path) -> None:
     from cyberalertx.media import cards
     from cyberalertx.media.assets import MediaStore
     from cyberalertx.media.engine import illustration_payload, run as media_run
@@ -393,9 +393,14 @@ def test_cards_per_edition_and_illustration_never_required(world: dict[str, Any]
     store = MediaStore(tmp_path / "media")
     res = media_run(world["repo"].all(), store=store, sheets=world["sheets"], posts=world["posts"], now=NOW,
                     provider=NoProvider(), intel_dir=world["tmp"] / "intel")
-    assert res.cards >= 4 and res.calls == 0 and not res.failed and res.provider == "none"
-    assert not (tmp_path / "media" / "usage.jsonl").exists()                # no fake provider attempt recorded
-    assert illustration_payload(store, world["kev"].fingerprint) is None    # and nothing blocks publication
+    # No image service at all: the server-side SVG renderer still gives every
+    # public story its one canonical illustration, at no cost.
+    assert res.cards >= 4 and not res.failed and res.provider == "svg" and res.cost_usd == 0
+    assert res.generated and set(res.generated) == set(res.eligible)
+    block = illustration_payload(store, world["kev"].fingerprint)
+    assert block and block["generated"] is True
+    asset = next(a for a in store.all() if a.asset_type == "editorial_illustration")
+    assert asset.generation_method == "svg" and asset.mime_type == "image/svg+xml"
 
 
 def test_mock_illustration_for_the_breaking_story(world: dict[str, Any], tmp_path: Path) -> None:

@@ -137,26 +137,6 @@ def test_qualifies_urgent_overrides_low_severity() -> None:
 
 # --------------------- formatting -----------------------------------------
 
-def test_render_message_structure_and_link() -> None:
-    item = _item("a")
-    payload = _payload(item, "en", level="Critical",
-                       title="RCE in Foo", summary="Patch now.",
-                       actions=["Install the vendor patch and reboot.",
-                                "Audit exposed hosts."])
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "🔴" in msg
-    assert "<b>RCE in Foo</b>" in msg
-    assert "Patch now." in msg
-    # Actions render as a labeled section with up to two bullets. Two, not
-    # one: a single-action format kept dropping the step that made the first
-    # one take effect ("install the patch" without "then reboot").
-    assert "✅ <b>What to do</b>" in msg
-    assert "• Install the vendor patch and reboot." in msg
-    assert "• Audit exposed hosts." in msg
-    # Quick facts still stay out of the message — they're a spec sheet, and
-    # the channel's job is "what happened, what do I do".
-    assert deep_link("https://cyberalertx.com", "en", item.fingerprint) in msg
-    assert ">Read more — the full brief</a>" in msg
 
 
 def test_plain_summary_leads_then_the_specifics_follow() -> None:
@@ -208,29 +188,8 @@ def test_render_message_escapes_html() -> None:
     assert "&amp;" in msg
 
 
-def test_render_message_linkifies_cve_ids() -> None:
-    item = _item("cve")
-    payload = _payload(
-        item, "ua",
-        title="ABB AC500 V3 RCE",
-        summary="Критична вразливість CVE-2025-15467 та CVE-2025-2595 дозволяють RCE.",
-        actions=["Оновіть прошивку, що усуває cve-2025-41691."],
-    )
-    msg = render_message(payload, locale="ua", base_url="https://cyberalertx.com")
-    # CVE ids are linkified wherever they appear in the rendered body — the
-    # lead summary AND the action line. The visible label keeps its casing.
-    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-15467">CVE-2025-15467</a>' in msg
-    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-2595">CVE-2025-2595</a>' in msg
-    # Lowercase input (in the action line) → uppercased URL, original-case label.
-    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-41691">cve-2025-41691</a>' in msg
 
 
-def test_render_message_ua_uses_localized_cta() -> None:
-    item = _item("c", language="ua")
-    payload = _payload(item, "ua", title="Заголовок", summary="Опис.")
-    msg = render_message(payload, locale="ua", base_url="https://cyberalertx.com")
-    assert "Читати більше" in msg
-    assert f"/ua/threat/{item.fingerprint}" in msg
 
 
 def test_render_message_missing_translation_raises() -> None:
@@ -255,17 +214,6 @@ def test_source_is_named_once() -> None:
     assert "Source: Krebs on Security" in msg
 
 
-def test_source_is_not_repeated_when_the_body_already_names_it() -> None:
-    item = _item("s2")
-    payload = _payload(
-        item, "en",
-        source="Krebs on Security",
-        summary="Krebs on Security reports a wave of SIM-swap fraud at three carriers.",
-        plain="Scammers are moving phone numbers to their own SIMs to steal login codes.",
-    )
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert msg.count("Krebs on Security") == 1
-    assert "Source: Krebs on Security" not in msg
 
 
 # --------------------- pre-send quality gate ------------------------------
@@ -576,75 +524,14 @@ def test_notification_is_reserved_for_critical_and_urgent() -> None:
     assert notify(_payload(item, "en", level="Low")) is False
 
 
-def test_urgent_hashtag_never_disagrees_with_the_push() -> None:
-    """`#urgent` and the notification are driven by one decision.
-
-    Previously the tag came straight off `actionability_level` while the push
-    came off a different expression, so a silent Medium post could still carry
-    a tag telling readers to drop everything.
-    """
-    from cyberalertx.publish.format import _hashtags, notify
-
-    item = _item("u")
-    medium = _payload(item, "en", level="Medium", actionability="urgent_action")
-    assert notify(medium) is False
-    assert "#urgent" not in _hashtags(medium)
-
-    high = _payload(item, "en", level="High", actionability="urgent_action")
-    assert notify(high) is True
-    assert "#urgent" in _hashtags(high)
 
 
-def test_self_checks_stay_off_the_card_when_there_is_an_action() -> None:
-    """One block, not two.
-
-    The card used to carry a self-check section above the actions. Together
-    with "What not to do" and "If you're already affected" that was four
-    headings and a median of eight bullets, which the owner read as a wall.
-    The title and the two summary paragraphs already name the affected
-    product, so the checks stay on the detail page.
-    """
-    item = _item("sc")
-    payload = _payload(item, "en", title="Chrome bug", summary="Update Chrome.",
-                       actions=["Update Chrome from the menu."])
-    payload["translations"]["en"]["am_i_affected"] = [
-        "Open Chrome menu > Help > About. Below 126 is affected.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "✅ <b>What to do</b>" in msg
-    assert "Check if this affects you" not in msg
-    assert msg.count("<b>") == 2  # the headline and the one block heading
 
 
-def test_message_names_the_other_outlets_that_reported_it() -> None:
-    """The visible payoff of collapsing duplicates: instead of three posts
-    the subscriber gets one that says three outlets confirmed it."""
-    item = _item("corr")
-    payload = _payload(item, "en", title="SharePoint RCE", summary="Patch now.")
-    payload["corroborating_sources"] = ["The Hacker News", "CISA Alerts"]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "Also reported by The Hacker News, CISA Alerts" in msg
 
 
-def test_hashtags_are_curated_not_sprayed() -> None:
-    item = _item("tags")
-    payload = _payload(item, "en", actionability="urgent_action")
-    payload["category"] = "ransomware"
-    payload["affected_platforms"] = ["Windows", "Active Directory"]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "#ransomware" in msg
-    assert "#Windows" in msg
-    assert "#ActiveDirectory" in msg
-    assert msg.count("#") <= 4
 
 
-def test_ukrainian_message_uses_ukrainian_furniture() -> None:
-    item = _item("ua1", language="ua")
-    payload = _payload(item, "ua", title="Загроза", summary="Оновіть систему.",
-                       actions=["Встановіть оновлення."])
-    msg = render_message(payload, locale="ua", base_url="https://cyberalertx.com")
-    assert "Що робити" in msg
-    assert "Читати більше" in msg
 
 
 def test_quality_gate_checks_the_field_the_message_actually_leads_with() -> None:
@@ -720,185 +607,141 @@ def test_send_pins_the_preview_to_our_own_page() -> None:
     assert captured["disable_notification"] is False
 
 
-def test_message_renders_what_not_to_do() -> None:
-    """Anti-patterns reach subscribers.
-
-    `what_not_to_do` was populated on every cached post and rendered on none
-    of them, so the channel never carried the single most protective sentence
-    a breach post has ("Don't click links in emails about this leak").
-    """
-    item = _item("avoid")
-    payload = _payload(item, "en", title="Payroll breach", summary="Records taken.")
-    payload["translations"]["en"]["what_not_to_do"] = [
-        "Don't click links in emails about this breach.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    # No separate heading any more — the bullet joins the single block. It
-    # survives the merge unlabelled because every one of these opens with
-    # "Don't" or "Не", so it still reads correctly without its own heading.
-    assert "What not to do" not in msg
-    assert "• Don't click links in emails about this breach." in msg
 
 
-def test_audience_replaces_the_check_heading_when_there_is_no_check() -> None:
-    """Three outcomes, never a fourth.
-
-    When `am_i_affected` is empty — which it is on the overwhelming majority
-    of cached posts — the message shows who the story is about instead of
-    printing a heading that promises a check and then withholds one.
-    """
-    item = _item("aud")
-    payload = _payload(item, "en", title="Router bug", summary="Patch shipped.")
-    payload["translations"]["en"]["am_i_affected"] = []
-    payload["translations"]["en"]["affected_users"] = [
-        "TP-Link Archer owners", "Home broadband users",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "Who this affects" in msg
-    assert "TP-Link Archer owners" in msg
-    assert "Check if this affects you" not in msg
 
 
-def test_no_audience_and_no_check_prints_neither_heading() -> None:
-    item = _item("none")
-    payload = _payload(item, "en", title="Router bug", summary="Patch shipped.")
-    payload["translations"]["en"]["am_i_affected"] = []
-    payload["translations"]["en"]["affected_users"] = []
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "Who this affects" not in msg
-    assert "Check if this affects you" not in msg
 
 
-def test_three_actions_are_rendered_not_two() -> None:
-    """The third action used to be cut from every message ever sent, while the
-    message used ~9% of Telegram's 4096-char budget. On the 4G/5G post that
-    discarded the only step an ordinary subscriber could take."""
-    item = _item("three")
-    payload = _payload(
-        item, "en", title="Carrier flaws", summary="Core network bugs.",
-        actions=[
-            "Ask your 4G/5G core vendor whether these apply.",
-            "Turn on Wi-Fi Calling as a fallback during outages.",
-            "Enable carrier account PIN protection.",
-        ],
-    )
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    for action in payload["translations"]["en"]["what_to_do"]:
-        assert action in msg
 
 
 # --------------------- the single action block -----------------------------
 
-def test_four_blocks_collapse_into_one() -> None:
-    """The card carries one heading, whatever the post holds.
 
-    Measured before this change: 119 of 173 UA posts and 109 of 135 EN posts
-    rendered all four headed sections, a median of eight bullets and ~1200
-    characters. The complete checklist stays on the detail page.
-    """
-    item = _item("one")
-    payload = _payload(item, "en", title="Router bug", summary="Patch shipped.",
-                       actions=["Install firmware 2.1.", "Reboot the router."])
-    c = payload["translations"]["en"]
-    c["am_i_affected"] = ["Open the admin page and read the firmware version."]
-    c["what_not_to_do"] = ["Don't expose the admin page to the internet."]
-    c["if_already_affected"] = ["Reset the admin password after the update."]
+# --------------------- message layout (Nov 2026 editorial format) -------------
 
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert msg.count("✅") == 1
-    for gone in ("Check if this affects you", "What not to do",
-                 "If you're already affected", "🔎", "⛔", "🆘"):
-        assert gone not in msg, gone
-    assert len([l for l in msg.split("\n") if l.startswith("•")]) == 3
+def _rich(item: NewsItem, locale: str = "en", **kw: Any) -> dict[str, Any]:
+    p = _payload(item, locale, **kw)
+    p["source_url"] = "https://www.bleepingcomputer.com/news/security/x/"
+    p["category"] = "vulnerability"
+    p["affected_platforms"] = ["Windows", "Chrome", "Linux"]
+    p["evidence"] = {"exploitation": "confirmed", "campaign": "", "compromise": "", "unknowns": []}
+    p["translations"][locale]["why_it_matters"] = (
+        "Attackers already use it against unpatched servers. Patching closes the hole.")
+    return p
 
 
-def test_the_block_mixes_actions_with_the_warning() -> None:
-    """Two actions then the anti-pattern. A warning is a different speech act
-    from the two steps above it, so it covers ground a third action would
-    not, and it needs no heading: every such bullet opens with "Don't"."""
-    item = _item("mix")
-    payload = _payload(item, "en", title="T", summary="S",
-                       actions=["Install the update.", "Reboot after installing.",
-                                "Audit exposed hosts."])
-    payload["translations"]["en"]["what_not_to_do"] = [
-        "Don't wait for your next maintenance window.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "• Install the update." in msg
-    assert "• Reboot after installing." in msg
-    assert "• Don't wait for your next maintenance window." in msg
-    assert "Audit exposed hosts" not in msg   # the quota held the third action
+def test_layout_headline_what_why_status_source_and_link() -> None:
+    item = _item("lay")
+    msg = render_message(_rich(item, title="RCE in Foo", plain="Attackers can take over Foo servers.",
+                               summary="BleepingComputer reports CVE-2026-1111 in Foo 4.2 is exploited."),
+                         locale="en", base_url="https://cyberalertx.com")
+    lines = msg.split("\n")
+    assert lines[0] == "<b>RCE in Foo</b>"                       # plain bold headline, no emoji
+    assert "Attackers can take over Foo servers." in msg
+    assert "<b>Why it matters:</b> Attackers already use it against unpatched servers." in msg
+    assert "Patching closes the hole" not in msg                 # one sentence only
+    assert "Severity: High · exploitation confirmed" in msg      # severity and evidence side by side
+    assert '<a href="https://www.bleepingcomputer.com/news/security/x/">BleepingComputer</a>' in msg
+    assert f'Read more: <a href="{deep_link("https://cyberalertx.com", "en", item.fingerprint)}">' in msg
+    assert "✅" not in msg and "🔴" not in msg and "🔗" not in msg
 
 
-def test_a_recovery_step_promoted_into_the_block_keeps_its_condition() -> None:
-    """Recovery bullets are bare imperatives — "Rotate…", "Reset…", «Змініть».
-
-    Under a generic heading they would read as instructions to every reader,
-    telling uncompromised people to rotate every token they own. So a
-    promoted recovery step carries its condition inline.
-    """
-    item = _item("rec")
-    payload = _payload(item, "en", title="T", summary="S",
-                       actions=["Update Chrome to 126."])
-    payload["translations"]["en"]["if_already_affected"] = [
-        "Change your password from another device.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "• If it already hit you: change your password from another device." in msg
+def test_severity_never_reads_as_exploitation() -> None:
+    item = _item("sev")
+    p = _rich(item, level="Critical")
+    p["evidence"] = {"exploitation": "not_reported", "unknowns": ["exploitation_unconfirmed"]}
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "Severity: Critical" in msg and "exploitation confirmed" not in msg
+    assert "Not yet known" not in msg            # inferred from silence: never printed
+    p["category"] = "breach"
+    p["evidence"] = {"exploitation": "not_reported", "compromise": "not_confirmed",
+                     "unknowns": ["exposure_unconfirmed"]}
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "exposure not confirmed" in msg and "Not yet known: whether data was taken." in msg
 
 
-def test_the_block_drops_a_bullet_that_repeats_one_already_chosen() -> None:
-    """The model writes one instruction into two lists. On the Cisco SD-WAN
-    post `what_to_do[1]` was "Remove SD-WAN Manager admin accounts that
-    nobody on your team created" and `if_already_affected[0]` was "Disable
-    any SD-WAN Manager admin account that nobody on your team created".
-    Merging without suppression reads worse than four headings did."""
+def test_exposure_status_only_where_exposure_is_the_story() -> None:
+    item = _item("exp")
+    p = _rich(item)
+    p["evidence"] = {"exploitation": "confirmed", "compromise": "confirmed", "unknowns": []}
+    assert "exposure confirmed" not in render_message(p, locale="en", base_url="https://x.test")
+    p["category"] = "breach"
+    assert "data exposure confirmed" in render_message(p, locale="en", base_url="https://x.test")
+
+
+def test_actions_only_when_actionable_and_at_most_two() -> None:
+    item = _item("act")
+    p = _rich(item, level="Medium", actions=["Install the vendor patch.", "Reboot the server.", "Audit exposed hosts."])
+    p["evidence"] = {"exploitation": "not_reported", "unknowns": []}
+    assert "What to do" not in render_message(p, locale="en", base_url="https://x.test")   # nothing justifies it
+    p["evidence"] = {"exploitation": "confirmed", "unknowns": []}
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "<b>What to do:</b>\n• Install the vendor patch.\n• Reboot the server." in msg
+    assert "Audit exposed hosts." not in msg
+    p["translations"]["en"]["what_to_do"] = ["Install the vendor patch."]
+    assert "<b>What to do:</b> Install the vendor patch." in render_message(p, locale="en", base_url="https://x.test")
+
+
+def test_cve_ids_are_linkified_in_body_and_actions() -> None:
+    item = _item("cve")
+    p = _rich(item, "ua", summary="Критична вразливість CVE-2025-15467 дозволяє RCE.",
+              plain="Зловмисники можуть захопити пристрій.", actions=["Оновіть прошивку, що усуває cve-2025-41691."],
+              actionability="urgent_action")
+    msg = render_message(p, locale="ua", base_url="https://cyberalertx.com")
+    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-15467">CVE-2025-15467</a>' in msg
+    assert '<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-41691">cve-2025-41691</a>' in msg
+
+
+def test_ukrainian_post_uses_ukrainian_furniture_only() -> None:
+    item = _item("ua", language="ua")
+    p = _rich(item, "ua", title="Заголовок", plain="Що сталося.", summary="Подробиці.", actions=["Оновіть."],
+              actionability="recommended_action")
+    p["translations"]["ua"]["why_it_matters"] = "Це зачіпає багатьох користувачів."
+    msg = render_message(p, locale="ua", base_url="https://cyberalertx.com")
+    for ua in ("Чому це важливо:", "Рівень: Високий", "експлуатацію підтверджено", "Що робити:", "Джерело:",
+               "Детальніше:", "повний розбір на CyberAlertX"):
+        assert ua in msg
+    for en in ("Why it matters", "Severity", "Source:", "Read more", "What to do"):
+        assert en not in msg
+    assert f"/ua/threat/{item.fingerprint}" in msg
+
+
+def test_why_it_matters_is_dropped_when_it_repeats_the_summary() -> None:
     item = _item("dup")
-    payload = _payload(item, "en", title="T", summary="S", actions=[
-        "Install the Catalyst SD-WAN Manager security update.",
-        "Remove SD-WAN Manager admin accounts that nobody on your team created.",
-    ])
-    payload["translations"]["en"]["if_already_affected"] = [
-        "Disable any SD-WAN Manager admin account that nobody on your team created.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "If it already hit you" not in msg
-    assert len([l for l in msg.split("\n") if l.startswith("•")]) == 2
+    p = _rich(item, plain="Attackers already use it against unpatched servers.")
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "Why it matters" not in msg
 
 
-def test_a_post_with_only_a_warning_still_gets_a_block() -> None:
-    """The quotas shape a full block; they must not empty a thin one."""
-    item = _item("warn")
-    payload = _payload(item, "en", title="T", summary="S", actions=[])
-    payload["translations"]["en"]["what_not_to_do"] = [
-        "Don't reuse the password from this leak anywhere else.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "• Don't reuse the password from this leak anywhere else." in msg
+def test_other_outlets_are_named_and_tags_are_few() -> None:
+    item = _item("out")
+    p = _rich(item)
+    p["corroborating_sources"] = ["CISA", "The Hacker News"]
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "Also reported by CISA, The Hacker News" in msg
+    assert msg.rstrip().split("\n")[-1] == "#vulnerability #Windows"
 
 
-def test_checks_carry_the_block_when_there_is_no_instruction_at_all() -> None:
-    item = _item("chk")
-    payload = _payload(item, "en", title="T", summary="S", actions=[])
-    payload["translations"]["en"]["am_i_affected"] = [
-        "Run 'uname -r'. Kernels 6.1 to 6.7 are affected.",
-    ]
-    msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-    assert "🔎 <b>Check if this affects you</b>" in msg
-    assert "✅" not in msg
+def test_source_without_a_url_is_named_without_a_link() -> None:
+    item = _item("nourl")
+    p = _payload(item, "en", source="Krebs on Security")
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "Source: Krebs on Security" in msg and "<a href=\"\"" not in msg
 
 
-def test_the_read_more_label_never_varies() -> None:
-    """It used to be picked from three strings depending on what the detail
-    page held, so the channel showed "Read more — full analysis and the
-    facts" on one post and "Read more — why it's rated this way" on the next.
-    The owner read that as two different links."""
-    item = _item("lbl")
-    rich = _payload(item, "en", title="T", summary="S", actions=["Do it."])
-    rich["translations"]["en"]["detail_body"] = "Long analysis."
-    rich["translations"]["en"]["severity_reason"] = "Because reasons."
-    bare = _payload(_item("lbl2"), "en", title="T", summary="S", actions=["Do it."])
+def test_caption_fits_the_limit_and_keeps_headline_source_and_link() -> None:
+    from cyberalertx.publish.format import CAPTION_LIMIT, render_caption, visible_length
+    item = _item("cap")
+    p = _rich(item, plain="A" * 580, summary="Foo 4.2 " + "B" * 560, actions=["C" * 300, "D" * 300],
+              actionability="urgent_action")
+    cap = render_caption(p, locale="en", base_url="https://x.test")
+    assert visible_length(cap) <= CAPTION_LIMIT
+    assert cap.startswith("<b>Title</b>") and "Source:" in cap and "Read more:" in cap
 
-    for payload in (rich, bare):
-        msg = render_message(payload, locale="en", base_url="https://cyberalertx.com")
-        assert ">Read more — the full brief</a>" in msg
+
+def test_html_in_fields_is_escaped() -> None:
+    item = _item("esc")
+    p = _rich(item, title="<script>x</script> & co", plain="1 < 2 & 3 > 2")
+    msg = render_message(p, locale="en", base_url="https://x.test")
+    assert "&lt;script&gt;x&lt;/script&gt; &amp; co" in msg and "1 &lt; 2 &amp; 3 &gt; 2" in msg
