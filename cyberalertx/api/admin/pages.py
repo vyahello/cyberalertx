@@ -84,6 +84,14 @@ def classify_sources(health: Mapping[str, Any], now: datetime) -> tuple[list[Sou
     for name, stats in (health.get("sources") or {}).items():
         fetched_at = parse_time(stats.get("last_successful_ingest_utc"))
         published_at = parse_time(stats.get("last_published_at_utc"))
+        failures = int(stats.get("consecutive_failures") or 0)
+        if failures >= 2 or (failures and fetched_at is None):
+            nxt = parse_time(stats.get("next_attempt_utc"))
+            when = f"; next attempt in {_span(nxt - now)}" if nxt and nxt > now else ""
+            rows.append(SourceRow(name, "failing",
+                                  f"Fetch failing: {stats.get('last_error') or 'error'}, "
+                                  f"{failures} attempts in a row{when}", stats))
+            continue
         if fetched_at is None:
             if int(stats.get("cycles_seen") or 0) >= 3:
                 rows.append(SourceRow(name, "failing", "Has never returned an item", stats))

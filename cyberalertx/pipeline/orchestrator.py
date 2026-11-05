@@ -185,7 +185,10 @@ class Pipeline:
         # can split fetched-vs-kept counts by source. Cheap (one JSON
         # write); never raises into the cycle.
         try:
-            get_source_health().record_cycle(fetched_by_source, relevant)
+            get_source_health().record_cycle(
+                fetched_by_source, relevant,
+                outcomes={src.name: getattr(src, "last_outcome", None) for src in self._sources},
+            )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("source health update failed: %s", exc)
         result = CycleResult(

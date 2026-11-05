@@ -6,9 +6,15 @@ What we capture per source, and why:
                                 A dead feed surfaces here before users
                                 notice the UK page is sparse.
   * `cycles_seen`              — total cycles that polled this source.
-  * `cycles_empty`             — cycles where the source returned zero items
-                                 (network failure, parse error, or genuinely
-                                 nothing fresh — we can't always tell apart).
+  * `cycles_empty`             — cycles where the feed answered but held no
+                                 items.
+  * `cycles_failed`            — cycles where the fetch failed (HTTP error,
+                                 timeout, network, invalid feed) or was
+                                 skipped while backing off after failures.
+  * `last_error`, `consecutive_failures`, `last_error_utc`,
+    `next_attempt_utc`         — the current failure, if any (cleared by the
+                                 next successful fetch). A refusing origin
+                                 such as CISA's (HTTP 403) shows here.
   * `total_fetched`            — sum of items returned across all cycles.
   * `total_relevant`           — sum of items that passed the relevance gate.
   * `relevance_rate`           — derived: total_relevant / total_fetched.
@@ -57,6 +63,11 @@ class _SourceStats:
     # update incrementally without keeping per-item history.
     cred_sum: float = 0.0
     cred_n: int = 0
+    cycles_failed: int = 0
+    consecutive_failures: int = 0
+    last_error: str = ""
+    last_error_utc: Optional[str] = None
+    next_attempt_utc: Optional[str] = None
 
     @property
     def relevance_rate(self) -> Optional[float]:
@@ -87,12 +98,15 @@ class SourceHealth:
         self,
         fetched_by_source: dict[str, list[NewsItem]],
         relevant_items: Iterable[NewsItem],
+        outcomes: Optional[dict[str, Any]] = None,
     ) -> None:
         """Update aggregates from one orchestrator cycle.
 
         `fetched_by_source` is the raw fetch output (post-dedup, pre-filter)
         keyed by source name. `relevant_items` is the post-filter set —
-        we count those into `total_relevant` per source.
+        we count those into `total_relevant` per source. `outcomes` maps a
+        source name to its `FetchOutcome` (sources/rss.py); without it every
+        empty fetch counts as empty, as before.
         """
         relevant_by_source: dict[str, list[NewsItem]] = {}
         for item in relevant_items:
@@ -104,6 +118,18 @@ class SourceHealth:
             for source, fetched in fetched_by_source.items():
                 stats = self.sources.setdefault(source, _SourceStats())
                 stats.cycles_seen += 1
+                outcome = (outcomes or {}).get(source)
+                status = getattr(outcome, "status", "ok")
+                if status in ("error", "skipped"):
+                    stats.cycles_failed += 1
+                    stats.consecutive_failures = int(getattr(outcome, "consecutive_failures", 0) or 0)
+                    stats.last_error = str(getattr(outcome, "error", "") or "")
+                    if status == "error":
+                        stats.last_error_utc = now
+                    nxt = getattr(outcome, "next_attempt_utc", None)
+                    stats.next_attempt_utc = nxt.isoformat(timespec="seconds") if nxt else None
+                    continue
+                stats.consecutive_failures, stats.last_error, stats.next_attempt_utc = 0, "", None
                 if not fetched:
                     stats.cycles_empty += 1
                     continue
@@ -146,6 +172,11 @@ class SourceHealth:
                     "avg_credibility": s.avg_credibility,
                     "last_successful_ingest_utc": s.last_successful_ingest_utc,
                     "last_published_at_utc": s.last_published_at_utc,
+                    "cycles_failed": s.cycles_failed,
+                    "consecutive_failures": s.consecutive_failures,
+                    "last_error": s.last_error,
+                    "last_error_utc": s.last_error_utc,
+                    "next_attempt_utc": s.next_attempt_utc,
                 }
                 for name, s in self.sources.items()
             },
@@ -168,6 +199,11 @@ class SourceHealth:
                     "last_published_at_utc": s.last_published_at_utc,
                     "cred_sum": s.cred_sum,
                     "cred_n": s.cred_n,
+                    "cycles_failed": s.cycles_failed,
+                    "consecutive_failures": s.consecutive_failures,
+                    "last_error": s.last_error,
+                    "last_error_utc": s.last_error_utc,
+                    "next_attempt_utc": s.next_attempt_utc,
                 }
                 for name, s in self.sources.items()
             },
@@ -201,6 +237,11 @@ class SourceHealth:
                         last_published_at_utc=data.get("last_published_at_utc"),
                         cred_sum=float(data.get("cred_sum", 0.0)),
                         cred_n=int(data.get("cred_n", 0)),
+                        cycles_failed=int(data.get("cycles_failed", 0)),
+                        consecutive_failures=int(data.get("consecutive_failures", 0)),
+                        last_error=str(data.get("last_error") or ""),
+                        last_error_utc=data.get("last_error_utc"),
+                        next_attempt_utc=data.get("next_attempt_utc"),
                     )
                     inst.sources[name] = s
         except (OSError, json.JSONDecodeError) as exc:
