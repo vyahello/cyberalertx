@@ -174,7 +174,7 @@ Copy [`.env.example`](.env.example); every variable is optional locally.
 | `CYBERALERTX_TELEGRAM_BOT_TOKEN`, `CYBERALERTX_TELEGRAM_CHANNEL_EN/UA` | unset | Telegram destinations; nothing is sent without a token |
 | `CYBERALERTX_TELEGRAM_REQUIRE_ILLUSTRATION` | `1` | a post waits for its story illustration |
 | `CYBERALERTX_ILLUSTRATION_SCOPE` | `all` | `all` public stories or `selective` |
-| `CYBERALERTX_THREADS_PUBLISH` | `0` | Threads (off) |
+| `THREADS_ENABLED` | `0` | Threads (two accounts, one Meta app; off until authorized) |
 
 Never commit `.env`. In production it lives outside the releases and is loaded
 by systemd; shells load it with `ops/release/loadenv.sh`, never `source .env`.
