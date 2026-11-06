@@ -43,6 +43,36 @@ def _destinations(settings: TelegramSettings) -> dict[str, Any]:
     return out
 
 
+def _threads_maintenance(dests: dict[str, Any]) -> None:
+    """Before planning a sending run: check each account's identity, refresh
+    tokens close to expiry, and fix the no-backlog start time on first use.
+    Each account is handled on its own; one failing never stops the other."""
+    from ..config import DATA_DIR
+    from ..threads.client import ThreadsClient
+    from ..threads.credentials import refresh_tokens, verify_accounts
+    from ..threads.oauth import refresh_due
+
+    first = next(d for k, d in dests.items() if k.startswith("threads@"))
+    settings, store, now = first.settings, first.accounts, _now()
+    api = ThreadsClient()
+    try:
+        if store.env_mode:
+            for r in verify_accounts(settings, store, api, now):
+                print(f"[threads] account {r.slot}: {r.outcome} {r.detail}".rstrip(), file=sys.stderr)
+            env_file = Path(DATA_DIR).resolve().parent / ".env"
+            for r in refresh_tokens(settings, store, api, now, env_path=env_file,
+                                    backup_dir=Path.home() / "backups" / "threads"):
+                print(f"[threads] token {r.slot}: {r.outcome} {r.detail}".rstrip(), file=sys.stderr)
+        else:
+            for r0 in refresh_due(store, api, now):
+                print(f"[threads] token {r0.slot}: {r0.outcome} {r0.detail}".rstrip(), file=sys.stderr)
+    finally:
+        api.close()
+    for slot in settings.accounts:
+        if store.get(slot).status == "connected":
+            store.ensure_publishing_since(slot, now)
+
+
 def _threads_destinations(base_url: str) -> dict[str, Any]:
     """One destination per mapped Threads slot — only with CYBERALERTX_THREADS_PUBLISH=1."""
     from ..threads.accounts import AccountStore
@@ -52,7 +82,7 @@ def _threads_destinations(base_url: str) -> dict[str, Any]:
     ts = ThreadsSettings.from_env()
     if not ts.publish_enabled:
         return {}
-    accounts = AccountStore(key=ts.token_key, mapping=ts.accounts)
+    accounts = AccountStore(key=ts.token_key, mapping=ts.accounts, env_tokens=ts.env_tokens)
     return {f"threads@{slot}": ThreadsDestination(slot, settings=ts, accounts=accounts, public_base_url=base_url,
                                                   image_check=http_image_check)
             for slot in ts.accounts}
@@ -108,22 +138,14 @@ def _run(args: argparse.Namespace, *, with_plan: bool) -> int:
         print("refusing --send: Telegram channels are configured but no bot token is set", file=sys.stderr)
         return 2
     source = _source()
+    if args.send and any(k.startswith("threads@") for k in dests):
+        _threads_maintenance(dests)
     if with_plan:
         res = plan(source, store, now=_now(), settings=settings, destinations=dests,
                    ledger_has=_ledger_has(), dry_run=not args.send)
         print(f"[plan] {json.dumps(res.summary(), ensure_ascii=False)}", file=sys.stderr)
     if args.send and any(k.startswith("threads@") for k in dests):
-        # Keep tokens fresh and settle what the API can settle, before sending.
-        from ..threads.client import ThreadsClient
         from ..threads.destination import auto_reconcile
-        from ..threads.oauth import refresh_due
-        first = next(d for k, d in dests.items() if k.startswith("threads@"))
-        api = ThreadsClient()
-        try:
-            for r in refresh_due(first.accounts, api, _now()):
-                print(f"[threads] token {r.slot}: {r.outcome} {r.detail}".rstrip(), file=sys.stderr)
-        finally:
-            api.close()
         for r2 in auto_reconcile(store, dests, _now()):
             print(f"[threads] reconcile {r2['job_id']}: {r2['result']}", file=sys.stderr)
     report = run(source, store, dests, policy=PublishPolicy.from_env(settings),
