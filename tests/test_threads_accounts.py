@@ -83,7 +83,7 @@ def store(tmp_path: Path, tokens: dict[str, str] | None = None) -> AccountStore:
 
 
 def settings(**kw: Any) -> ThreadsSettings:
-    base: dict[str, Any] = dict(app_id="1663041232206652", publish_enabled=True,
+    base: dict[str, Any] = dict(app_id="1000000000000001", publish_enabled=True,
                                 usernames={"en": "cyberalertx", "ua": "cyberalertx_ua"},
                                 env_tokens={"en": EN_TOK, "ua": UA_TOK})
     base.update(kw)
@@ -93,12 +93,12 @@ def settings(**kw: Any) -> ThreadsSettings:
 # ------------------------------------------------------------------ configuration
 
 def test_one_shared_app_id_and_per_account_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
-    for k, v in {"THREADS_ENABLED": "0", "THREADS_APP_ID": "1663041232206652", "THREADS_EN_USERNAME": "cyberalertx",
+    for k, v in {"THREADS_ENABLED": "0", "THREADS_APP_ID": "1000000000000001", "THREADS_EN_USERNAME": "cyberalertx",
                  "THREADS_EN_ACCESS_TOKEN": EN_TOK, "THREADS_UA_USERNAME": "cyberalertx_ua",
                  "THREADS_UA_ACCESS_TOKEN": UA_TOK, "THREADS_EN_APP_ID": "9", "THREADS_UA_USER_ID": "8"}.items():
         monkeypatch.setenv(k, v)
     ts = ThreadsSettings.from_env()
-    assert ts.app_id == "1663041232206652" and ts.publish_enabled is False
+    assert ts.app_id == "1000000000000001" and ts.publish_enabled is False
     assert ts.env_tokens == {"en": EN_TOK, "ua": UA_TOK} and ts.env_mode
     assert ts.usernames == {"en": "cyberalertx", "ua": "cyberalertx_ua"}
     assert EN_TOK not in repr(ts) and UA_TOK not in repr(ts)
@@ -122,7 +122,7 @@ def test_each_token_maps_to_its_own_account_with_different_ids() -> None:
     api = g.client()
     en, ua = check_token("en", EN_TOK, "cyberalertx", api), check_token("ua", UA_TOK, "cyberalertx_ua", api)
     assert en.ok and ua.ok and en.user_id != ua.user_id and check_pair([en, ua]) == []
-    assert en.user_id == "17841400000000001" and en.user_id != "1663041232206652"   # never the app id
+    assert en.user_id == "17841400000000001" and en.user_id != "1000000000000001"   # never the app id
     assert en.expires_at and abs((en.expires_at - (g.issued + g.lifetime)).total_seconds()) < 2
     assert set(en.scopes) == {"threads_basic", "threads_content_publish"} and en.token_type == "USER"
     assert not en.short_lived()
@@ -261,7 +261,7 @@ def _setup(tmp_path: Path, answers: list[str], g: Graph, **kw: Any) -> tuple[int
     from cyberalertx.tools import threads as tool
     env = tmp_path / ".env"
     if not env.exists():
-        env.write_text("CYBERALERTX_TELEGRAM_BOT_TOKEN=keepme\n# comment stays\n")
+        env.write_text("CYBERALERTX_TELEGRAM_BOT_TOKEN=keepme\n# comment stays\nTHREADS_APP_ID=1000000000000001\n")
         env.chmod(0o600)
     reg = AccountStore(tmp_path / "threads_accounts.json", mapping={"en": "en", "ua": "ua"})
     it = iter(answers)
@@ -277,7 +277,7 @@ def test_setup_validates_both_then_writes_env_and_registry(tmp_path: Path, monke
     out = capsys.readouterr()
     assert rc == 0
     vals = read_env(env)
-    assert vals["THREADS_APP_ID"] == "1663041232206652" and vals["THREADS_ENABLED"] == "0"
+    assert vals["THREADS_APP_ID"] == "1000000000000001" and vals["THREADS_ENABLED"] == "0"
     assert vals["THREADS_EN_ACCESS_TOKEN"] == EN_TOK and vals["CYBERALERTX_TELEGRAM_BOT_TOKEN"] == "keepme"
     assert "# comment stays" in env.read_text() and "THREADS_APP_SECRET" not in vals
     assert not any(k.startswith(("THREADS_EN_USER_ID", "THREADS_UA_USER_ID", "THREADS_EN_APP", "THREADS_UA_APP"))
@@ -299,7 +299,7 @@ def test_setup_changes_nothing_when_one_account_maps_wrong(tmp_path: Path, monke
 def test_setup_never_enables_and_keeps_an_existing_switch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     env = tmp_path / ".env"
-    env.write_text("THREADS_ENABLED=1\n")
+    env.write_text("THREADS_ENABLED=1\nTHREADS_APP_ID=1000000000000001\n")
     env.chmod(0o600)
     rc, env, _ = _setup(tmp_path, [EN_TOK, UA_TOK], Graph())
     assert rc == 0 and read_env(env)["THREADS_ENABLED"] == "1"           # untouched, not forced either way
@@ -318,7 +318,7 @@ def test_setup_exchanges_a_short_lived_token_with_one_shared_secret(tmp_path: Pa
         return next(answers)
     from cyberalertx.tools import threads as tool
     env = tmp_path / ".env"
-    env.write_text("X=1\n")
+    env.write_text("X=1\nTHREADS_APP_ID=1000000000000001\n")
     env.chmod(0o600)
     reg = AccountStore(tmp_path / "threads_accounts.json", mapping={"en": "en", "ua": "ua"})
     rc = tool.cmd_setup(argparse.Namespace(env=str(env), allow_identity_change=False), ask=ask,
@@ -402,13 +402,27 @@ def test_status_output_never_contains_a_secret(tmp_path: Path, monkeypatch: pyte
     import cyberalertx.threads.accounts as acc_mod
     from cyberalertx.tools import threads as tool
     monkeypatch.setattr(acc_mod, "ACCOUNTS_PATH", tmp_path / "threads_accounts.json")
-    for k, v in {"THREADS_APP_ID": "1663041232206652", "THREADS_EN_ACCESS_TOKEN": EN_TOK,
+    for k, v in {"THREADS_APP_ID": "1000000000000001", "THREADS_EN_ACCESS_TOKEN": EN_TOK,
                  "THREADS_UA_ACCESS_TOKEN": UA_TOK, "THREADS_APP_SECRET": "s3cr3t-value"}.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setattr("cyberalertx.publish.jobs.JOBS_PATH", tmp_path / "jobs.json", raising=False)
     tool.cmd_status(argparse.Namespace(live=False))
     out = capsys.readouterr().out
     data = json.loads(out)
-    assert data["app_id"] == "1663041232206652" and data["app_secret_configured"] is True
+    assert data["app_id"] == "1000000000000001" and data["app_secret_configured"] is True
     for secret in (EN_TOK, UA_TOK, "s3cr3t-value"):
         assert secret not in out
+
+
+def test_setup_needs_an_app_id_and_has_no_built_in_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cyberalertx.tools import threads as tool
+    monkeypatch.setenv("HOME", str(tmp_path))
+    env = tmp_path / ".env"
+    env.write_text("X=1\n")
+    env.chmod(0o600)
+    answers = iter(["", EN_TOK, UA_TOK])
+    rc = tool.cmd_setup(argparse.Namespace(env=str(env), allow_identity_change=False),
+                        ask=lambda p: next(answers), client=Graph().client(),
+                        store=AccountStore(tmp_path / "a.json", mapping={"en": "en", "ua": "ua"}))
+    assert rc == 2 and env.read_text() == "X=1\n"
+    assert not hasattr(tool, "DEFAULT_APP_ID")

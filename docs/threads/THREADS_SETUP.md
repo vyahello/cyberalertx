@@ -1,7 +1,7 @@
 # Threads: two accounts, one Meta app
 
 CyberAlertX publishes to two Threads accounts through **one** Meta app,
-"CyberAlertX Publisher" (Threads App ID `1663041232206652`):
+"CyberAlertX Publisher" (its Threads App ID is set as `THREADS_APP_ID`):
 
 | Account | Language | Site | Content |
 |---|---|---|---|
@@ -18,7 +18,7 @@ beyond the testers.
 
 ```env
 THREADS_ENABLED=0                 # the switch; 0 = Threads off, Telegram and the site unaffected
-THREADS_APP_ID=1663041232206652   # one shared app id (not a secret, not a user id)
+THREADS_APP_ID=                   # one shared app id (not a secret, not a user id)
 THREADS_EN_USERNAME=cyberalertx
 THREADS_EN_ACCESS_TOKEN=          # written by `setup`, never by hand
 THREADS_UA_USERNAME=cyberalertx_ua

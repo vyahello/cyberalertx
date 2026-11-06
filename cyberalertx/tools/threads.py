@@ -21,10 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-#: The one shared Meta app ("CyberAlertX Publisher"). Not a secret, not a user id.
-DEFAULT_APP_ID = "1663041232206652"
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -60,7 +56,10 @@ def cmd_setup(args: argparse.Namespace, *, ask: Any = None, client: Any = None, 
         print(f"no environment file at {env_path}", file=sys.stderr)
         return 2
     existing = read_env(env_path)
-    app_id = existing.get("THREADS_APP_ID") or DEFAULT_APP_ID
+    app_id = existing.get("THREADS_APP_ID") or ask("Threads App ID (the one shared app): ").strip()
+    if not app_id.isdigit():
+        print("THREADS_APP_ID is missing or not numeric. Nothing was changed.", file=sys.stderr)
+        return 2
     usernames = {"en": existing.get("THREADS_EN_USERNAME") or DEFAULT_USERNAMES["en"],
                  "ua": existing.get("THREADS_UA_USERNAME") or DEFAULT_USERNAMES["ua"]}
     tokens: dict[str, str] = {}
