@@ -426,13 +426,22 @@ def test_six_destinations_with_failure_isolation_and_idempotency(world: dict[str
 
     api = FakeThreads()
     accounts = both(tmp_path, api)
-    bot = Bot({"sendMessage": [httpx.Response(502, json={"ok": False, "description": "Bad Gateway"})]})
+    bot = Bot({"sendPhoto": [httpx.Response(502, json={"ok": False, "description": "Bad Gateway"})]})
     s = settings(channels={"en": "@fake_en", "ua": "@fake_ua"})
     d = {"website": WebsiteDestination(BASE),
          "telegram": TelegramDestination(s, ledger_path=tmp_path / "ledger.jsonl", publisher_factory=bot.factory()),
          "threads@en": tdest("en", accounts, api), "threads@ua": tdest("ua", accounts, api)}
     store = JobStore(tmp_path / "jobs.json")
-    source = EditionSource(world["svc"])
+    class Illustrated(EditionSource):
+        """Every edition has its canonical illustration (Threads posts only with it)."""
+        def payload(self, item: Any, locale: str) -> Any:
+            p = super().payload(item, locale)
+            if p is not None:
+                p["media"] = {"illustration": {"asset_id": "0123456789abcdef",
+                                               "alt": {"en": "Illustration.", "ua": "Ілюстрація."}}}
+            return p
+
+    source = Illustrated(world["svc"])
     view = IntelView.from_run(intel(world))
     pol = PublishPolicy(telegram_per_run=10, threads_per_run=10)
     created = plan(source, store, now=NOW, settings=s, destinations=d, view=view, policy=pol).created
@@ -445,7 +454,7 @@ def test_six_destinations_with_failure_isolation_and_idempotency(world: dict[str
     st = {(j.destination, j.locale): j.status for j in store.all() if j.fingerprint == world["kev"].fingerprint}
     assert list(st.values()).count("retrying") == 1 and list(st.values()).count("published") == 5   # one 502 isolated
     # locale routing: every message/post went to its own language's channel/profile
-    for b in bot.sent("sendMessage"):
+    for b in bot.sent("sendPhoto"):
         assert ("/ua/threat/" in b["reply_markup"]["inline_keyboard"][0][0]["url"]) == (b["chat_id"] == "@fake_ua")
     for p in api.posts:
         assert ("/ua/threat/" in p["text"]) == (p["user"] == "222")

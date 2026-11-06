@@ -100,11 +100,19 @@ class Account:
     connected_at: str = ""
     disconnected_at: str = ""
     scopes: list[str] = field(default_factory=list)
+    # -- env-token mode (THREADS_*_ACCESS_TOKEN); no secret is stored here ---------
+    token_source: str = ""              # "env" | "oauth"
+    token_fingerprint: str = ""         # sha256 prefix of the token: detects a changed token, reveals nothing
+    token_type: str = ""                # from debug_token (e.g. USER)
+    data_access_expires_at: str = ""
+    last_published_at: str = ""
+    publications: list[str] = field(default_factory=list)   # recent publication times (daily cap)
+    publishing_since: str = ""          # first enabled run: nothing older is ever posted (no backlog)
 
     def to_public(self, now: datetime | None = None) -> dict[str, Any]:
         d = asdict(self)
         d.pop("token_ciphertext")
-        d["has_token"] = bool(self.token_ciphertext)
+        d["has_token"] = bool(self.token_ciphertext) or self.token_source == "env"
         exp = _parse(self.expires_at)
         if exp and now:
             d["expires_in_days"] = round((exp - now).total_seconds() / 86400, 1)
@@ -156,10 +164,14 @@ class _JsonFile:
 class AccountStore:
     """Account slots. Each mutation touches exactly one slot."""
 
-    def __init__(self, path: Path = ACCOUNTS_PATH, *, key: str = "", mapping: dict[str, str] | None = None) -> None:
+    def __init__(self, path: Path = ACCOUNTS_PATH, *, key: str = "", mapping: dict[str, str] | None = None,
+                 env_tokens: dict[str, str] | None = None) -> None:
         self._file = _JsonFile(path)
         self._key = key
         self.mapping = dict(mapping or {"en": "en", "ua": "ua"})
+        #: Tokens from THREADS_*_ACCESS_TOKEN. When set, they are the only token
+        #: source; nothing token-like is written to the registry.
+        self._env = {k: v for k, v in (env_tokens or {}).items() if v}
 
     def _cipher(self) -> TokenCipher:
         return TokenCipher(self._key)
@@ -190,7 +202,25 @@ class AccountStore:
 
     # -- tokens ----------------------------------------------------------------
 
+    @property
+    def env_mode(self) -> bool:
+        return bool(self._env)
+
+    def has_token(self, slot: str) -> bool:
+        if self._env:
+            return bool(self._env.get(slot))
+        return bool(self.get(slot).token_ciphertext)
+
+    def set_env_token(self, slot: str, token: str) -> None:
+        """After an atomic .env refresh: use the new token for the rest of this process."""
+        self._env[slot] = token
+
     def token(self, slot: str) -> str:
+        if self._env:
+            tok = self._env.get(slot, "")
+            if not tok:
+                raise TokenStorageError(f"THREADS_{slot.upper()}_ACCESS_TOKEN is not set")
+            return tok
         acc = self.get(slot)
         if not acc.token_ciphertext:
             raise TokenStorageError(f"no token stored for Threads slot {slot!r}")
@@ -225,6 +255,51 @@ class AccountStore:
                 a.status = "connected"
         return self.update(slot, f)
 
+    def register(self, slot: str, *, user_id: str, username: str, token: str, now: datetime,
+                 expires_at: datetime | None, issued_at: datetime | None, scopes: list[str],
+                 token_type: str = "", data_access_expires_at: datetime | None = None,
+                 allow_identity_change: bool = False) -> Account:
+        """Record a verified env-token account (from `/me` + `debug_token`).
+
+        A slot never silently changes identity: if it already maps to another
+        Threads user, this refuses unless the operator explicitly allows it."""
+        fp = token_fingerprint(token)
+
+        def f(a: Account) -> None:
+            if a.threads_user_id and a.threads_user_id != user_id and not allow_identity_change:
+                raise SlotConflict(f"slot {slot!r} is registered to another Threads user "
+                                   f"(@{a.username}); refusing to swap identities")
+            if a.token_fingerprint != fp:
+                a.token_obtained_at = _iso(issued_at or now)
+            a.status, a.token_source, a.token_fingerprint, a.token_ciphertext = "connected", "env", fp, ""
+            a.threads_user_id, a.username = user_id, username
+            a.expires_at = _iso(expires_at) if expires_at else ""
+            a.data_access_expires_at = _iso(data_access_expires_at) if data_access_expires_at else ""
+            a.token_type, a.scopes = token_type, list(scopes)
+            a.connected_at = a.connected_at or _iso(now)
+            a.last_verified_at, a.last_error, a.disconnected_at = _iso(now), "", ""
+        return self.update(slot, f)
+
+    def record_publication(self, slot: str, now: datetime) -> Account:
+        def f(a: Account) -> None:
+            keep = [t for t in a.publications if (_parse(t) or now) > now - timedelta(days=1)]
+            a.publications = keep + [_iso(now)]
+            a.last_published_at = _iso(now)
+        return self.update(slot, f)
+
+    def published_last_24h(self, slot: str, now: datetime) -> int:
+        return sum(1 for t in self.get(slot).publications if (_parse(t) or now) > now - timedelta(days=1))
+
+    def ensure_publishing_since(self, slot: str, now: datetime) -> datetime:
+        acc = self.get(slot)
+        since = _parse(acc.publishing_since)
+        if since is None:
+            def f(a: Account) -> None:
+                a.publishing_since = a.publishing_since or _iso(now)
+            acc = self.update(slot, f)
+            since = _parse(acc.publishing_since) or now
+        return since
+
     def disconnect(self, slot: str, now: datetime, reason: str = "disconnected by admin") -> Account:
         def f(a: Account) -> None:
             a.status, a.token_ciphertext, a.expires_at = "disconnected", "", ""
@@ -247,6 +322,11 @@ class AccountStore:
 
 class SlotConflict(RuntimeError):
     pass
+
+
+def token_fingerprint(token: str) -> str:
+    """12 hex chars of SHA-256: enough to notice a changed token, useless to an attacker."""
+    return hashlib.sha256(token.encode()).hexdigest()[:12] if token else ""
 
 
 class StateStore:
@@ -288,4 +368,4 @@ class StateStore:
 
 
 __all__ = ["ACCOUNTS_PATH", "Account", "AccountStore", "STATES_PATH", "STATE_TTL", "STATUSES",
-           "SlotConflict", "StateStore", "TokenCipher", "TokenStorageError"]
+           "SlotConflict", "StateStore", "TokenCipher", "TokenStorageError", "token_fingerprint"]

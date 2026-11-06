@@ -34,9 +34,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from ..publish.format import _OUTLET_TOKENS, _is_near_duplicate
+from ..publish.format import _OUTLET_TOKENS, _actions, _is_claim, _is_near_duplicate
 
 TEXT_LIMIT = 500
+#: Editorial target: optional blocks are dropped above this; 500 stays the hard limit.
+TEXT_TARGET = 450
 LINK_LIMIT = 5
 _URL_RE = re.compile(r"https?://\S+")
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -54,6 +56,11 @@ _SOURCE_LABEL = {"en": "Source", "ua": "Джерело"}
 _ACTION_LABEL = {"en": "What to do:", "ua": "Що зробити:"}
 #: One topic tag per post (1–50 chars, no "." or "&").
 TOPIC_TAG = {"en": "Cybersecurity", "ua": "Кібербезпека"}
+#: Evidence qualifiers, never dropped: a claim or a suspicion is not a fact.
+_CLAIM_LINE = {"en": "Unconfirmed: this is the attackers' own claim.",
+               "ua": "Не підтверджено: це заява самих зловмисників."}
+_SUSPECTED_LINE = {"en": "Exploitation is suspected, not confirmed.",
+                   "ua": "Атаки підозрюють, але не підтвердили."}
 
 
 def _emoji(ch: str) -> bool:
@@ -151,8 +158,15 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
     why = _clean(c.get("why_it_matters"))
     if why and _is_near_duplicate(why, [explain, fact, title]):
         why = ""
-    actions = [a for a in (_clean(x) for x in (c.get("what_to_do") or [])) if a]
+    # Only when the story justifies an action, and never off-topic advice
+    # (same rules as the Telegram post).
+    actions = [_clean(a) for a in _actions(payload, c)]
     action = f"{_ACTION_LABEL.get(locale, _ACTION_LABEL['en'])} {actions[0]}" if actions else ""
+    qualifier = ""
+    if _is_claim(c):
+        qualifier = _CLAIM_LINE.get(locale, _CLAIM_LINE["en"])
+    elif (payload.get("evidence") or {}).get("exploitation") == "suspected":
+        qualifier = _SUSPECTED_LINE.get(locale, _SUSPECTED_LINE["en"])
 
     # Attribution is never dropped: a standalone post must say whose reporting
     # it relays (the outlet name was stripped from the fact sentence above).
@@ -163,7 +177,7 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
 
     def assemble() -> str:
         body = " ".join(x for x in (blocks["explain"], blocks["fact"]) if x)
-        parts = [title, body, blocks["why"], blocks["action"], source_line, url]
+        parts = [title, body, qualifier, blocks["why"], blocks["action"], source_line, url]
         return "\n\n".join(p for p in parts if p)
 
     def links(text: str) -> int:
@@ -174,14 +188,15 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
     order = ("why", "action", "fact") if fact and _HARD_ID.search(fact) else ("why", "fact", "action")
     for name in order:
         text = assemble()
-        if threads_length(text) <= TEXT_LIMIT and links(text) <= LINK_LIMIT:
+        if threads_length(text) <= TEXT_TARGET and links(text) <= LINK_LIMIT:
             break
         if blocks[name]:
             blocks[name] = ""
             dropped.append(name)
     text = assemble()
     if threads_length(text) > TEXT_LIMIT and blocks["explain"]:
-        fixed = threads_length("\n\n".join([title, "", *([source_line] if source_line else []), url]))
+        fixed = threads_length("\n\n".join([title, "", *([qualifier] if qualifier else []),
+                                              *([source_line] if source_line else []), url]))
         blocks["explain"] = _shorten(blocks["explain"], TEXT_LIMIT - fixed)
         dropped.append("explain (shortened)" if blocks["explain"] else "explain")
         text = assemble()
@@ -192,5 +207,5 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
     return ThreadsPost(text=text, topic_tag=TOPIC_TAG.get(locale, TOPIC_TAG["en"]), dropped=dropped)
 
 
-__all__ = ["LINK_LIMIT", "TEXT_LIMIT", "TOPIC_TAG", "ThreadsContentError", "ThreadsPost", "render_post",
+__all__ = ["LINK_LIMIT", "TEXT_LIMIT", "TEXT_TARGET", "TOPIC_TAG", "ThreadsContentError", "ThreadsPost", "render_post",
            "threads_length"]

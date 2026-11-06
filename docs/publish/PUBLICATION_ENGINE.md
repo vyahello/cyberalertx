@@ -233,7 +233,7 @@ Implemented. See `docs/threads/THREADS_SETUP.md`. Changes to the engine:
 - **Compatibility.** Website and Telegram call `on_sending()` without
   arguments, exactly as before.
 - **Enabling.** Threads destinations exist only with
-  `CYBERALERTX_THREADS_PUBLISH=1`.
+  `THREADS_ENABLED=1` (older name `CYBERALERTX_THREADS_PUBLISH` still read).
 - **`cycle --send`** also refreshes due Threads tokens and auto-reconciles
   `outcome_unknown` Threads jobs before delivering.
 

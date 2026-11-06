@@ -32,7 +32,19 @@ from cyberalertx.threads.config import ThreadsSettings, parse_accounts  # noqa: 
 from cyberalertx.threads.destination import ThreadsDestination, auto_reconcile  # noqa: E402
 from cyberalertx.threads.format import render_post, threads_length  # noqa: E402
 from cyberalertx.threads.oauth import OAuthError, complete_callback, refresh_due, start_connect, verify  # noqa: E402
-from tests.test_publication import BASE, FakeSource, item, payload, settings, source_for, view  # noqa: E402
+from tests.test_publication import BASE, FakeSource, item, payload, settings, view  # noqa: E402
+from tests.test_publication import source_for as _source_for  # noqa: E402
+
+ASSET = "0123456789abcdef"
+
+
+def source_for(*items_: Any, **kw: Any) -> FakeSource:
+    """Every story has its canonical illustration (Threads waits without one)."""
+    src = _source_for(*items_, **kw)
+    for p in src.payloads.values():
+        p["media"] = {"illustration": {"asset_id": ASSET, "alt": {"en": "Illustration: a server rack.",
+                                                                  "ua": "Ілюстрація: серверна стійка."}}}
+    return src
 
 NOW = datetime(2026, 11, 3, 10, 0, tzinfo=timezone.utc)
 KEY = Fernet.generate_key().decode()
@@ -472,7 +484,7 @@ def test_permission_error_needs_the_operator(tmp_path: Path) -> None:
 
 # ---------------------------------------------------------------- publishing
 
-def test_image_post_uses_the_localized_portrait_card(tmp_path: Path) -> None:
+def test_image_post_uses_the_canonical_illustration(tmp_path: Path) -> None:
     api = FakeThreads()
     it = item(1)
     store, src, d = world(tmp_path, api, it)
@@ -480,32 +492,47 @@ def test_image_post_uses_the_localized_portrait_card(tmp_path: Path) -> None:
     assert len(rep.published) == 2 and len(api.posts) == 2
     creates = {a["access_token"][:9]: a for m, c, a in api.calls if c == "create"}
     ua = next(a for a in creates.values() if "/ua/" in a["text"])
-    assert ua["media_type"] == "IMAGE" and ua["topic_tag"] == "Кібербезпека"
-    assert ua["image_url"].startswith(f"{BASE}/ua/threat/{it.fingerprint}/card/threads-portrait.png?v=")
-    assert ua["alt_text"].startswith("Картка CyberAlertX")
+    en = next(a for a in creates.values() if "/en/" in a["text"])
+    # The same asset as the website and Telegram, its 1200x675 PNG derivative.
+    assert ua["media_type"] == "IMAGE" and ua["image_url"] == en["image_url"] == f"{BASE}/media/{ASSET}/telegram.png"
+    assert ua["alt_text"] == "Ілюстрація: серверна стійка." and en["alt_text"] == "Illustration: a server rack."
+    assert ua["topic_tag"] == "Кібербезпека"
     j = store.get("s:0001:ua:threads@ua:initial")
     assert j and j.external_id.startswith("p") and j.published_url.startswith("https://www.threads.com/")
     assert j.external_state["container_id"].startswith("c") and j.external_state["media_type"] == "IMAGE"
 
 
-def test_unreachable_card_falls_back_to_a_text_post(tmp_path: Path) -> None:
+def test_an_unreachable_illustration_means_waiting_not_a_text_post(tmp_path: Path) -> None:
     api = FakeThreads()
 
     def broken(url: str) -> None:
-        raise ValueError("card URL answered HTTP 404")
+        raise ValueError("image URL answered HTTP 404")
 
     store, src, d = world(tmp_path, api, item(1), image_check=broken)
     go(store, src, d)
-    assert {a["media_type"] for m, c, a in api.calls if c == "create"} == {"TEXT"}
-    assert all(j.status == "published" and j.media_url == "" for j in tj(store))
+    assert api.created() == [] and api.posts == []
+    assert all(j.status == "retrying" for j in tj(store))
 
 
-def test_refused_image_container_falls_back_to_text(tmp_path: Path) -> None:
+def test_a_story_without_an_illustration_waits(tmp_path: Path) -> None:
+    api = FakeThreads()
+    it = item(1)
+    src = source_for(it)
+    for p in src.payloads.values():
+        p.pop("media", None)
+    store, src, d = world(tmp_path, api, it, src=src)
+    rep = go(store, src, d)
+    assert api.created() == [] and all("illustration" in r["reason"] for r in rep.deferred)
+
+
+def test_a_refused_image_is_retried_never_posted_as_text(tmp_path: Path) -> None:
     api = FakeThreads()
     store, src, d = world(tmp_path, api, item(1))
     api.script["create"] = [httpx.Response(400, json={"error": {"message": "Image download failed", "code": 100}})]
     go(store, src, d)
-    assert all(j.status == "published" for j in tj(store)) and len(api.posts) == 2
+    assert "TEXT" not in {a["media_type"] for m, c, a in api.calls if c == "create"}
+    statuses = sorted(j.status for j in tj(store))
+    assert "retrying" in statuses and len(api.posts) == statuses.count("published")
 
 
 def test_slow_container_is_resumed_not_recreated(tmp_path: Path) -> None:
@@ -520,7 +547,7 @@ def test_slow_container_is_resumed_not_recreated(tmp_path: Path) -> None:
     assert len(api.created()) == 2 and len(api.posts) == 2                   # same two containers
 
 
-def test_container_error_with_image_retries_as_text(tmp_path: Path) -> None:
+def test_container_error_gets_a_new_image_container_never_text(tmp_path: Path) -> None:
     api = FakeThreads()
     store, src, d = world(tmp_path, api, item(1, language="ua"))
     orig = api._handle
@@ -533,8 +560,12 @@ def test_container_error_with_image_retries_as_text(tmp_path: Path) -> None:
         return resp
     api._handle = errored                                                   # type: ignore[method-assign]
     go(store, src, d)
-    assert [c["media_type"] for c in api.containers.values()] == ["IMAGE", "TEXT"]
+    assert {c["media_type"] for c in api.containers.values()} == {"IMAGE"} and api.posts == []
+    assert st(store) == {"s:0001:ua:threads@ua:initial": "retrying"}
+    api._handle = orig                                                      # type: ignore[method-assign]
+    go(store, src, d, now=NOW + timedelta(hours=1))
     assert st(store) == {"s:0001:ua:threads@ua:initial": "published"}
+    assert {c["media_type"] for c in api.containers.values()} == {"IMAGE"}
 
 
 def test_expired_container_is_replaced(tmp_path: Path) -> None:

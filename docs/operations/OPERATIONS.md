@@ -213,7 +213,7 @@ asset as the website) with a caption and one inline button to the article.
 Structure, accuracy rules and a measured before/after comparison:
 [editorial/TELEGRAM_FORMAT.md](../editorial/TELEGRAM_FORMAT.md).
 
-**Threads** stays off: `CYBERALERTX_THREADS_PUBLISH=0`. Resolved flags,
+**Threads** is off until authorized: `THREADS_ENABLED=0` (setup and switch: [THREADS_SETUP.md](../threads/THREADS_SETUP.md)). Resolved flags,
 including `review_mode` (production: `flag`):
 `cd $APP_ROOT/current && . ops/release/loadenv.sh && loadenv $APP_HOME/.env && PYTHONPATH=. venv/bin/python ops/release/settings_check.py`.
 

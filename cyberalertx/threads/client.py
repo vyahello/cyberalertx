@@ -146,6 +146,17 @@ class ThreadsClient:
             raise ThreadsError("token response without access_token/expires_in", category="auth")
         return str(token), int(expires)
 
+    def debug_token(self, input_token: str, access_token: str) -> dict[str, Any]:
+        """Token metadata (docs: troubleshooting/debug-access-token): is_valid, expires_at,
+        issued_at, scopes, user_id, type, data_access_expires_at. A tester's own
+        user token may authenticate the call, so no app secret is needed."""
+        body = self._call("GET", f"{self.api}/debug_token",
+                          params={"input_token": input_token, "access_token": access_token})
+        data = body.get("data")
+        if not isinstance(data, dict):
+            raise ThreadsError("debug_token returned no data", category="unknown_outcome")
+        return data
+
     def me(self, token: str) -> dict[str, Any]:
         return self._call("GET", f"{self.api}/me", params={"fields": "id,username,name", "access_token": token})
 
