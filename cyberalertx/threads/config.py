@@ -1,18 +1,21 @@
 """Threads settings, read from the environment like every other CyberAlertX setting.
 
-    CYBERALERTX_THREADS_APP_ID        Threads App ID (App Dashboard → Use cases → Threads API)
-    CYBERALERTX_THREADS_APP_SECRET    Threads App Secret (server-side only)
-    CYBERALERTX_THREADS_REDIRECT_URI  exact OAuth redirect URI registered in the app,
-                                      e.g. https://cyberalertx.com/admin/threads/callback
-    CYBERALERTX_THREADS_TOKEN_KEY     Fernet key encrypting stored tokens
-                                      (`python -m cyberalertx.tools.threads gen-key`)
-    CYBERALERTX_THREADS_ACCOUNTS      slot:locale pairs, default "en:en,ua:ua"
-    CYBERALERTX_THREADS_PUBLISH       1 to let the Publication Engine use Threads (default off)
-    CYBERALERTX_THREADS_MIN_LEVEL     Low|Medium|High|Critical (default High), like Telegram
-    CYBERALERTX_THREADS_LIMIT         posts per account per run (default 1)
+One Meta app, two Threads accounts (one per language):
 
-Nothing here is required for the rest of the platform: with no settings the
-integration is simply disconnected and disabled.
+    THREADS_ENABLED            1 to let the Publication Engine post to Threads (default 0: off)
+    THREADS_APP_ID             the one shared Threads App ID (not a secret, not a user id)
+    THREADS_APP_SECRET         optional; only for exchanging a short-lived token
+    THREADS_EN_USERNAME        expected username of the English account (cyberalertx)
+    THREADS_EN_ACCESS_TOKEN    its Threads user access token
+    THREADS_UA_USERNAME        expected username of the Ukrainian account (cyberalertx_ua)
+    THREADS_UA_ACCESS_TOKEN    its Threads user access token
+    THREADS_DAILY_LIMIT        posts per account per 24 h (default 3, pilot)
+    CYBERALERTX_THREADS_MIN_LEVEL / _LIMIT   severity bar / posts per account per run
+
+Threads user ids are never configured: each is read from `/me` with that
+account's own token and kept in the account registry (data/threads_accounts.json,
+no secrets). The older CYBERALERTX_THREADS_* names (web OAuth flow with
+encrypted tokens) still work as fallbacks.
 """
 from __future__ import annotations
 
@@ -59,6 +62,18 @@ def parse_accounts(raw: str) -> dict[str, str]:
     return out
 
 
+def _env(*names: str) -> str:
+    for n in names:
+        v = (os.getenv(n) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _flag(*names: str) -> bool:
+    return _env(*names).lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class ThreadsSettings:
     app_id: str = ""
@@ -70,6 +85,16 @@ class ThreadsSettings:
     min_level: str = "High"
     graph_root: str = GRAPH_ROOT
     authorize_url: str = AUTHORIZE_URL
+    #: slot -> expected username (THREADS_EN_USERNAME / THREADS_UA_USERNAME)
+    usernames: dict[str, str] = field(default_factory=dict)
+    #: slot -> access token from the environment; never logged or stored elsewhere
+    env_tokens: dict[str, str] = field(default_factory=dict, repr=False)
+    daily_limit: int = 3
+
+    @property
+    def env_mode(self) -> bool:
+        """Tokens come from THREADS_*_ACCESS_TOKEN (not the encrypted web-OAuth store)."""
+        return any(self.env_tokens.values())
 
     @property
     def oauth_configured(self) -> bool:
@@ -82,17 +107,25 @@ class ThreadsSettings:
     @classmethod
     def from_env(cls) -> "ThreadsSettings":
         level = (os.getenv("CYBERALERTX_THREADS_MIN_LEVEL") or "High").strip().title()
+        try:
+            daily = max(0, int(_env("THREADS_DAILY_LIMIT") or "3"))
+        except ValueError:
+            daily = 3
         return cls(
-            app_id=(os.getenv("CYBERALERTX_THREADS_APP_ID") or "").strip(),
-            app_secret=(os.getenv("CYBERALERTX_THREADS_APP_SECRET") or "").strip(),
-            redirect_uri=(os.getenv("CYBERALERTX_THREADS_REDIRECT_URI") or "").strip(),
-            token_key=(os.getenv("CYBERALERTX_THREADS_TOKEN_KEY") or "").strip(),
+            app_id=_env("THREADS_APP_ID", "CYBERALERTX_THREADS_APP_ID"),
+            app_secret=_env("THREADS_APP_SECRET", "CYBERALERTX_THREADS_APP_SECRET"),
+            redirect_uri=_env("CYBERALERTX_THREADS_REDIRECT_URI"),
+            token_key=_env("CYBERALERTX_THREADS_TOKEN_KEY"),
             accounts=parse_accounts(os.getenv("CYBERALERTX_THREADS_ACCOUNTS") or "en:en,ua:ua"),
-            publish_enabled=(os.getenv("CYBERALERTX_THREADS_PUBLISH") or "").strip().lower()
-            in ("1", "true", "yes", "on"),
+            publish_enabled=_flag("THREADS_ENABLED") if os.getenv("THREADS_ENABLED") is not None
+            else _flag("CYBERALERTX_THREADS_PUBLISH"),
             min_level=level if level in ("Low", "Medium", "High", "Critical") else "High",
+            usernames={k: v for k, v in (("en", _env("THREADS_EN_USERNAME")),
+                                         ("ua", _env("THREADS_UA_USERNAME"))) if v},
+            env_tokens={k: v for k, v in (("en", _env("THREADS_EN_ACCESS_TOKEN")),
+                                          ("ua", _env("THREADS_UA_ACCESS_TOKEN"))) if v},
+            daily_limit=daily,
         )
-
 
 __all__ = ["AUTHORIZE_URL", "GRAPH_ROOT", "GRAPH_VERSION", "LOCALES", "SCOPES", "ThreadsSettings",
            "normalize_locale", "parse_accounts"]
