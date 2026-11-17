@@ -348,3 +348,23 @@ def test_unreadable_json_never_falls_back_to_stale_pg_review_state(schema: str, 
     with pytest.raises(Exception):
         d.set(it.fingerprint, "en", _post(it, "en"))                   # and nothing overwrites the file
     assert path.read_text() == "{ not json"
+
+
+def test_a_write_in_the_same_mtime_tick_is_never_lost(tmp_path: Path) -> None:
+    """Deterministic form of the intermittent concurrency failure (17 Nov 2026).
+
+    File timestamps are coarse. Process B can write in the same tick as A's
+    last write, so the mtime A remembers still matches the file. A's next
+    write must re-read anyway, or it saves its stale view over B's change."""
+    import os
+    path = tmp_path / "threat_posts.json"
+    a, b = ThreatPostCache(path), ThreatPostCache(path)
+    first, second, third = _item("tick1"), _item("tick2"), _item("tick3")
+    a.set(first.fingerprint, "en", _post(first, "en"))
+    seen = path.stat().st_mtime_ns
+    b.set(second.fingerprint, "en", _post(second, "en"))
+    os.utime(path, ns=(seen, seen))                       # B's write landed in A's tick
+    a.set(third.fingerprint, "en", _post(third, "en"))
+    stored = json.loads(path.read_text())["posts"]
+    assert {f"{i.fingerprint}:en" for i in (first, second, third)} <= set(stored)
+    assert a.delete(second.fingerprint, "en") is True     # delete re-reads too

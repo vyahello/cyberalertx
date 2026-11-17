@@ -175,11 +175,13 @@ class ThreatPostCache:
                 fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
     def set(self, fingerprint: str, locale: str, post: ThreatPost) -> None:
-        # Reload under the lock before merging — picks up entries another
-        # process wrote since our last `get()`, so we don't drop them when
-        # we flush our local view.
+        # Re-read under the lock before merging, ALWAYS — not only when the
+        # mtime moved. File timestamps are coarse (a few ms): another process
+        # can write in the same tick as our last write, leave the mtime equal
+        # to `_mtime_seen`, and an mtime-gated reload would flush our stale
+        # view over its change (a lost review decision, seen under load).
         with self._locked():
-            self._maybe_reload()
+            self._load()
             self._store[_key(fingerprint, locale)] = post.to_dict()
             self._flush()
             self._mtime_seen = self._current_mtime()
@@ -199,7 +201,7 @@ class ThreatPostCache:
         paying to redo.
         """
         with self._locked():
-            self._maybe_reload()
+            self._load()                    # always, see set()
             if self._store.pop(_key(fingerprint, locale), None) is None:
                 return False
             self._flush()
