@@ -262,6 +262,59 @@ def _edit_story_overrides(path: Path, kind: str, entry: dict[str, Any]) -> None:
     _write_json(path, raw)
 
 
+def build_duplicate_audit(items: Sequence[NewsItem], data_dir: Path) -> dict[str, Any]:
+    """Read-only: stories the current matcher sees as one event although their
+    articles carry different stored story keys, with what was already
+    published where. Deletes, rewrites and cancels nothing."""
+    overrides = load_story_overrides(data_dir / "stories" / "overrides.json")
+    clusters = cluster_items(list(items), overrides=overrides)
+    by_fp = {i.fingerprint: i for i in items}
+    jobs: list[dict[str, Any]] = []
+    jpath = data_dir / "publish_jobs.json"
+    if jpath.exists():
+        raw = json.loads(jpath.read_text(encoding="utf-8"))
+        raw = raw.get("jobs", raw) if isinstance(raw, dict) else raw
+        jobs = list(raw.values()) if isinstance(raw, dict) else list(raw)
+    ledger: list[dict[str, Any]] = []
+    lpath = data_dir / "telegram_published.jsonl"
+    if lpath.exists():
+        for line in lpath.read_text(encoding="utf-8").splitlines():
+            try:
+                ledger.append(json.loads(line))
+            except ValueError:
+                continue
+    out: list[dict[str, Any]] = []
+    for c in clusters:
+        fps = [m.fingerprint for m in c.members]
+        keys = {getattr(by_fp.get(fp), "story_key", "") or fp for fp in fps}
+        if len(fps) < 2 or len(keys) < 2:
+            continue
+        posts: dict[str, list[str]] = {}
+        for j in jobs:
+            if j.get("fingerprint") in fps and j.get("destination") != "website" and j.get("status") == "published":
+                posts.setdefault(f"{j['destination']}:{j['locale']}", []).append(
+                    f"{j['fingerprint']} -> {j.get('external_id', '')}")
+        pending = [j["job_id"] for j in jobs if j.get("fingerprint") in fps and j.get("destination") != "website"
+                   and j.get("status") in ("scheduled", "retrying")]
+        decisions = {d.fingerprint: d for d in c.decisions}
+        out.append({
+            "story": c.key, "stored_story_keys": sorted(keys),
+            "articles": [{**_brief(by_fp[fp]), "url": by_fp[fp].url,
+                          "stored_story_key": getattr(by_fp[fp], "story_key", ""),
+                          "matched_by": (f"{decisions[fp].rule}/{decisions[fp].confidence}: {decisions[fp].reason}"
+                                         if fp in decisions else "anchor")} for fp in fps if fp in by_fp],
+            "published": posts,
+            "duplicate_posts": {k: v for k, v in posts.items() if len(v) > 1},
+            "pending_jobs": pending,
+        })
+    review = [{"a": _brief(by_fp[d.anchor]), "b": _brief(by_fp[d.fingerprint]), "rule": d.rule,
+               "reason": d.reason} for c in clusters for d in c.links
+              if d.anchor in by_fp and d.fingerprint in by_fp]
+    return {"generated_at": _now(), "articles": len(items), "events_split_across_story_keys": out,
+            "with_duplicate_posts": sum(1 for e in out if e["duplicate_posts"]),
+            "review_candidates": review, "telegram_ledger_lines": len(ledger)}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cyberalertx.tools.stories",
                                  description=(__doc__ or "").splitlines()[0])
@@ -269,6 +322,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("cluster-report", help="dry-run: stored story keys vs current algorithm")
     sub.add_parser("relevance-report", help="dry-run: scope classification of the snapshot")
+    da = sub.add_parser("duplicate-audit", help="read-only: one event under several story keys, and its posts")
+    da.add_argument("--out", help="also write the JSON report here (default: stdout only)")
     ov = sub.add_parser("relevance-override", help="record a manual scope decision")
     ov.add_argument("fingerprint")
     ov.add_argument("status", choices=RELEVANCE_STATUSES)
@@ -283,6 +338,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = ap.parse_args(argv)
     data_dir = _data_dir(args.data_dir)
     stories = data_dir / "stories"
+
+    if args.cmd == "duplicate-audit":
+        audit = build_duplicate_audit(_load_items(data_dir), data_dir)
+        if args.out:
+            _write_json(Path(args.out), audit)
+        print(json.dumps(audit, ensure_ascii=False, indent=1))
+        return 0
 
     if args.cmd == "cluster-report":
         report = build_cluster_report(_load_items(data_dir), data_dir)

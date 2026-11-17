@@ -1193,6 +1193,13 @@ class StoryFeatures:
     url: str = ""
     cited_urls: frozenset[str] = frozenset()
     attributed_outlets: frozenset[str] = frozenset()
+    #: RULE F (cross-language event): language-neutral event concepts from
+    #: title + body (bilingual lexicon), and the Latin tokens seen capitalized
+    #: / lower-case, which survive inside Ukrainian text ("Google", "GTIG").
+    event_concepts: frozenset[str] = frozenset()
+    generic_concepts: frozenset[str] = frozenset()
+    caps_tokens: frozenset[str] = frozenset()
+    lower_tokens: frozenset[str] = frozenset()
 
     @classmethod
     def from_item(cls, item: NewsItem) -> "StoryFeatures":
@@ -1228,7 +1235,65 @@ class StoryFeatures:
                 normalize_url(u) for u in _URL_RE.findall(item.raw_content or "")
             ),
             attributed_outlets=attributed_outlets(item.raw_content or ""),
+            event_concepts=_event_concepts(cve_text, _SPECIFIC_CONCEPTS),
+            generic_concepts=_event_concepts(cve_text, _GENERIC_CONCEPTS),
+            caps_tokens=frozenset(m.group(0) for m in _CAPS_RE.finditer(cve_text)),
+            lower_tokens=frozenset(m.group(0) for m in _LOWER_RE.finditer(cve_text)),
         )
+
+
+# ---------------------------------------------------------------- RULE F lexicon
+#
+# Language-neutral event concepts, matched at word starts in the source title
+# and excerpt, English and Ukrainian. SPECIFIC concepts describe what happened
+# (agentic AI, full automation, patch-to-exploit, ransomware...); GENERIC ones
+# (AI, exploit, vulnerability, attack) only support. Kept small on purpose:
+# a concept must be rare enough across a 48 h window to mean something.
+_SPECIFIC_CONCEPTS: dict[str, tuple[str, ...]] = {
+    "ai_agent": ("agent", "agentic", "multi-agent", "агент", "мультиагент"),
+    "full_automation": ("fully-automated", "fully automated", "autonomous", "automate", "автоматизован",
+                        "автоматизу", "автономн", "без участі людини", "без втручання людини"),
+    "patch_to_exploit": ("patch diff", "from software patch", "patches into", "до та після випуску виправлень",
+                         "аналізувати оновлення"),
+    "vuln_discovery": ("vulnerability discovery", "find and exploit", "find vulnerab", "finding vulnerab",
+                       "пошук і експлуатац", "знаходили вразлив", "шукатиме"),
+    "ransomware": ("ransomware", "вимагач", "шифрувальник"),
+    "supply_chain": ("supply chain", "supply-chain", "ланцюг постачання", "ланцюжок постачання"),
+    "credential_theft": ("credential", "облікові дані", "облікових даних"),
+    "data_leak": ("data leak", "leaked", "витік", "злили"),
+    "phishing": ("phishing", "фішинг"),
+    "botnet": ("botnet", "ботнет"),
+    "zero_day": ("zero-day", "0-day", "нульового дня"),
+}
+_GENERIC_CONCEPTS: dict[str, tuple[str, ...]] = {
+    "ai": ("ai", "artificial intelligence", "llm", "ші", "штучн"),
+    "exploit": ("exploit", "експлойт", "експлуатац"),
+    "vulnerability": ("vulnerab", "flaw", "вразлив", "уразлив"),
+    "attack": ("attack", "атак"),
+}
+#: Capitalized tokens that are acronyms of the trade, not names of anything.
+_NOT_NAMES = frozenset({"AI", "LLM", "CVE", "CVSS", "RCE", "API", "URL", "IT", "PDF", "USB", "VPN", "DNS", "SQL",
+                        "OS", "CEO", "FBI", "CISA", "US", "UK", "EU", "GPT", "IoT", "SaaS", "ID", "PoC", "KEV"})
+_CAPS_RE = re.compile(r"\b[A-Z][A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)*\b")
+_LOWER_RE = re.compile(r"\b[a-z][a-z0-9]+(?:-[a-z0-9]+)*\b")
+_EVENT_WINDOW = timedelta(hours=48)
+
+
+def _event_concepts(text: str, lexicon: Mapping[str, tuple[str, ...]]) -> frozenset[str]:
+    t = " " + text.lower() + " "
+    return frozenset(c for c, stems in lexicon.items()
+                     if any(re.search(r"(?<![\w])" + re.escape(stem), t) for stem in stems))
+
+
+def _event_names(a: "StoryFeatures", b: "StoryFeatures") -> frozenset[str]:
+    """Names both articles carry: capitalized in both, never lower-case in
+    either (so title-case headline words like "Hackers" do not count)."""
+    lower = {w.lower() for w in a.lower_tokens | b.lower_tokens}
+    return frozenset(n for n in a.caps_tokens & b.caps_tokens
+                     if n not in _NOT_NAMES and len(n) > 1 and n.lower() not in lower
+                     # generic trade words ("Cybersecurity", "Hackers") are not names
+                     and _norm_token(n.lower()) not in _GENERIC_SECURITY_TERMS
+                     and n.lower() not in _STOPWORDS)
 
 
 @dataclass(frozen=True)
@@ -1566,6 +1631,11 @@ def match_story(
 
     if a.fingerprint == b.fingerprint:
         return decide("same_fingerprint", "high", "same article URL")
+    # The same article under URL variants (tracking parameters, www, fragment,
+    # trailing slash): `normalize_url` keeps meaningful query parameters, so
+    # equal normalised URLs are one article. Ahead of the vetoes, like RULE 0.
+    if a.url and a.url == b.url:
+        return decide("same_canonical_url", "high", f"same canonical URL ({a.url})")
     if not _within_window(a, b, days=window_days):
         return None
 
@@ -1739,6 +1809,30 @@ def match_story(
         return _follow_up_or(a, b, decide(
             "rule_e_rare_name", "medium", f"rare shared name within 48h ({names})",
         ))
+
+    # RULE F — the same event across languages and wordings.
+    #
+    # Headline rules cannot see that "Google warns that fully-automated AI
+    # attacks are coming soon" (BleepingComputer), "Google Finds Hackers
+    # Using AI Agents…" (The Hacker News) and «Google попереджає про близькі
+    # повністю автоматизовані атаки» (itc.ua) report one Google report: the
+    # headlines share one word and one is Ukrainian. RULE F compares what the
+    # articles are about instead: a shared name (Latin script survives in UA
+    # text) plus shared SPECIFIC event concepts, within 48 h, different
+    # outlets, and none of the vetoes above.
+    #   merge (medium): >= 1 shared name, >= 2 specific concepts, >= 4 concepts in all
+    #   link  (low):    >= 1 shared name, >= 1 specific concept,  >= 3 concepts in all
+    # A link never merges; it surfaces the pair for editorial review.
+    if a.source != b.source and _within(a, b, _EVENT_WINDOW) and not _different_victims(a, b):
+        shared = _event_names(a, b)
+        spec = a.event_concepts & b.event_concepts
+        support = len(spec) + len(a.generic_concepts & b.generic_concepts)
+        if shared and spec:
+            why = f"same event: names {sorted(shared)}, concepts {sorted(spec)}"
+            if len(spec) >= 2 and support >= 4:
+                return decide("rule_f_event", "medium", why)
+            if support >= 3:
+                return decide("rule_f_event", "low", why + " (review: not merged)")
 
     return None
 

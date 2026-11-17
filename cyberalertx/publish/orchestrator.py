@@ -154,12 +154,16 @@ class PlanResult:
     created: list[PublicationJob] = field(default_factory=list)
     skipped: list[dict[str, str]] = field(default_factory=list)
     existing: int = 0
+    #: Pending initial jobs cancelled because another article of the SAME
+    #: story is already published to that destination and language.
+    superseded: list[dict[str, str]] = field(default_factory=list)
 
     def summary(self) -> dict[str, Any]:
         by: dict[str, int] = {}
         for s in self.skipped:
             by[s["reason"]] = by.get(s["reason"], 0) + 1
-        return {"created": len(self.created), "existing": self.existing, "skipped": by}
+        return {"created": len(self.created), "existing": self.existing, "skipped": by,
+                "superseded": len(self.superseded)}
 
 
 def _kyiv_slot(now: datetime, hhmm: str, tz: str) -> datetime | None:
@@ -348,7 +352,46 @@ def plan(
         res.created = list(proposed.values())
     else:
         res.created = store.add_missing(proposed.values(), now)
+    res.superseded = _supersede_story_duplicates(store, view, now, dry_run=dry_run)
     return res
+
+
+def _supersede_story_duplicates(store: JobStore, view: IntelView, now: datetime, *,
+                                dry_run: bool) -> list[dict[str, str]]:
+    """One initial post per story, destination and language — across story keys.
+
+    Story keys never move once assigned, so articles that turn out to be the
+    same event (merged later by the clustering) keep the jobs they were planned
+    under. When any member of a story is already published (or sent with an
+    unknown outcome) to a destination in a language, every other member's
+    still-pending initial job there is cancelled, never sent. Published jobs,
+    updates and other destinations or languages are untouched."""
+    jobs = store.all()
+    out: list[dict[str, str]] = []
+    for story, members in view.members.items():
+        if len(members) < 2:
+            continue
+        mset = set(members)
+        sent: dict[tuple[str, str], str] = {}
+        for j in jobs:
+            if (j.fingerprint in mset and j.publication_type == "initial"
+                    and j.status in ("published", "outcome_unknown") and j.destination != "website"):
+                sent.setdefault((j.destination, j.locale), j.job_id)
+        for j in jobs:
+            first = sent.get((j.destination, j.locale))
+            if (first and j.fingerprint in mset and j.job_id != first and j.publication_type == "initial"
+                    and j.status in ("scheduled", "retrying")):
+                out.append({"job_id": j.job_id, "duplicate_of": first, "story": story})
+                if dry_run:
+                    continue
+
+                def cancel(x: PublicationJob, first: str = first, story: str = story) -> None:
+                    if x.status in ("scheduled", "retrying"):
+                        x.status, x.completed_at = "cancelled", _iso(now)
+                        x.last_error = f"same story ({story}) already published as {first}"
+                        x.note(now, "cancelled", reason=x.last_error)
+                store.update(j.job_id, cancel, now)
+    return out
 
 
 # ---------------------------------------------------------------- execution
