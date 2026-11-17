@@ -50,7 +50,9 @@ def cmd_backfill(args: argparse.Namespace) -> int:
     print(json.dumps({"plan": plan}, ensure_ascii=False, indent=2))
     if args.dry_run or not args.batch:
         return 0
-    res = run(items, sheets=sheets, posts=posts, max_calls=args.batch, now=datetime.now(timezone.utc))
+    # The explicit step that replaces images made by an older renderer.
+    res = run(items, sheets=sheets, posts=posts, max_calls=args.batch, now=datetime.now(timezone.utc),
+              upgrade_renderer=True)
     print(json.dumps({"batch": res.summary()}, ensure_ascii=False, indent=2))
     return 1 if res.failed and not res.generated else 0
 

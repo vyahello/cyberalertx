@@ -249,7 +249,7 @@ def test_the_ncentral_story_shows_remote_management_not_a_wallet() -> None:
         "N-able Patches 17 N-central Flaws as Attackers Exploit Earlier Bugs to Deploy Crypto Miners",
         "N-able has released a new security update to address additional critical security flaws impacting "
         "N-central, its Remote Monitoring and Management (RMM) platform.")
-    assert brief.scene == "corporate" and "wallet" not in brief.scenes
+    assert brief.scene == "rmm" and "wallet" not in brief.scenes
     assert "cryptocurrency" not in alt["en"]
 
 

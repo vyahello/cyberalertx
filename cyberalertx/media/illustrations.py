@@ -275,26 +275,75 @@ _SCENE_KIND = {
 # technology words in the SOURCE title (verified text) -> scene
 _TITLE_SCENE = (
     (re.compile(r"\b(ICS|SCADA|PLC|OT|industrial|water utilit|power plant|turbine|pipeline operator|refrigerat\w*|"
-                r"HVAC|building management|medical device|hospital|blood)\b", re.I), "industrial"),
+                r"HVAC|building management|medical device|hospital|blood)\b|промислов\w*|АСУ ТП|холодильн\w*|"
+                r"морозильн\w*|енергетик\w*|водоканал\w*", re.I), "industrial"),
     (re.compile(r"\b(session|cookie|MFA|2FA|OAuth|login|account takeover|passkey|SSO)\b", re.I), "cloud"),
-    (re.compile(r"\b(cloud|AWS|Azure|GCP|S3 bucket|tenant|SaaS|Okta|Entra|identity provider)\b", re.I), "cloud"),
+    (re.compile(r"\b(cloud|AWS|Azure|GCP|S3 bucket|tenant|SaaS|Okta|Entra|identity provider)\b|хмарн\w*|хмар[аиу]\b",
+                re.I), "cloud"),
     (re.compile(r"\b(LLM|AI model|AI agent|ChatGPT|Copilot|Gemini|Claude|machine learning)\b", re.I), "ai"),
-    (re.compile(r"\b(router|firewall|VPN|gateway|switch(es)?|edge device|Fortinet|FortiGate|Ivanti|Citrix|SonicWall|Palo Alto)\b", re.I), "network_edge"),
-    (re.compile(r"\b(npm|PyPI|package|supply.chain|GitHub|CI/CD|repository)\b", re.I), "pipeline"),
-    (re.compile(r"\b(e-?mail|Exchange|Outlook|mailbox|SharePoint|Microsoft 365)\b", re.I), "mail"),
+    (re.compile(r"\b(router|firewall|VPN|gateway|switch(es)?|edge device|Fortinet|FortiGate|Ivanti|Citrix|SonicWall|"
+                r"Palo Alto|Check Point)\b|маршрутизатор\w*|роутер\w*|шлюз\w*|фаєрвол\w*|брандмауер\w*", re.I),
+     "network_edge"),
+    (re.compile(r"\b(npm|PyPI|package|supply.chain|GitHub|CI/CD|repository|poisoned update|software update)\b|"
+                r"отруєн\w* оновленн\w*|ланцюг\w* постачанн\w*|репозитор\w*", re.I), "pipeline"),
+    (re.compile(r"\b(e-?mail|Exchange|Outlook|mailbox|SharePoint|Microsoft 365)\b|пошт\w*|електронн\w* лист\w*",
+                re.I), "mail"),
     (re.compile(r"\b(macOS|Mac|Apple|Windows)\b", re.I), "workstation"),
-    (re.compile(r"\b(Android|iPhone|iOS|smartphone|mobile app)\b", re.I), "phone"),
+    (re.compile(r"\b(Android|iPhone|iOS|smartphone|mobile app)\b|смартфон\w*|мобільн\w* застосун\w*", re.I), "phone"),
     # Remote management tools: one console reaching every managed machine. Checked
     # before the wallet rule, so "attackers deploy crypto miners" (an impact)
     # cannot turn an RMM story into a cryptocurrency picture.
     (re.compile(r"\b(RMM|remote monitoring|remote management|N-central|N-able|ConnectWise|ScreenConnect|Kaseya|"
-                r"TeamViewer|AnyDesk|SimpleHelp)\b", re.I), "corporate"),
+                r"TeamViewer|AnyDesk|SimpleHelp)\b", re.I), "rmm"),
     # Wallets only when crypto assets are the subject; "crypto miner(s)/mining"
     # describes what attackers installed, not what was attacked.
-    (re.compile(r"\b(crypto(?![\s-]*(?:min|jack))|wallet|bitcoin|exchange hack|DeFi)\b", re.I), "wallet"),
-    (re.compile(r"\b(browser|Chrome|Firefox|Safari|extension)\b", re.I), "browser"),
-    (re.compile(r"\b(WordPress|plugin|website|CMS|web server)\b", re.I), "web"),
+    (re.compile(r"\b(crypto(?![\s-]*(?:min|jack))|wallet|bitcoin|Ethereum|exchange hack|DeFi)\b|криптогаман\w*|"
+                r"криптовалют\w*|біткоїн\w*", re.I), "wallet"),
+    (re.compile(r"\b(browser|Chrome|Firefox|Safari|extension)\b|браузер\w*", re.I), "browser"),
+    (re.compile(r"\b(WordPress|plugin|website|CMS|web server)\b|сайт\w*", re.I), "web"),
+    (re.compile(r"\b(supercomputer|data cent(?:er|re)|HPC)\b|суперкомп\S*|ЦОД|дата-?центр\w*", re.I), "server_room"),
+    (re.compile(r"\b(server|Linux|kernel|vCenter|ESXi|hypervisor|IRC)\w*\b|сервер\w*|ядр[оі] Linux", re.I), "rack"),
 )
+
+
+#: AI working on vulnerabilities (finding, building or running exploits): its own
+#: scene, not the generic "AI model network", when both appear in the SAME clause.
+_AI_RE = re.compile(r"\b(AI|LLM|agentic|AI agents?|machine learning|Gemini|GPT|Claude)\b|ШІ|штучн\w* інтелект", re.I)
+_VULN_RE = re.compile(r"\b(vulnerabilit\w*|flaws?|bugs?|exploit\w*|zero-day|0-day|attacks?|hack\w*)\b|вразлив\w*|"
+                      r"уразлив\w*|експлойт\w*|зламув\w*|кібератак\w*|атак\w*", re.I)
+#: Where a headline's main clause ends and context begins ("…, as attackers
+#: deploy crypto miners"): the subject is in the first part.
+_CLAUSE_BREAK = re.compile(r"\s(?:as|after|while|amid|following|despite|before|once)\s|\s[—–]\s|\s-\s"
+                           r"|\s(?:після|на тлі|поки|тоді як)\s", re.I)
+
+
+def _title_scenes(title: str) -> list[str]:
+    """Scenes in order of editorial weight: the main clause first, in order of
+    mention; the rest of the headline only adds secondary scenes. An
+    incidental consequence ("… as attackers deploy crypto miners") can no
+    longer become the picture's subject."""
+    parts = _CLAUSE_BREAK.split(title, maxsplit=1)
+    out: list[str] = []
+    for part in parts:
+        hits: list[tuple[int, int, str]] = []
+        if _AI_RE.search(part) and _VULN_RE.search(part):
+            m = _AI_RE.search(part)
+            hits.append((m.start() if m else 0, -1, "ai_discovery"))
+        for idx, (rx, kind) in enumerate(_TITLE_SCENE):
+            m = rx.search(part)
+            if m:
+                hits.append((m.start(), idx, kind))
+        for _, _, kind in sorted(hits):
+            if kind not in out:
+                out.append(kind)
+    return out
+
+
+#: When neither headline nor excerpt names a technology (category -> scene).
+_CATEGORY_SCENE = {"ransomware": "server_room", "breach": "corporate", "data leak": "corporate",
+                   "malware": "workstation", "spyware": "phone", "phishing": "mail", "social engineering": "mail",
+                   "scam": "payments", "botnet": "home", "vulnerability": "rack", "exploit": "rack",
+                   "zero-day": "network_edge"}
 
 
 # what each SVG scene shows, for alt text (EN, UA)
@@ -310,6 +359,10 @@ _KIND_ALT = {
     "cloud": ("cloud accounts and identity layers", "хмарні облікові записи й рівні доступу"),
     "industrial": ("industrial control equipment", "обладнання промислового керування"),
     "ai": ("an AI model network", "мережа ШІ-моделі"), "core": ("an abstract system", "абстрактна система"),
+    "rmm": ("a remote-management console reaching managed computers",
+            "консоль віддаленого керування, з'єднана з керованими комп'ютерами"),
+    "ai_discovery": ("automated analysis scanning source code for a vulnerable component",
+                     "автоматизований аналіз коду, що знаходить вразливий компонент"),
 }
 
 
@@ -325,16 +378,21 @@ def visual_brief(story: Any) -> tuple[Any, dict[str, str], str]:
 
     prompt = build_prompt(story, None)
     anchor = story.anchor
-    scenes: list[str] = []
-    for rx, kind in _TITLE_SCENE:
-        if rx.search(str(anchor.title or "")) and kind not in scenes:
-            scenes.append(kind)
+    scenes: list[str] = _title_scenes(str(anchor.title or ""))
+    if not scenes:
+        # The headline names no technology: the source excerpt usually does.
+        scenes = _title_scenes(str(getattr(anchor, "raw_content", "") or "")[:400])
     keys = [str(p).lower() for p in (getattr(anchor, "affected_platforms", None) or [])]
     keys += [str(a) for a in (getattr(anchor, "audience_targets", None) or [])]
     for k in keys:
         mapped = _SCENE_KIND.get(k)
         if mapped and mapped not in scenes:
             scenes.append(mapped)
+    if not scenes:
+        # Last resort before the abstract core: what this kind of story is about.
+        fallback = _CATEGORY_SCENE.get(str(anchor.category or "").lower())
+        if fallback:
+            scenes.append(fallback)
     if prompt.inputs["event"] == "script_injection":
         # The script lives in a website: draw the site, the devices come from the overlay.
         scenes = ["web"] + [s for s in scenes if s != "web"]

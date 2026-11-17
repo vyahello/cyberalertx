@@ -67,6 +67,10 @@ class MediaAsset:
     asset_type: str
     locale: str = ""                    # "" = shared across editions
     storage_key: str = ""               # file name under files/ (illustrations)
+    #: Earlier files of this asset, newest first (at most 3). Still served, so
+    #: a cached page that names the previous file never breaks while it
+    #: revalidates after a regeneration; the files themselves are never deleted.
+    previous_storage_keys: list[str] = field(default_factory=list)
     public_url: str = ""                # primary public URL (og variant)
     variants: dict[str, str] = field(default_factory=dict)   # variant -> public URL
     mime_type: str = ""
@@ -270,15 +274,21 @@ class MediaStore:
 
     def open_file(self, asset_id: str) -> tuple[bytes, str] | None:
         """Bytes + MIME of a validated illustration, or None. `asset_id` is the
-        first 16+ hex chars of the stored SHA-256 (as used in public URLs)."""
+        first 16+ hex chars of the stored SHA-256 (as used in public URLs): the
+        current file, or one of the asset's previous files (see
+        `previous_storage_keys`), so replacing an image never 404s a cached page."""
         if not re.fullmatch(r"[0-9a-f]{16,64}", asset_id or ""):
             return None
-        asset = next((a for a in self.all() if a.asset_type == "editorial_illustration"
-                      and a.storage_key.startswith(asset_id)
-                      and a.status in ("validated", "published")), None)
-        if asset is None or not _HEX64.match(asset.storage_key.split(".")[0]):
+        key = ""
+        for a in self.all():
+            if a.asset_type != "editorial_illustration" or a.status not in ("validated", "published"):
+                continue
+            key = next((k for k in [a.storage_key, *a.previous_storage_keys] if k and k.startswith(asset_id)), "")
+            if key:
+                break
+        if not key or not _HEX64.match(key.split(".")[0]):
             return None
-        path = (self.files / asset.storage_key).resolve()
+        path = (self.files / key).resolve()
         if path.parent != self.files.resolve() or not path.is_file():
             return None
         data = path.read_bytes()

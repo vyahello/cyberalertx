@@ -136,6 +136,9 @@ def _record_usage(store: MediaStore, entry: Mapping[str, Any]) -> None:
         fh.write(json.dumps(dict(entry), ensure_ascii=False) + "\n")
 
 
+from .svg_art import RENDERER_VERSION as _CURRENT_RENDERER  # noqa: E402
+
+
 def run(
     items: Sequence[NewsItem],
     *,
@@ -152,6 +155,7 @@ def run(
     intel_dir: Path | None = None,
     budget: Budget | None = None,
     sleep: Any = time.sleep,
+    upgrade_renderer: bool = False,
 ) -> MediaRunResult:
     from ..intel.engine import run as intel_run
 
@@ -216,6 +220,18 @@ def run(
                 store.put(existing)
             res.reused.append(story.key)
             continue
+        if (existing and existing.status in ("validated", "published") and not upgrade_renderer
+                and existing.generation_method == "svg" and existing.generation_model
+                and existing.generation_model != _CURRENT_RENDERER):
+            # Made by an older renderer: keep it as it is. Replacing the archive
+            # is an explicit, reviewed step (`tools.media backfill --batch`), never
+            # a side effect of deploying a new renderer. Its own alt text stays,
+            # since it describes the image actually shown.
+            if existing.members != members and not dry_run:
+                existing.members = members
+                store.put(existing)
+            res.reused.append(story.key)
+            continue
         same_inputs_failed = (existing is not None and existing.status == "failed"
                               and existing.content_hash == inputs_hash)
         attempts = existing.attempts if same_inputs_failed and existing else 0
@@ -270,7 +286,11 @@ def run(
                                   "ok": False, "error": asset.last_error})
             continue
         urls = _illustration_urls(sha)
-        asset.storage_key = f"{sha}.{ALLOWED_MIME[mime]}"
+        new_key = f"{sha}.{ALLOWED_MIME[mime]}"
+        if asset.storage_key and asset.storage_key != new_key:
+            asset.previous_storage_keys = [asset.storage_key, *[k for k in asset.previous_storage_keys
+                                                                if k not in (asset.storage_key, new_key)]][:3]
+        asset.storage_key = new_key
         asset.mime_type, asset.width, asset.height = mime, iw, ih
         asset.file_size = len(img.data)
         asset.generation_method, asset.source = img.method, f"generated:{img.method}"

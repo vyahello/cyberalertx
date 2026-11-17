@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 W, H = 1600, 900
-RENDERER_VERSION = "cax-svg-2"
+RENDERER_VERSION = "cax-svg-3"
 
 CYAN = "#06B6D4"
 CYAN_DIM = "#0E7490"
@@ -496,12 +496,93 @@ def scene_core(cv: Canvas) -> tuple[float, float]:
     return ((f["top"][0][0] + f["top"][2][0]) / 2, (f["top"][0][1] + f["top"][2][1]) / 2)
 
 
+def scene_rmm(cv: Canvas) -> tuple[float, float]:
+    """Remote management: one admin console with live sessions into a fleet of
+    managed machines. The highlighted machine is the story's focal point."""
+    cv.box(-4.6, -0.4, 0, 2.6, 1.6, 0.12, top="#2C343F")                    # admin desk
+    mon = cv.box(-4.4, 0.0, 0.12, 2.2, 0.1, 1.5, left="#1C232D")
+    lf = mon["left"]
+    scr = [(lf[3][0] + 7, lf[3][1] + 7), (lf[2][0] - 7, lf[2][1] + 7), (lf[1][0] - 7, lf[1][1] - 7),
+           (lf[0][0] + 7, lf[0][1] - 7)]
+    cv.add(f'<polygon points="{_pts(scr)}" fill="url(#screen)" opacity=".9"/>')
+    _screen_tiles(cv, scr, 4, 3, cv.rng.randrange(12))
+    console = ((lf[0][0] + lf[2][0]) / 2, (lf[0][1] + lf[2][1]) / 2)
+    cols, rows = cv.rng.randint(3, 4), 2
+    hot = (cv.rng.randrange(cols), cv.rng.randrange(rows))
+    focal = console
+    for i in range(cols):
+        for j in range(rows):
+            x, y = 0.4 + i * 1.5, -1.8 + j * 1.9
+            kind = cv.rng.random()
+            if kind < 0.5:                                                    # managed server
+                b = cv.box(x, y, 0, 0.9, 0.8, 1.1, top="#33404E" if (i, j) == hot else FACE_TOP)
+                for k in range(3):
+                    a = (b["left"][3][0] + 6, b["left"][3][1] + 10 + k * 9)
+                    cv.line(a, (a[0] + 18, a[1] + 5), "#161B22", 2, 0.8)
+            else:                                                             # managed laptop
+                b = cv.box(x, y, 0, 1.0, 0.7, 0.08, top="#2C343F")
+                cv.box(x, y - 0.02, 0.08, 1.0, 0.05, 0.7, left="#1C232D")
+            top = ((b["top"][0][0] + b["top"][2][0]) / 2, (b["top"][0][1] + b["top"][2][1]) / 2)
+            hot_one = (i, j) == hot
+            ctrl = ((console[0] + top[0]) / 2, min(console[1], top[1]) - cv.rng.uniform(30, 90))
+            cv.curve(console, ctrl, top, CYAN if hot_one else "#3A4858", 2.4 if hot_one else 1.3,
+                     0.95 if hot_one else 0.7, "" if hot_one else "5 7")
+            cv.dot(top, 4 if hot_one else 3, CYAN if hot_one else "#6B7686")
+            if hot_one:
+                focal = top
+    return focal
+
+
+def scene_ai_discovery(cv: Canvas) -> tuple[float, float]:
+    """AI-assisted vulnerability discovery: code panels, an analysis core and a
+    scan beam settling on one component. Discovery, not an attack: overlays
+    decide whether exploitation is shown."""
+    panels = []
+    for k in range(3):                                                        # code panels, staggered
+        f = cv.box(-3.0 + k * 0.8, -1.2 + k * 0.7, 0.0, 3.6, 0.08, 3.2 - k * 0.3,
+                   left="#1A212A" if k else "#1D2530", opacity=0.95 - k * 0.15)
+        panels.append(f["left"])
+    front = panels[0]
+    rows = cv.rng.randint(8, 10)
+    hot = cv.rng.randrange(2, rows - 1)
+    focal = (0.0, 0.0)
+    for r in range(rows):                                                     # code lines, no text
+        v = (r + 0.8) / (rows + 0.6)
+        left = (front[3][0] + (front[0][0] - front[3][0]) * v, front[3][1] + (front[0][1] - front[3][1]) * v)
+        indent = 0.08 + 0.06 * cv.rng.randrange(3)
+        length = cv.rng.uniform(0.35, 0.8)
+        a = (left[0] + (front[2][0] - front[3][0]) * indent, left[1] + (front[2][1] - front[3][1]) * indent)
+        b = (left[0] + (front[2][0] - front[3][0]) * (indent + length),
+             left[1] + (front[2][1] - front[3][1]) * (indent + length))
+        cv.line(a, b, CYAN_SOFT if r == hot else "#4A5668", 7 if r == hot else 5, 0.95 if r == hot else 0.9)
+        if r == hot:
+            focal = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    core = cv.iso(2.6, -1.6, 2.2)                                             # analysis core, beside the code
+    hexa = [(core[0] + 34 * math.cos(math.radians(deg)), core[1] + 34 * math.sin(math.radians(deg)))
+            for deg in range(30, 390, 60)]
+    cv.add(f'<polygon points="{_pts(hexa)}" fill="#1F2A34" stroke="{RIM}" stroke-width="1.5"/>')
+    cv.track(*hexa)
+    for deg in range(0, 360, 60):
+        n = (core[0] + 62 * math.cos(math.radians(deg + 15)), core[1] + 62 * math.sin(math.radians(deg + 15)))
+        cv.line(core, n, "#3A4656", 1.2, 0.8)
+        cv.dot(n, 4, "#6B7686")
+    cv.dot(core, 7, CYAN_SOFT)
+    beam = [core, (focal[0] - 16, focal[1] - 10), (focal[0] + 16, focal[1] + 10)]
+    cv.add(f'<polygon points="{_pts(beam)}" fill="{CYAN}" opacity=".16"/>')
+    for k in range(3):                                                        # the services it ships in
+        sx, sy = -1.2 + k * 1.1, 1.6
+        cv.box(sx, sy, 0, 0.7, 0.7, cv.rng.uniform(0.4, 0.8))
+        cv.line(cv.iso(sx + 0.35, sy, 0.2), cv.iso(-1.0, 0.0, 0.2), "#33404E", 1.3, 0.8, "4 6")
+    return focal
+
+
 SCENES: dict[str, Callable[[Canvas], tuple[float, float]]] = {
     "server_room": scene_server_room, "rack": scene_rack, "network_edge": scene_network_edge,
     "workstation": scene_workstation, "phone": scene_phone, "web": scene_web, "browser": scene_browser,
     "mail": scene_mail, "vm": scene_vm, "containers": scene_containers, "payments": scene_payments,
     "wallet": scene_wallet, "pipeline": scene_pipeline, "corporate": scene_corporate, "home": scene_home,
     "cloud": scene_cloud, "industrial": scene_industrial, "ai": scene_ai, "core": scene_core,
+    "rmm": scene_rmm, "ai_discovery": scene_ai_discovery,
 }
 
 
@@ -752,6 +833,7 @@ _FAMILY = {
     "core": "datacenter", "corporate": "city", "mail": "city", "network_edge": "city", "web": "city",
     "browser": "city", "home": "city", "workstation": "city", "phone": "city", "industrial": "plant",
     "cloud": "strata", "ai": "strata", "payments": "finance", "wallet": "finance", "pipeline": "plant",
+    "rmm": "city", "ai_discovery": "strata",
 }
 
 
