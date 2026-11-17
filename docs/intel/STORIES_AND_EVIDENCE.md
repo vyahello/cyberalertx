@@ -177,3 +177,61 @@ relevance_status VARCHAR(16) NOT NULL DEFAULT ''`, same for
 `relevance_reason VARCHAR(160)` and `relevance_override VARCHAR(16)`), the
 columns in `schema.py`, the keys in `news_item_to_row`, and the upsert's
 update set in `news_store.py`.
+
+
+## Canonical story identity (Nov 2026)
+
+One real event → one story key → one post per destination and language.
+
+**Matching** (`pipeline/dedup.py: match_story`). Existing rules: same URL or
+body, CVE sets, distinctive headlines, quantities, rare names. Two additions:
+- **Same canonical URL**: tracking parameters, `www`, fragments and trailing
+  slashes are removed; meaningful query parameters stay. Equal canonical
+  URLs mean one article (high confidence).
+- **RULE F, the same event across wordings and languages.** It requires:
+  - a shared name: Latin script, capitalized wherever it appears in both
+    articles, never lower-case, and not a generic trade word;
+  - shared *specific* event concepts from a small EN/UA lexicon (agentic AI,
+    full automation, patch-to-exploit, ransomware, supply chain…);
+  - publication within 48 h, from different outlets, with no veto (disjoint
+    CVEs, different victims).
+
+  Outcomes:
+  - **merge (medium):** at least 2 specific concepts and at least 4 concepts
+    in all;
+  - **link (low, never merged):** a weaker overlap; listed for editorial
+    review.
+
+  On 17 Nov the only change across the live corpus was the Google report on
+  AI-driven attacks: 5 articles in 3 outlets and 2 languages became one
+  story. A same-vendor, different-event pair (Google Project Zero) stays
+  separate as a review link.
+
+**Confidence handling.** High and medium associate an article with an
+existing story; low only links and is reported for review. Existing medium
+merges are kept as they were, so no published story is split.
+
+**Updates versus duplicates.** Later coverage of a known story is marked
+`duplicate_of` and gets no new brief or post. Follow-ups that change the
+assessment (`_follow_up`: a patch, new exploitation, a new victim) are
+related but separate, and Breaking updates need a changed evidence
+fingerprint (`breaking_update`).
+
+**Publishing.** One initial post per story, destination and language. The
+planner refuses a second job for any member of a published story. It also
+cancels a member's still-pending job when another member of the same story
+is already published there (or has an unknown outcome). EN and UA are
+independent; Telegram and Threads have separate jobs and ledgers. Exactly-once
+delivery is not claimed: an unclear send becomes `outcome_unknown` and is
+reconciled, never blindly resent.
+
+**Audit** (read-only):
+`python -m cyberalertx.tools.stories duplicate-audit [--out FILE]` lists
+events split across story keys, with posts per destination and pending
+jobs. It deletes, rewrites and cancels nothing.
+
+**Limits.** The lexicon is small and hand-curated. Two different events
+from one company with the same vocabulary inside 48 h could merge, which is
+why one specific concept or a single shared name is never enough. Story keys
+assigned before this rule keep their value; past duplicate posts remain
+history.
