@@ -68,6 +68,22 @@ It never shows a token or the secret.
 
 ## Token lifecycle
 
+Token maintenance runs **independently of publishing**: the timer
+`cyberalertx-threads-tokens.timer` runs daily at 04:40 (±15 min, catches up
+after downtime) and starts `tools.threads maintain` as `cax` from the
+active release, with the persistent .env. It runs whether `THREADS_ENABLED`
+is 0 or 1. It verifies both accounts and refreshes due tokens. It never
+creates a media container or publishing job, never calls `threads_publish`,
+never changes `THREADS_ENABLED`, and does not touch Telegram.
+
+A file lock (`data/threads_maintenance.lock`) lets only one refresh run at a
+time; the publishing cycle takes the same lock. Install, revert or check
+it from the active release:
+
+```bash
+sudo bash $APP_ROOT/current/ops/release/threads_tokens_timer.sh install    # or: uninstall | check
+```
+
 Long-lived tokens last 60 days. The actual expiry comes from `debug_token`
 and is never assumed. Before every sending run each account is checked
 (`/me`: same user id and username). A token with less than 30 days left
@@ -80,6 +96,12 @@ that is at least 24 h old is refreshed (`th_refresh_token`):
 A refusal is logged as `OPERATOR ACTION NEEDED`. An expired, refused or
 mis-mapped token stops **only its own account** (`needs_reconnect`). The
 other account keeps publishing. Fix: generate a new token and run `setup`.
+
+**Permissions.** Publishing needs only `threads_basic` and
+`threads_content_publish`. The current tokens (generated 6 Nov 2026) also
+carry `threads_manage_replies`, `threads_manage_insights` and
+`threads_read_replies`. Nothing uses them; they are left unchanged for now.
+A future token rotation can drop them.
 
 ## Publishing
 

@@ -14,11 +14,13 @@ actual expiry is read from `debug_token`, never assumed.
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .accounts import AccountStore, SlotConflict, TokenStorageError, _parse
 from .client import ThreadsClient, ThreadsError
@@ -218,5 +220,36 @@ def refresh_tokens(settings: ThreadsSettings, store: AccountStore, client: Threa
     return out
 
 
+@contextlib.contextmanager
+def maintenance_lock(path: Path) -> Iterator[bool]:
+    """Non-blocking exclusive lock: True if this process holds it. Token refresh
+    (the timer and the publishing cycle) runs under it, so two processes never
+    refresh — and rewrite .env — at the same time."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def maintain(settings: ThreadsSettings, store: AccountStore, client: ThreadsClient, now: datetime, *,
+             env_path: Path, backup_dir: Path, lock_path: Path) -> list[SlotResult] | None:
+    """Token maintenance, independent of publishing (THREADS_ENABLED is not read):
+    verify each account's identity, then refresh tokens that are due. Creates no
+    publishing job and makes no publishing call. None if another run holds the lock."""
+    with maintenance_lock(lock_path) as held:
+        if not held:
+            return None
+        results = verify_accounts(settings, store, client, now)
+        results += refresh_tokens(settings, store, client, now, env_path=env_path, backup_dir=backup_dir)
+        return results
+
+
 __all__ = ["DEFAULT_USERNAMES", "ENV_TOKEN_VAR", "REFRESH_WHEN_LEFT", "SlotResult", "TokenCheck", "check_pair",
-           "check_token", "refresh_tokens", "register", "verify_accounts"]
+           "check_token", "maintain", "maintenance_lock", "refresh_tokens", "register", "verify_accounts"]

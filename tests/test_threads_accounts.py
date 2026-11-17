@@ -54,7 +54,7 @@ class Graph:
             if not u:
                 return httpx.Response(200, json={"data": {"is_valid": False}})
             tok = q.get("input_token", "")
-            issued, life = (NOW, timedelta(days=60)) if tok.endswith("LONG") else (self.issued, self.lifetime)
+            issued, life = (NOW, timedelta(days=60)) if tok.endswith(("LONG", "R")) else (self.issued, self.lifetime)
             return httpx.Response(200, json={"data": {
                 "type": "USER", "application": "CyberAlertX Publisher", "is_valid": True, "user_id": u[0],
                 "scopes": self.scopes, "issued_at": int(issued.timestamp()),

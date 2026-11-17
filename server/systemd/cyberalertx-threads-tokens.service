@@ -1,0 +1,22 @@
+# Threads token maintenance: verifies both accounts (/me, user id, username) and
+# refreshes long-lived tokens that are due (>= 24 h old, < 30 days left), writing
+# the new token into the persistent .env atomically. Runs whether or not
+# Threads publishing is enabled. Never publishes, creates no media container or
+# publishing job, never changes THREADS_ENABLED, does not touch Telegram.
+# Installed by ops/release/threads_tokens_timer.sh.
+[Unit]
+Description=CyberAlertX Threads token maintenance (verify + refresh; never publishes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cax
+Group=cax
+WorkingDirectory=/home/cax/cyberalertx/current
+EnvironmentFile=/home/cax/cax/.env
+ExecStart=/home/cax/cyberalertx/current/venv/bin/python -m cyberalertx.tools.threads maintain
+TimeoutStartSec=300
+MemoryMax=300M
+StandardOutput=journal
+StandardError=journal

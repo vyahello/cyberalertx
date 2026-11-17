@@ -49,7 +49,7 @@ def _threads_maintenance(dests: dict[str, Any]) -> None:
     Each account is handled on its own; one failing never stops the other."""
     from ..config import DATA_DIR
     from ..threads.client import ThreadsClient
-    from ..threads.credentials import refresh_tokens, verify_accounts
+    from ..threads.credentials import maintenance_lock, refresh_tokens, verify_accounts
     from ..threads.oauth import refresh_due
 
     first = next(d for k, d in dests.items() if k.startswith("threads@"))
@@ -60,9 +60,12 @@ def _threads_maintenance(dests: dict[str, Any]) -> None:
             for r in verify_accounts(settings, store, api, now):
                 print(f"[threads] account {r.slot}: {r.outcome} {r.detail}".rstrip(), file=sys.stderr)
             env_file = Path(DATA_DIR).resolve().parent / ".env"
-            for r in refresh_tokens(settings, store, api, now, env_path=env_file,
-                                    backup_dir=Path.home() / "backups" / "threads"):
-                print(f"[threads] token {r.slot}: {r.outcome} {r.detail}".rstrip(), file=sys.stderr)
+            # Same lock as the token-maintenance timer: never two refreshes at once.
+            with maintenance_lock(Path(DATA_DIR) / "threads_maintenance.lock") as held:
+                if held:
+                    for r in refresh_tokens(settings, store, api, now, env_path=env_file,
+                                            backup_dir=Path.home() / "backups" / "threads"):
+                        print(f"[threads] token {r.slot}: {r.outcome} {r.detail}".rstrip(), file=sys.stderr)
         else:
             for r0 in refresh_due(store, api, now):
                 print(f"[threads] token {r0.slot}: {r0.outcome} {r0.detail}".rstrip(), file=sys.stderr)

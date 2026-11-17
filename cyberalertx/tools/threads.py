@@ -3,6 +3,7 @@
     python -m cyberalertx.tools.threads setup               interactive: tokens (hidden input), validate, write .env
     python -m cyberalertx.tools.threads status [--live]     app id, accounts, tokens, queues (never a secret)
     python -m cyberalertx.tools.threads refresh             refresh tokens that are due (24 h old, < 30 days left)
+    python -m cyberalertx.tools.threads maintain            verify + refresh, Threads on or off (systemd timer)
     python -m cyberalertx.tools.threads reconcile           settle outcome_unknown Threads jobs from the API
     python -m cyberalertx.tools.threads test-post SLOT --confirm
                                                             ONE clearly marked test post on that account
@@ -199,6 +200,35 @@ def cmd_refresh(_: argparse.Namespace) -> int:
     return 1 if any(r.outcome in ("failed", "expired", "invalid") for r in results) else 0
 
 
+def _lock_path() -> Path:
+    from ..config import DATA_DIR
+    return Path(DATA_DIR) / "threads_maintenance.lock"
+
+
+def cmd_maintain(_: argparse.Namespace, *, client: Any = None) -> int:
+    """Timer entry point: verify both accounts and refresh due tokens, whether or
+    not Threads publishing is enabled. Never publishes; exit 1 needs an operator."""
+    from ..threads.client import ThreadsClient
+    from ..threads.credentials import maintain
+    ts, accounts = _stores()
+    if not accounts.env_mode:
+        print("no THREADS_*_ACCESS_TOKEN in the environment; nothing to maintain")
+        return 0
+    api = client or ThreadsClient()
+    try:
+        results = maintain(ts, accounts, api, _now(), env_path=_env_file(), backup_dir=_backups(),
+                           lock_path=_lock_path())
+    finally:
+        if client is None:
+            api.close()
+    if results is None:
+        print("another token maintenance run is in progress; skipped")
+        return 0
+    for r in results:
+        print(f"{r.slot}: {r.outcome} {r.detail}".rstrip())
+    return 1 if any(r.outcome in ("invalid", "mismatch", "failed") for r in results) else 0
+
+
 def cmd_reconcile(_: argparse.Namespace) -> int:
     from ..publish.config import build_telegram_settings
     from ..publish.jobs import JobStore
@@ -289,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--live", action="store_true", help="also validate each token against the API (read-only)")
     st.set_defaults(fn=cmd_status)
     sub.add_parser("refresh").set_defaults(fn=cmd_refresh)
+    sub.add_parser("maintain", help="verify accounts + refresh due tokens (timer; never publishes)").set_defaults(
+        fn=cmd_maintain)
     sub.add_parser("reconcile").set_defaults(fn=cmd_reconcile)
     t = sub.add_parser("test-post")
     t.add_argument("slot", choices=["en", "ua"])

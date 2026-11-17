@@ -225,6 +225,7 @@ including `review_mode` (production: `flag`):
 | `cyberalertx-frontend` | yes | Next.js :3000 |
 | `cyberalertx-run` | yes | ingest every 30 min |
 | `cyberalertx-generate` | no (timer, hourly) | then the media run (illustrations); next run uses the new `current` |
+| `cyberalertx-threads-tokens` | no (timer, daily 04:40) | Threads token verify + refresh, independent of publishing; never posts ([THREADS_SETUP.md](../threads/THREADS_SETUP.md)) |
 | `cyberalertx-analytics` | no (timer, 03:00) | after O35: runs from `current` |
 | `cyberalertx-telegram` | no (timer, 10/day) | runs from `current`; hold marker = on/off switch (§7) |
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=CyberAlertX Threads token maintenance timer (daily 04:40)
+Requires=cyberalertx-threads-tokens.service
+
+[Timer]
+OnCalendar=*-*-* 04:40:00
+Persistent=true
+RandomizedDelaySec=900
+Unit=cyberalertx-threads-tokens.service
+
+[Install]
+WantedBy=timers.target

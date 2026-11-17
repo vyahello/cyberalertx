@@ -34,7 +34,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from ..publish.format import _OUTLET_TOKENS, _actions, _is_claim, _is_near_duplicate
+from ..publish.format import _OUTLET_TOKENS, _actions, _is_claim, _is_near_duplicate, _stems
 
 TEXT_LIMIT = 500
 #: Editorial target: optional blocks are dropped above this; 500 stays the hard limit.
@@ -49,6 +49,28 @@ _LEAD = {
     "ua": re.compile(r"^(?:\S+\s+){1,3}(?:повідомля\w+|пише|пишуть|зазнача\w+|попереджа\w+)"
                      r"(?:,?\s+що|\s+про)?[:,]?\s+", re.IGNORECASE),
 }
+_CVE = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.I)
+#: Share of the second paragraph's word stems already in headline + explanation
+#: at which both describe the same event (measured on the live corpus, Nov 2026:
+#: restatements sit at 0.38-0.86, paragraphs with new content below).
+SAME_EVENT = 0.38
+
+
+def _new_cves(fact: str, shown: str) -> set[str]:
+    return {c.upper() for c in _CVE.findall(fact)} - {c.upper() for c in _CVE.findall(shown)}
+
+
+def _same_event(fact: str, shown: str, *, cve_exception: bool = True) -> bool:
+    """The fact paragraph retells what the post already says, in other words.
+    With `cve_exception`, it is not a retelling when it adds a CVE id."""
+    cand = _stems(fact)
+    if not cand:
+        return False
+    if cve_exception and _new_cves(fact, shown):
+        return False
+    return len(cand & _stems(shown)) / len(cand) >= SAME_EVENT
+
+
 _HARD_ID = re.compile(r"\bCVE-\d{4}-\d{4,}\b|\b\d+(?:[.,]\d+)*\b")
 _WORD = re.compile(r"[\w][\w.&'-]*")
 
@@ -152,8 +174,13 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
     # the headline and explanation lack — an outlet name ("BleepingComputer
     # reports") does not count; the article page carries the attribution.
     fact = _strip_lead(short, locale) if plain and short else ""
+    if fact and _new_cves(fact, f"{title} {plain}") and _same_event(fact, f"{title} {plain}", cve_exception=False):
+        # Same event, but the technical version names the CVE: one paragraph, the
+        # one with the identifier, instead of telling the story twice.
+        explain, fact = fact, ""
     if fact and (not (_specifics(fact) - _specifics(f"{title}. {plain}"))
-                 or _is_near_duplicate(fact, [plain, title])):
+                 or _is_near_duplicate(fact, [plain, title])
+                 or _same_event(fact, f"{title} {plain}")):
         fact = ""
     why = _clean(c.get("why_it_matters"))
     if why and _is_near_duplicate(why, [explain, fact, title]):
@@ -188,7 +215,9 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
     order = ("why", "action", "fact") if fact and _HARD_ID.search(fact) else ("why", "fact", "action")
     for name in order:
         text = assemble()
-        if threads_length(text) <= TEXT_TARGET and links(text) <= LINK_LIMIT:
+        # A CVE id is a distinct technical fact: it may use the hard limit, not the target.
+        budget = TEXT_LIMIT if name == "fact" and blocks["fact"] and _CVE.search(blocks["fact"]) else TEXT_TARGET
+        if threads_length(text) <= budget and links(text) <= LINK_LIMIT:
             break
         if blocks[name]:
             blocks[name] = ""
@@ -207,5 +236,5 @@ def render_post(payload: dict[str, Any], *, locale: str, url: str) -> ThreadsPos
     return ThreadsPost(text=text, topic_tag=TOPIC_TAG.get(locale, TOPIC_TAG["en"]), dropped=dropped)
 
 
-__all__ = ["LINK_LIMIT", "TEXT_LIMIT", "TEXT_TARGET", "TOPIC_TAG", "ThreadsContentError", "ThreadsPost", "render_post",
+__all__ = ["LINK_LIMIT", "SAME_EVENT", "TEXT_LIMIT", "TEXT_TARGET", "TOPIC_TAG", "ThreadsContentError", "ThreadsPost", "render_post",
            "threads_length"]

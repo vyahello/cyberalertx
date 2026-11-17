@@ -284,7 +284,14 @@ _TITLE_SCENE = (
     (re.compile(r"\b(e-?mail|Exchange|Outlook|mailbox|SharePoint|Microsoft 365)\b", re.I), "mail"),
     (re.compile(r"\b(macOS|Mac|Apple|Windows)\b", re.I), "workstation"),
     (re.compile(r"\b(Android|iPhone|iOS|smartphone|mobile app)\b", re.I), "phone"),
-    (re.compile(r"\b(crypto|wallet|bitcoin|exchange hack|DeFi)\b", re.I), "wallet"),
+    # Remote management tools: one console reaching every managed machine. Checked
+    # before the wallet rule, so "attackers deploy crypto miners" (an impact)
+    # cannot turn an RMM story into a cryptocurrency picture.
+    (re.compile(r"\b(RMM|remote monitoring|remote management|N-central|N-able|ConnectWise|ScreenConnect|Kaseya|"
+                r"TeamViewer|AnyDesk|SimpleHelp)\b", re.I), "corporate"),
+    # Wallets only when crypto assets are the subject; "crypto miner(s)/mining"
+    # describes what attackers installed, not what was attacked.
+    (re.compile(r"\b(crypto(?![\s-]*(?:min|jack))|wallet|bitcoin|exchange hack|DeFi)\b", re.I), "wallet"),
     (re.compile(r"\b(browser|Chrome|Firefox|Safari|extension)\b", re.I), "browser"),
     (re.compile(r"\b(WordPress|plugin|website|CMS|web server)\b", re.I), "web"),
 )
