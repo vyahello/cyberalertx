@@ -10,9 +10,12 @@ Two renderers ship side by side:
 replaces an existing image by itself: the engine keeps any validated image an
 older/other renderer made until `tools.media backfill --batch` is run
 explicitly (engine.run(upgrade_renderer=True)). Rolling back is the same
-switch in the other direction; both renderers are deterministic, so a
-re-render reproduces the earlier file byte for byte (content-addressed: same
-storage key, still on disk).
+switch in the other direction; images V4 already made stay until they are
+re-rendered one by one (`tools.media regenerate STORY`). Do NOT roll back with
+`backfill --batch`: it replaces every image not made by the active renderer,
+which on the current archive includes the cax-svg-2 images. Both renderers
+are deterministic, so a V3 re-render of a story reproduces its earlier V3
+file byte for byte (content-addressed: same storage key, still on disk).
 """
 from __future__ import annotations
 

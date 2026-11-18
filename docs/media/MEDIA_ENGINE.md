@@ -149,10 +149,15 @@ Two SVG renderers ship together (`media/renderer.py`):
 Switching the variable never replaces an existing image by itself. The hourly
 run keeps any validated image another renderer made, and only new stories get
 the active renderer. Replacing the archive is the explicit
-`tools.media backfill --batch N` step. Both renderers are deterministic and
-the store is content-addressed, so rolling back is the same switch followed by
-another backfill. It reproduces the earlier files byte for byte under their
-old storage keys, which are never deleted. The last three earlier files of
+`tools.media backfill --batch N` step. To roll back, switch the variable back
+and re-render only the V4 images, one story at a time
+(`ops/media/illustration_inventory.py v4-stories`, then `tools.media
+regenerate STORY`). Never use `backfill` for a rollback: it replaces every
+image not made by the active renderer, including the older `cax-svg-2`
+archive. Both renderers are deterministic and the store is content-addressed,
+so a V3 re-render reproduces a story's earlier V3 file byte for byte under its
+old storage key; files are never deleted. The full procedure is in
+[V4_ACTIVATION_PLAN.md](V4_ACTIVATION_PLAN.md). The last three earlier files of
 each asset also stay served (`previous_storage_keys`), so cached pages keep
 working during the change.
 

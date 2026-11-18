@@ -12,6 +12,7 @@ marked as such at the top.
 | [architecture.md](architecture.md) | Components, data flow, storage model, deployment model |
 | [operations/OPERATIONS.md](operations/OPERATIONS.md) | Release layout, build / switch / rollback, backups, consistency model, publishing hold, recovery |
 | [media/VISUAL_SYSTEM_V4.md](media/VISUAL_SYSTEM_V4.md) | Editorial visual system V4: brief, scene library, verified photo library, authoring rules |
+| [media/V4_ACTIVATION_PLAN.md](media/V4_ACTIVATION_PLAN.md) | V4 canary on new stories: verified facts, commands, go/no-go criteria, rollback |
 | [media/VISUAL_REVIEW_V4.md](media/VISUAL_REVIEW_V4.md) | V3 → V4 review of 32 stories: scores, flagged images, limitations |
 | [media/VISUAL_REVIEW_V3.md](media/VISUAL_REVIEW_V3.md) | Illustration renderer v3: subject selection, new scenes, 32-story review |
 | [media/VISUAL_REVIEW.md](media/VISUAL_REVIEW.md) | Illustration renderer v2: before/after review of 24 stories |

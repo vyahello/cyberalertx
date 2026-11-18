@@ -298,3 +298,37 @@ def test_photo_annotation_follows_what_the_story_states() -> None:
     assert off.library_id and "taken offline" in B.alt_text(off)["en"] and "accounts" not in B.alt_text(off)["en"]
     acc = B.build(story("Hackers breach Fugaku, steal more than 4,000 accounts", "Fugaku accounts were stolen."))
     assert "compromised accounts" in B.alt_text(acc)["en"]
+
+
+def test_canary_rollback_rerenders_only_the_v4_images(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The documented rollback: flag back to V3, `regenerate` each V4 story, next run.
+    Images of older renderers (cax-svg-2 archive) are never touched; V4 old URLs keep working."""
+    from cyberalertx.media import engine
+    from cyberalertx.tools import media as media_cli
+    from tests.test_media import NOW, critical_story, fake_intel
+    old, new = critical_story("s:old"), critical_story("s:new", products=("Gadget Hub",))
+    store = MediaStore(tmp_path / "media")
+    monkeypatch.setattr("cyberalertx.media.assets.MEDIA_DIR", tmp_path / "media")
+    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
+    fake_intel(monkeypatch, [old])
+    engine.run([old.anchor], store=store, now=NOW)
+    a = store.get("illus:s:old")
+    assert a is not None
+    a.generation_model = "cax-svg-2"                      # the archive's older renderer
+    store.put(a)
+    archive = (a.storage_key, a.generation_model)
+
+    fake_intel(monkeypatch, [old, new])
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "editorial-4")    # canary
+    assert engine.run([old.anchor, new.anchor], store=store, now=NOW).generated == ["s:new"]
+    v4 = store.get("illus:s:new")
+    assert v4 is not None and v4.generation_model == "cax-editorial-4"
+
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "svg-3")          # soft rollback
+    assert engine.run([old.anchor, new.anchor], store=store, now=NOW).generated == []
+    assert media_cli.main(["regenerate", "s:new"]) == 0                       # full rollback, one story
+    assert engine.run([old.anchor, new.anchor], store=store, now=NOW).generated == ["s:new"]
+    back = store.get("illus:s:new")
+    assert back is not None and back.generation_model == "cax-svg-3" and v4.storage_key in back.previous_storage_keys
+    keep = store.get("illus:s:old")
+    assert keep is not None and (keep.storage_key, keep.generation_model) == archive

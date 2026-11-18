@@ -131,13 +131,12 @@ Adding a photograph means:
 
 ## Activation (needs approval)
 
-1. Add `CYBERALERTX_ILLUSTRATION_RENDERER=editorial-4` to the production
-   environment and switch to a release that contains V4. New stories then get
-   V4 images; existing images stay.
-2. Back up `data/media` (protected, mode 700), then run
-   `python -m cyberalertx.tools.media backfill --batch 160` as `cax`. This
-   replaces the 152 archive images. Old files stay on disk, and the last
-   three of each asset stay served.
-3. Rollback: unset the variable (or set `svg-3`) and run the backfill again.
-   V3 renders byte-identically, so the previous files come back under their
-   old URLs.
+The plan is in [V4_ACTIVATION_PLAN.md](V4_ACTIVATION_PLAN.md). It starts with a
+canary on new stories only, with the archive untouched and checked, and gives
+exact commands, rollback, and go/no-go criteria. The archive backfill is a
+separate, later decision.
+
+An earlier draft of this section described rollback as "unset the variable
+and run the backfill again". That is wrong for the current archive, where 302
+of 313 images are `cax-svg-2`: the backfill would convert them all to V3.
+Rollback re-renders only the V4 images, story by story.
