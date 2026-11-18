@@ -241,6 +241,8 @@ export interface LocalizedThreatPost {
       height: number;
       alt: Partial<Record<Locale, string>>;
       generated: true;
+      /** Credit line of a verified library photograph (media/v4/library). */
+      credit?: Partial<Record<Locale, string>>;
     };
   };
 }

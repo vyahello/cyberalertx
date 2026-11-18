@@ -3,6 +3,7 @@
     python -m cyberalertx.tools.media run [--dry-run]     record cards, generate due illustrations
     python -m cyberalertx.tools.media status              counts, provider, failures
     python -m cyberalertx.tools.media regenerate STORY    clear a story's illustration so the next run redoes it
+    python -m cyberalertx.tools.media brief STORY [--svg F] the V4 visual brief of a story (read-only)
     python -m cyberalertx.tools.media validate-cards URL  fetch every card variant from a running site and check it
 
 No scheduler is added: run it after `generate`, by hand or from the existing
@@ -55,6 +56,28 @@ def cmd_backfill(args: argparse.Namespace) -> int:
               upgrade_renderer=True)
     print(json.dumps({"batch": res.summary()}, ensure_ascii=False, indent=2))
     return 1 if res.failed and not res.generated else 0
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    """Read-only: the structured V4 brief (and optionally its SVG) for a story."""
+    from ..intel.engine import run as intel_run
+    from ..media.v4.brief import alt_text, build
+
+    items = JsonNewsStore(DATA_DIR / "items.json").all()
+    sheets, posts = _stores()
+    intel = intel_run(items, sheets=sheets, posts=posts, write=False)
+    story = next((s for s in intel.stories if s.key == args.story), None)
+    if story is None:
+        print(f"unknown story {args.story}", file=sys.stderr)
+        return 2
+    b = build(story)
+    print(json.dumps({"title": story.anchor.title, "brief": b.to_dict(), "alt": alt_text(b)},
+                     ensure_ascii=False, indent=2, default=list))
+    if args.svg:
+        from ..media.v4.render import render
+        with open(args.svg, "w", encoding="utf-8") as fh:
+            fh.write(render(b))
+    return 0
 
 
 def cmd_status(_: argparse.Namespace) -> int:
@@ -134,6 +157,10 @@ def main(argv: list[str] | None = None) -> int:
     g = sub.add_parser("regenerate", help="redo a story's illustration on the next run")
     g.add_argument("story")
     g.set_defaults(fn=cmd_regenerate)
+    br = sub.add_parser("brief", help="show a story's V4 visual brief (read-only)")
+    br.add_argument("story")
+    br.add_argument("--svg", default="", help="also write the V4 rendering to this file")
+    br.set_defaults(fn=cmd_brief)
     v = sub.add_parser("validate-cards", help="fetch and check card variants from a running site")
     v.add_argument("base_url", help="e.g. http://127.0.0.1:3300")
     v.add_argument("--limit", type=int, default=10)

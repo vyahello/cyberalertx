@@ -1,0 +1,50 @@
+{
+  "note": "Tier A: verified real-world photographs. An entry is used only if validate() passes: allowed licence, commercial use, modification and redistribution permitted, file hash matches. See docs/media/VISUAL_SYSTEM_V4.md.",
+  "assets": [
+    {
+      "id": "fugaku-riken-r-ccs",
+      "file": "fugaku-riken-r-ccs.jpg",
+      "sha256": "e44cbc8c5ecf531f63ca8368833d63ee7b785c1ae616281d3e730ad1781422c5",
+      "width": 1600,
+      "height": 900,
+      "subject": "Supercomputer Fugaku, RIKEN Center for Computational Science (Kobe): the machine hall",
+      "subject_ua": "суперкомп'ютер Fugaku у машинному залі RIKEN (Кобе)",
+      "match": [
+        "\\bFugaku\\b",
+        "\\bФугаку\\b",
+        "富岳"
+      ],
+      "source_url": "https://commons.wikimedia.org/wiki/File:RIKEN_R-CCS_Fugaku.jpg",
+      "original_url": "https://upload.wikimedia.org/wikipedia/commons/0/03/RIKEN_R-CCS_Fugaku.jpg",
+      "original_sha1": "1a2bafe6ac1418554d7a2d939f38f565fcfe1dd7",
+      "author": "Barsaka2",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution_required": false,
+      "commercial_use": true,
+      "modification_allowed": true,
+      "redistribution_allowed": true,
+      "credit": "Photo: Barsaka2, Wikimedia Commons (CC0)",
+      "credit_ua": "Фото: Barsaka2, Wikimedia Commons (CC0)",
+      "retrieved": "2026-11-17",
+      "processing": "Cropped to 16:9 (rows 600-2904 of the 4096x3072 original), resized to 1600x900, EXIF (incl. GPS) removed. Overlays are drawn by the renderer, never baked into the file.",
+      "notes": "Uploader's own work (Commons 'Self-published work', 'Own work'). No people in frame. The Fugaku, RIKEN and Fujitsu marks are printed on the photographed installation itself and identify the real subject; no endorsement implied.",
+      "focus": [
+        0.62,
+        0.52
+      ],
+      "quiet": [
+        0.03,
+        0.06,
+        0.55,
+        0.3
+      ],
+      "marker": [
+        566,
+        214,
+        776,
+        690
+      ]
+    }
+  ]
+}

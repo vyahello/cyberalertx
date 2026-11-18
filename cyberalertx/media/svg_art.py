@@ -1005,11 +1005,17 @@ def render_svg(brief: VisualBrief) -> str:
 # ---------------------------------------------------------------- sanitizer
 
 _ALLOWED_TAGS = {"svg", "defs", "g", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path",
-                 "linearGradient", "radialGradient", "stop", "filter", "feGaussianBlur"}
+                 "linearGradient", "radialGradient", "stop", "filter", "feGaussianBlur",
+                 # editorial renderer (media/v4): clipping, film grain, embedded library photographs
+                 "clipPath", "feTurbulence", "feColorMatrix", "image"}
 _ALLOWED_ATTRS = {"xmlns", "width", "height", "viewBox", "x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r",
                   "rx", "ry", "points", "d", "fill", "stroke", "stroke-width", "stroke-dasharray",
                   "stroke-linecap", "opacity", "stop-color", "stop-opacity", "offset", "id", "filter",
-                  "stdDeviation", "transform"}
+                  "stdDeviation", "transform",
+                  "clip-path", "stroke-linejoin", "fill-rule", "type", "values", "baseFrequency", "numOctaves",
+                  "seed", "href", "preserveAspectRatio"}
+#: The only image source allowed: an inline raster (a verified library photo).
+_DATA_IMAGE = re.compile(r"data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}")
 _URL_REF = re.compile(r"url\((?!#[A-Za-z][\w-]*\))", re.I)
 MAX_SVG_BYTES = 2 * 1024 * 1024
 
@@ -1021,8 +1027,9 @@ class UnsafeSvg(ValueError):
 def sanitize_svg(data: bytes) -> tuple[int, int]:
     """Accept only the element/attribute subset this renderer emits.
 
-    Rejects DOCTYPE/entities, scripts, foreignObject, images, links, event
-    handlers, external `url()` references and anything not on the allowlist.
+    Rejects DOCTYPE/entities, scripts, foreignObject, links, event handlers,
+    external `url()` references, images other than inline base64 rasters,
+    text elements and anything not on the allowlist.
     Returns (width, height). Raises UnsafeSvg."""
     if len(data) > MAX_SVG_BYTES:
         raise UnsafeSvg("SVG too large")
@@ -1043,6 +1050,10 @@ def sanitize_svg(data: bytes) -> tuple[int, int]:
         for name, value in el.attrib.items():
             if name not in _ALLOWED_ATTRS:
                 raise UnsafeSvg(f"attribute {name!r} not allowed on <{tag}>")
+            if name == "href":
+                if tag != "image" or not _DATA_IMAGE.fullmatch(value):
+                    raise UnsafeSvg("href allowed only as an inline raster on <image>")
+                continue
             if _URL_REF.search(value) or "javascript:" in value.lower():
                 raise UnsafeSvg(f"external reference in {name!r}")
         if (el.text or "").strip():

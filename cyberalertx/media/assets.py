@@ -80,6 +80,9 @@ class MediaAsset:
     alt_text: dict[str, str] = field(default_factory=dict)   # locale -> alt
     source: str = "cyberalertx"
     license: str = "CyberAlertX original"
+    #: Credit line per locale, for a photograph from the verified library
+    #: (media/v4/library); empty for our own illustrations.
+    credit: dict[str, str] = field(default_factory=dict)
     generation_method: str = ""         # deterministic-svg | ai-image
     generation_model: str = ""
     prompt_version: str = ""

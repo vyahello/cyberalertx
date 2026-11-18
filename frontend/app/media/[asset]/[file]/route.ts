@@ -36,11 +36,24 @@ export async function GET(
   if (!src) return new Response("Not found", { status: 404 });
   const { width, height } = SIZES[m[1]];
   const format = m[2] as keyof typeof TYPES;
-  // Thumbnails show the central 16:9 region (where every composition puts
-  // its subject) so the subject stays legible at 640x360; larger variants
-  // use the whole frame.
+  // Thumbnails show a 16:9 region around the subject so it stays legible at
+  // feed size; larger variants use the whole frame. Editorial (V4) images
+  // name that region themselves (an invisible <rect id="cax-focus">) or are
+  // composed to be read whole; older images keep the central 62% crop.
   let base = sharp(src);
-  if (m[1] === "preview") {
+  const head = src.subarray(0, 200).toString("utf8");
+  const editorial = head.startsWith("<svg") && head.includes('id="cax-editorial-4"');
+  if (m[1] === "preview" && editorial) {
+    const f = /<rect id="cax-focus" x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/.exec(
+      src.subarray(Math.max(0, src.length - 400)).toString("utf8"),
+    );
+    if (f) {
+      const [left, top, width, height] = f.slice(1).map(Number);
+      if (width >= 480 && left + width <= 1600 && top + height <= 900) {
+        base = sharp(await sharp(src).extract({ left, top, width, height }).png().toBuffer());
+      }
+    }
+  } else if (m[1] === "preview") {
     const meta = await sharp(src).metadata();
     const w = meta.width ?? 0, h = meta.height ?? 0;
     if (w >= 1024 && h >= 576) {

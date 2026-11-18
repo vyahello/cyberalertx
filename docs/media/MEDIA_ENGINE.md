@@ -137,6 +137,29 @@ generator: a class with `generate(prompt, *, width, height, timeout_s) ->
 GeneratedImage(data, mime, model, cost_usd, method)` that raises
 `ProviderError` or `TimeoutError`.
 
+### Renderers: V3 and V4 side by side
+
+Two SVG renderers ship together (`media/renderer.py`):
+
+| `CYBERALERTX_ILLUSTRATION_RENDERER` | Renderer | Notes |
+|---|---|---|
+| unset / `svg-3` | `cax-svg-3` (`media/svg_art.py`) | Default. The current archive. |
+| `editorial-4` | `cax-editorial-4` (`media/v4/`) | Structured brief, scene library, verified photo library. See [VISUAL_SYSTEM_V4.md](VISUAL_SYSTEM_V4.md). |
+
+Switching the variable never replaces an existing image by itself. The hourly
+run keeps any validated image another renderer made, and only new stories get
+the active renderer. Replacing the archive is the explicit
+`tools.media backfill --batch N` step. Both renderers are deterministic and
+the store is content-addressed, so rolling back is the same switch followed by
+another backfill. It reproduces the earlier files byte for byte under their
+old storage keys, which are never deleted. The last three earlier files of
+each asset also stay served (`previous_storage_keys`), so cached pages keep
+working during the change.
+
+`python -m cyberalertx.tools.media brief STORY [--svg out.svg]` prints a
+story's V4 brief: subject, action, mechanism, evidence, confidence and the
+chosen scene. It is read-only.
+
 ## Storage and URLs
 
 Production has no object store or CDN client. The Media Engine follows the
@@ -173,7 +196,9 @@ purge Cloudflare if a takedown can't wait.
 (`deterministic-svg` | `ai-image`), `generation_model`, `prompt_version`,
 `prompt`, `content_hash` (hash of the inputs), `members` (article
 fingerprints), `status`, `attempts`, `last_error`, `cost_usd`, `created_at`,
-`updated_at`.
+`updated_at`, `previous_storage_keys`, `credit` {locale → credit line; only
+for a verified library photograph, shown under the article image and returned
+as `media.illustration.credit`}.
 
 ## Website integration
 

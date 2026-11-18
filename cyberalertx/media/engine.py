@@ -35,8 +35,10 @@ from .illustrations import (
     ProviderUnavailable,
     build_prompt,
     eligibility,
-    visual_brief,
 )
+from .renderer import plan_for
+from .renderer import active as plan_renderer
+from .renderer import render as render_plan
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +138,6 @@ def _record_usage(store: MediaStore, entry: Mapping[str, Any]) -> None:
         fh.write(json.dumps(dict(entry), ensure_ascii=False) + "\n")
 
 
-from .svg_art import RENDERER_VERSION as _CURRENT_RENDERER  # noqa: E402
 
 
 def run(
@@ -209,20 +210,22 @@ def run(
             continue
         res.eligible.append(story.key)
         prompt = build_prompt(story, ev)
-        brief, alt, inputs_hash = visual_brief(story)
+        plan = plan_for(story)
+        alt, inputs_hash = plan.alt, plan.inputs_hash
         asset_id = f"illus:{story.key}"
         existing = store.get(asset_id)
         members = sorted(m.fingerprint for m in story.members)
 
         if existing and existing.content_hash == inputs_hash and existing.status in ("validated", "published"):
-            if (existing.members != members or dict(existing.alt_text) != alt) and not dry_run:
-                existing.members, existing.alt_text = members, alt
+            if (existing.members != members or dict(existing.alt_text) != alt
+                    or dict(existing.credit) != plan.credit) and not dry_run:
+                existing.members, existing.alt_text, existing.credit = members, alt, dict(plan.credit)
                 store.put(existing)
             res.reused.append(story.key)
             continue
         if (existing and existing.status in ("validated", "published") and not upgrade_renderer
                 and existing.generation_method == "svg" and existing.generation_model
-                and existing.generation_model != _CURRENT_RENDERER):
+                and existing.generation_model != plan.renderer):
             # Made by an older renderer: keep it as it is. Replacing the archive
             # is an explicit, reviewed step (`tools.media backfill --batch`), never
             # a side effect of deploying a new renderer. Its own alt text stays,
@@ -249,9 +252,14 @@ def run(
             asset_id=asset_id, story_key=story.key, asset_type="editorial_illustration",
             alt_text=alt, generation_method="svg", prompt_version=prompt.inputs["v"],
             prompt=prompt.prompt, content_hash=inputs_hash, members=members,
-            status="generating", attempts=attempts + 1, license="CyberAlertX (generated on our server)",
-            source="generated:svg",
+            status="generating", attempts=attempts + 1, license=plan.license, source=plan.source,
+            credit=dict(plan.credit),
         )
+        if existing is not None:
+            # Carry the current file forward, so that once the new one is
+            # validated the old URL is kept in `previous_storage_keys`.
+            asset.storage_key = existing.storage_key
+            asset.previous_storage_keys = list(existing.previous_storage_keys)
         store.put(asset)
         res.calls += 1
         img = None
@@ -268,10 +276,9 @@ def run(
                 img = None
         if img is None:
             from .illustrations import GeneratedImage
-            from .svg_art import RENDERER_VERSION, render_svg
             try:
-                img = GeneratedImage(data=render_svg(brief).encode("utf-8"), mime="image/svg+xml",
-                                     model=RENDERER_VERSION, method="svg")
+                img = GeneratedImage(data=render_plan(plan), mime="image/svg+xml", model=plan.renderer,
+                                     method="svg")
             except Exception as exc:                       # a renderer bug must not stop the run
                 errors.append(f"svg: {type(exc).__name__}: {exc}"[:300])
         try:
@@ -293,7 +300,10 @@ def run(
         asset.storage_key = new_key
         asset.mime_type, asset.width, asset.height = mime, iw, ih
         asset.file_size = len(img.data)
-        asset.generation_method, asset.source = img.method, f"generated:{img.method}"
+        asset.generation_method = img.method
+        asset.source = plan.source if img.model == plan.renderer else f"generated:{img.method}"
+        if img.model != plan.renderer:                     # a ComfyUI image carries no photo credit
+            asset.credit, asset.license = {}, "CyberAlertX (generated on our server)"
         asset.generation_model, asset.cost_usd = img.model, img.cost_usd
         asset.variants, asset.public_url = urls, urls["og"]
         asset.status, asset.last_error = "validated", ("; ".join(errors) if errors else "")
@@ -312,8 +322,12 @@ def illustration_payload(store: MediaStore, fingerprint: str) -> dict[str, Any] 
     a = store.illustration_for_member(fingerprint)
     if a is None:
         return None
-    return {"asset_id": a.storage_key.split(".")[0][:16], "width": a.width, "height": a.height,
-            "alt": dict(a.alt_text), "generated": True}
+    out: dict[str, Any] = {"asset_id": a.storage_key.split(".")[0][:16], "width": a.width, "height": a.height,
+                           "alt": dict(a.alt_text), "generated": True}
+    if a.credit:
+        # A verified library photograph: its credit travels with the image.
+        out["credit"] = dict(a.credit)
+    return out
 
 
 def backfill_plan(items: Sequence[NewsItem], *, store: MediaStore | None = None, posts: Any = None,
@@ -330,7 +344,6 @@ def backfill_plan(items: Sequence[NewsItem], *, store: MediaStore | None = None,
     if intel_dir is not None:
         kwargs["intel_dir"] = intel_dir
     intel = intel_run(items, **kwargs)
-    from .svg_art import RENDERER_VERSION
 
     eligible = done = failed_final = 0
     todo: list[str] = []
@@ -342,7 +355,8 @@ def backfill_plan(items: Sequence[NewsItem], *, store: MediaStore | None = None,
         if not eligibility(story, intel.evals.get(story.key), cfg=cfg).eligible:
             continue
         eligible += 1
-        _, _, inputs_hash = visual_brief(story)
+        plan = plan_for(story)
+        inputs_hash = plan.inputs_hash
         a = store.get(f"illus:{story.key}")
         if a and a.storage_key:
             sizes.append(int(a.file_size or 0))
@@ -360,8 +374,8 @@ def backfill_plan(items: Sequence[NewsItem], *, store: MediaStore | None = None,
             why = "no illustration yet"
         elif a.status == "failed":
             why = "previous attempt failed"
-        elif a.generation_method == "svg" and a.generation_model and a.generation_model != RENDERER_VERSION:
-            why = f"renderer upgrade ({a.generation_model} -> {RENDERER_VERSION})"
+        elif a.generation_method == "svg" and a.generation_model and a.generation_model != plan.renderer:
+            why = f"renderer change ({a.generation_model} -> {plan.renderer})"
         else:
             why = "story facts changed since the image was made"
         reasons[why] = reasons.get(why, 0) + 1
@@ -372,6 +386,7 @@ def backfill_plan(items: Sequence[NewsItem], *, store: MediaStore | None = None,
             "cost_usd": 0.0,
             "replacement_reasons": reasons,
             "assets_shared_between_stories": shared,
+            "renderer": plan_renderer(),
             "estimated_cpu_seconds": round(0.05 * len(todo), 1),
             "estimated_storage_mb": round((sum(sizes) / max(len(sizes), 1)) * len(todo) / 1e6, 2),
             "spent_today_usd": round(day, 4), "spent_this_month_usd": round(month, 4),

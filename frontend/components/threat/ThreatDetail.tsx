@@ -138,6 +138,9 @@ export function ThreatDetail({ post, lang }: Props) {
           )}
           <figure className="mt-8">
             <StoryVisual post={post} lang={lang} variant="article" eager />
+            {post.media?.illustration?.credit?.[lang] && (
+              <figcaption className="mt-2 text-small text-ink-muted">{post.media.illustration.credit[lang]}</figcaption>
+            )}
           </figure>
         </header>
 
