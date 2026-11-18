@@ -7,15 +7,21 @@ import { strings } from "@/lib/i18n";
 import { TOPIC_SLUGS } from "@/lib/topics";
 import type { Locale } from "@/lib/types";
 
-/** Section links. Marks the current section for sighted and AT users. */
+/**
+ * Section links. Marks the current section for sighted and AT users.
+ * `labels="nav"` uses the short bar labels (desktop); `"name"` the full
+ * section names (the mobile menu has the width for them).
+ */
 export function SiteNav({
   lang,
   className,
   itemClassName,
+  labels = "nav",
 }: {
   lang: Locale;
   className?: string;
   itemClassName?: string;
+  labels?: "nav" | "name";
 }) {
   const s = strings(lang);
   const pathname = usePathname() || "";
@@ -23,7 +29,7 @@ export function SiteNav({
     { href: `/${lang}`, label: s.nav_latest, current: pathname === `/${lang}` },
     ...TOPIC_SLUGS.map((slug) => ({
       href: `/${lang}/topic/${slug}`,
-      label: s.topic[slug].nav,
+      label: s.topic[slug][labels],
       current: pathname.startsWith(`/${lang}/topic/${slug}`),
     })),
   ];

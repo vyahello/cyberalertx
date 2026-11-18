@@ -6,7 +6,7 @@
  * already ships with Next. Fonts are the site's own faces as static TTFs
  * (Satori cannot read the variable WOFF2 files the site loads):
  *   Literata SemiBold (headline), Fira Sans Condensed (marks, labels),
- *   Space Grotesk SemiBold (the "cyberalert" logotype). All OFL.
+ *   Space Grotesk SemiBold (the "cyberalertx" logotype). All OFL.
  *
  * Every field on a card comes from the story's own edition (EN or UA). Fields
  * the story doesn't have are left out — never filled with placeholders.
@@ -192,10 +192,10 @@ export function Card({ spec, variant }: { spec: CardSpec; variant: CardVariant }
         {spec.identifier && <div style={{ color: T.muted }}>{spec.identifier}</div>}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 * s }}>
-        <div style={{ color: T.ink, fontFamily: "Grotesk", fontWeight: 600, fontSize: 30 * s, letterSpacing: -0.9 * s }}>
-          cyberalert
-        </div>
         <Glyph size={Math.round(26 * s)} ring={T.muted} />
+        <div style={{ color: T.ink, fontFamily: "Grotesk", fontWeight: 600, fontSize: 30 * s, letterSpacing: -0.9 * s }}>
+          cyberalertx
+        </div>
         <div style={{ marginLeft: 8 * s, color: T.faint, fontFamily: "Fira", fontWeight: 600, fontSize: 22 * s }}>
           {edition}
         </div>

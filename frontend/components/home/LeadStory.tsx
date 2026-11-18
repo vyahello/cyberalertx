@@ -28,10 +28,10 @@ export function LeadStory({ lead, total, lang, now }: Props) {
   const firstStep = c?.what_to_do?.find((x) => x.trim())?.trim().replace(/`/g, "");
 
   return (
-    <section aria-labelledby="hero-headline" className="page pt-8 sm:pt-12 lg:pt-16">
-      <div className="axis gap-y-10">
-        <div className="flex flex-col gap-5 lg:pr-6">
-          <h1 id="hero-headline" className="t-display text-ink animate-rise break-words hyphens-auto">
+    <section aria-labelledby="hero-headline" className="page pt-6 sm:pt-10 lg:pt-16">
+      <div className="axis gap-y-8 sm:gap-y-10">
+        <div className="flex flex-col gap-4 sm:gap-5 lg:pr-6">
+          <h1 id="hero-headline" className="t-display text-ink text-balance animate-rise break-words hyphens-auto">
             {s.edition_title}
           </h1>
           <p className="font-sans text-small text-ink-faint tnum animate-rise [animation-delay:80ms]">
@@ -55,13 +55,21 @@ export function LeadStory({ lead, total, lang, now }: Props) {
             aria-labelledby="lead-title"
             className="on-axis flex flex-col"
           >
-            <figure className="mb-6">
-              <StoryVisual post={lead} lang={lang} variant="og" eager />
+            <figure className="mb-5 sm:mb-6">
+              <StoryVisual post={lead} lang={lang} variant="og" eager className="object-center" />
             </figure>
+            {/* Severity first: the reader learns how bad it is before the
+                headline asks for their attention. */}
+            <FieldMarks
+              post={lead}
+              lang={lang}
+              variant="inline"
+              className="animate-rise [animation-delay:40ms]"
+            />
             <h2
               id="lead-title"
-              className="font-serif font-semibold text-ink tracking-[-0.015em] leading-[1.12]
-                         text-[clamp(1.625rem,1.2rem+1.3vw,2.25rem)] animate-reveal [animation-delay:60ms]"
+              className="mt-3 font-serif font-semibold text-ink tracking-[-0.015em] leading-[1.12] text-balance
+                         text-[clamp(1.5rem,1.15rem+1.5vw,2.25rem)] animate-reveal [animation-delay:60ms]"
             >
               <Link
                 href={`/${lang}/threat/${lead.id}`}
@@ -72,30 +80,30 @@ export function LeadStory({ lead, total, lang, now }: Props) {
               </Link>
             </h2>
             {plain && (
-              <p className="mt-5 font-serif text-lead text-ink max-w-measure animate-rise [animation-delay:240ms]">
+              <p className="mt-4 font-serif text-lead text-ink max-w-measure text-pretty animate-rise [animation-delay:240ms]">
                 {plain}
               </p>
             )}
-            <FieldMarks
-              post={lead}
-              lang={lang}
-              variant="inline"
-              className="mt-5 animate-rise [animation-delay:300ms]"
-            />
-            {reason && (
-              <p className="mt-3 font-sans text-[1rem] leading-relaxed text-ink-muted max-w-measure animate-rise [animation-delay:320ms]">
-                <span className="font-semibold text-ink">
-                  {s.severity_reason(s.level[lead.threat_level])}.
-                </span>{" "}
-                {reason}
-              </p>
+            {(reason || firstStep) && (
+              <dl
+                className="mt-6 max-w-measure space-y-4 border-t border-line pt-5 font-sans text-[1.0625rem] leading-[1.55]
+                           animate-rise [animation-delay:320ms]"
+              >
+                {reason && (
+                  <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                    <dt className="font-semibold text-ink">{s.severity_reason(s.level[lead.threat_level])}</dt>
+                    <dd className="mt-1 text-ink sm:mt-0">{reason}</dd>
+                  </div>
+                )}
+                {firstStep && (
+                  <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                    <dt className="font-semibold text-ink">{s.detail_what_to_do}</dt>
+                    <dd className="mt-1 text-ink sm:mt-0">{firstStep}</dd>
+                  </div>
+                )}
+              </dl>
             )}
-            {firstStep && (
-              <p className="mt-3 font-sans text-[1rem] leading-relaxed text-ink-muted max-w-measure animate-rise [animation-delay:340ms]">
-                <span className="font-semibold text-ink">{s.detail_what_to_do}:</span> {firstStep}
-              </p>
-            )}
-            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-4 animate-rise [animation-delay:400ms]">
+            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3 animate-rise [animation-delay:400ms]">
               <Link href={`/${lang}/threat/${lead.id}`} prefetch={false} className="btn-primary">
                 {s.lead_read}
               </Link>

@@ -11,21 +11,25 @@ import { Wordmark } from "./Wordmark";
  * A plain bar: wordmark at the left margin, section links starting on the
  * axis, language and Telegram at the right margin. Solid ground, no blur,
  * no rule; the content scrolls under it.
+ *
+ * Below `lg`: wordmark left; language, then the menu button at the far
+ * right. Every control is a 44 px target; the row fits at 320 px.
  */
 export function Header({ lang }: { lang: Locale }) {
   const s = strings(lang);
   return (
     <header className="sticky top-0 z-30 bg-ground pt-[env(safe-area-inset-top)]">
       <div className="page relative axis h-16 items-center">
-        <div className="flex items-center justify-between">
+        <div className="flex min-w-0 items-center justify-between gap-2">
           <Link
             href={`/${lang}`}
             aria-label={`${s.brand} — ${s.nav_latest}`}
-            className="inline-flex items-center text-ink text-[1.25rem] hover:text-ink"
+            data-testid="header-logo"
+            className="inline-flex h-11 min-w-0 shrink items-center text-ink text-[1.125rem] min-[360px]:text-[1.25rem] lg:text-[1.375rem] hover:text-ink"
           >
-            <Wordmark glyphSize={20} />
+            <Wordmark />
           </Link>
-          <div className="flex items-center gap-1 lg:hidden">
+          <div data-testid="header-controls" className="flex shrink-0 items-center gap-1 lg:hidden">
             <LanguageSwitcher lang={lang} />
             <MobileMenu lang={lang} />
           </div>

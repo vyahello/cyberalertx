@@ -11,7 +11,7 @@ import type { Config } from "tailwindcss";
  *             secondary notes; `faint` is the floor for metadata and still
  *             clears 4.5:1 on every ground step.
  *   signal  — the brand cyan. Marks the primary action, links in running
- *             text, focus, and the one whole-field section (footer).
+ *             text, focus, and the accents of the footer field.
  *   sev     — severity. Always paired with a word and a segment count
  *             (SeverityMark), never carried by colour alone.
  *
@@ -20,6 +20,10 @@ import type { Config } from "tailwindcss";
  */
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  // `hover:` only where a real pointer can hover. On touch screens a tapped
+  // control otherwise keeps its hover colour (the menu button stayed cyan
+  // after closing the menu).
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {
@@ -48,6 +52,14 @@ const config: Config = {
           medium: "#EDE58A",
           low: "#8C95A3",
         },
+        // The footer field: a deep, low-saturation teal with its own text
+        // steps (ink 13.1:1, muted 8.6:1, faint 7.0:1 on the field).
+        field: {
+          DEFAULT: "#0B2A30",
+          ink: "#E4F1F3",
+          muted: "#A9C9CE",
+          faint: "#8FB7BD",
+        },
         // Only for real tables and form fields.
         line: "#2A313B",
       },
@@ -65,7 +77,7 @@ const config: Config = {
           "Segoe UI",
           "sans-serif",
         ],
-        // The logotype only ("cyberalert" in the header and footer lockup).
+        // The logotype only ("cyberalertx" in the header and footer lockup).
         logo: ["var(--font-logo)", "var(--font-sans)", "sans-serif"],
         // Code, commands, hashes and indicators only.
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],

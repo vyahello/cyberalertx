@@ -28,6 +28,10 @@
     --sev-medium: #ede58a;
     --sev-low: #8c95a3;
     --line: #2a313b;
+    --field: #0b2a30;
+    --field-ink: #e4f1f3;
+    --field-muted: #a9c9ce;
+    --field-faint: #8fb7bd;
 
     /* The frame. One pair of outer margins at every width, one gutter, and
        one vertical axis at 42% of the content width. Every section that

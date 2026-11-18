@@ -90,12 +90,18 @@ test.describe("mobile navigation", () => {
     await expect(panel).toBeHidden();
   });
 
-  test("the same items in the same order as the desktop navigation", async ({ page }) => {
+  test("the same sections in the same order as the desktop navigation", async ({ page }) => {
+    // The menu spells the sections out in full ("Malware and ransomware");
+    // the bar uses the short labels. Same destinations, same order.
     await page.goto("/ua");
     await page.getByRole("button", { name: "Відкрити меню навігації" }).click();
-    const mobile = await page.locator("header [id] nav li a").allInnerTexts();
+    const hrefs = (sel: string) =>
+      page.locator(sel).evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+    const mobile = await hrefs('[data-testid="menu-primary"] li a');
+    await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 1280, height: 800 });
-    const desktop = await page.locator("header nav.hidden li a").allInnerTexts();
-    expect(mobile.map((s) => s.trim())).toEqual(desktop.map((s) => s.trim()));
+    const desktop = await hrefs("header nav.hidden li a");
+    expect(mobile.length).toBe(5);
+    expect(mobile).toEqual(desktop);
   });
 });

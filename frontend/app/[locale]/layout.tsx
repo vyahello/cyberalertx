@@ -19,7 +19,8 @@ import { HTML_LANG, SUPPORTED_LOCALES, isLocale } from "@/lib/types";
  *     to keep a story's metadata on one line; standard (Russian/Ukrainian)
  *     Cyrillic forms. Sofia Sans was dropped: its default Cyrillic draws
  *     Bulgarian shapes (т as "m", д as "g"), wrong for Ukrainian readers.
- *   - Space Grotesk 600: the logotype only ("cyberalert"). Latin, one weight.
+ *   - Space Grotesk 600: the logotype only ("cyberalertx", glyph first).
+ *     Latin subset, one weight; every letter of the logotype is in it.
  *   - JetBrains Mono: code, commands and indicators only. Not preloaded;
  *     most pages never show code.
  */
