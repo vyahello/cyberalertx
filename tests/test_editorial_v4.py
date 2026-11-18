@@ -624,3 +624,89 @@ def test_ics_alt_names_an_identifier_only_when_one_is_drawn() -> None:
     assert "'ADVISORY'" in B.alt_text(b)["en"] and "identifier" not in B.alt_text(b)["en"]
     b2 = _brief_for("ics_controller", facts={"cves": ["CVE-2026-1111"]})
     assert "CVE-2026-1111" in B.alt_text(b2)["en"]
+
+
+# ------------------------------------------------------------------ hybrid policy: confidence routing (V4.1.2)
+
+def _plan(monkeypatch: pytest.MonkeyPatch, title: str, body: str = "", **kw: Any) -> Any:
+    from cyberalertx.media import renderer
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "editorial-4")
+    return renderer.plan_for(story(title, body, **kw))
+
+
+@pytest.mark.parametrize("title,body,scene", [
+    ("Apache warns of Roller RCE vulnerability exploited in attacks", "critical flaw exploited", "vuln_advisory"),
+    (*CREDIT_UNIONS, "breach_notice"),
+    ("Uber notifies drivers of data breach affecting nearly 150,000 people", "", "breach_notice"),
+    (*UA_FRAUD, "police_takedown"),
+    ("Кіберполіція затримала хакерів, які атакували банки", "", "police_takedown"),
+    ("Police arrest suspected admin of ransomware gang", "", "police_takedown"),
+    ("Europol and FBI dismantle phishing-as-a-service platform", "", "police_takedown"),
+])
+def test_confident_scenes_are_drawn_by_v4(monkeypatch: pytest.MonkeyPatch, title: str, body: str,
+                                          scene: str) -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    plan = _plan(monkeypatch, title, body)
+    assert plan.renderer == "cax-editorial-4" and plan.routed == ""
+    assert plan.brief.scene == scene and plan.brief.confidence in ("high", "medium")
+    labels = render_doc(plan.brief).labels
+    assert check_brief(plan.brief, labels) == []                    # alt text matches the drawn labels
+    assert not {"IT", "AI", "RCE"} & set(labels) and not {"IT", "AI", "RCE"} & set(plan.brief.entities)
+
+
+@pytest.mark.parametrize("title,body", [
+    ("What security teams should plan for next year", ""),
+    ("Why AI matters for security leaders", ""),                    # "AI" alone: no scene, no name
+    # headline/body conflict: the body's scene words cannot pull a vague headline into a scene
+    ("Hospital chain says a fire alarm fault disrupted services",
+     "Attackers used ransomware to encrypt files at another firm, researchers said."),
+])
+def test_low_confidence_stories_stay_on_v3(monkeypatch: pytest.MonkeyPatch, title: str, body: str) -> None:
+    from cyberalertx.media import renderer
+    plan = _plan(monkeypatch, title, body)
+    assert plan.renderer == "cax-svg-3" and "low-confidence" in plan.routed
+    v3 = renderer.plan_for(story(title, body), renderer.V3)
+    # exactly the V3 plan: same alt text and inputs hash, so a V3 image is reused, never redrawn
+    assert (plan.alt, plan.inputs_hash) == (v3.alt, v3.inputs_hash)
+    assert "AI" not in B.build(story(title, body)).entities
+
+
+def test_headline_decides_over_the_body_in_routing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # police headline, AI only in the body: V4 police scene, AI as secondary context only
+    plan = _plan(monkeypatch, *UA_FRAUD)
+    assert plan.renderer == "cax-editorial-4" and plan.brief.scene == "police_takedown"
+    # vulnerability headline, police only in the body: V4 advisory, never the police scene
+    plan2 = _plan(monkeypatch, "Apache patches critical RCE flaw",
+                  "Police in several countries urged admins to update after arrests.")
+    assert plan2.brief.scene != "police_takedown"
+
+
+def test_canary_draws_confident_stories_with_v4_and_keeps_weak_ones_on_v3(monkeypatch: pytest.MonkeyPatch,
+                                                                          tmp_path: Path) -> None:
+    from cyberalertx.media import engine
+    from tests.test_media import NOW, critical_story, fake_intel
+    strong = critical_story("s:strong")
+    weak = critical_story("s:weak")
+    weak.anchor.title, weak.anchor.raw_content = "What security teams should plan for next year", ""
+    store = MediaStore(tmp_path / "media")
+    anchors = [strong.anchor, weak.anchor]
+    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
+    fake_intel(monkeypatch, [weak])
+    engine.run([weak.anchor], store=store, now=NOW)                        # the weak story already has V3
+    fake_intel(monkeypatch, [strong, weak])
+    before = store.get("illus:s:weak")
+    assert before is not None and before.generation_model == "cax-svg-3"
+
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "editorial-4")
+    res = engine.run(anchors, store=store, now=NOW)
+    assert res.generated == ["s:strong"]                                   # the weak V3 image is reused
+    assert store.get("illus:s:strong").generation_model == "cax-editorial-4"  # type: ignore[union-attr]
+    after = store.get("illus:s:weak")
+    assert after is not None and (after.storage_key, after.generation_model) == (before.storage_key, "cax-svg-3")
+    # a brand-new weak story under the canary is drawn by V3
+    new = critical_story("s:new-weak")
+    new.anchor.title, new.anchor.raw_content = "Why AI matters for security leaders", ""
+    fake_intel(monkeypatch, [strong, weak, new])
+    assert engine.run(anchors + [new.anchor], store=store, now=NOW).generated == ["s:new-weak"]
+    assert store.get("illus:s:new-weak").generation_model == "cax-svg-3"   # type: ignore[union-attr]

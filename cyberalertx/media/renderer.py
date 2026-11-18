@@ -6,7 +6,10 @@ Two renderers ship side by side:
   * `cax-editorial-4` — the V4 editorial system (media/v4/): structured visual
     brief, scene library, verified photo library.
 
-`CYBERALERTX_ILLUSTRATION_RENDERER=editorial-4` selects V4. Changing it never
+`CYBERALERTX_ILLUSTRATION_RENDERER=editorial-4` selects V4 as a hybrid
+policy: stories whose V4 brief found an evidence-backed scene are drawn by
+V4, low-confidence ones (the generic `dossier` fallback) by V3 (`plan_for`).
+Changing the setting never
 replaces an existing image by itself: the engine keeps any validated image an
 older/other renderer made until `tools.media backfill --batch` is run
 explicitly (engine.run(upgrade_renderer=True)). Rolling back is the same
@@ -44,16 +47,29 @@ class Plan:
     inputs_hash: str
     #: Tier A provenance (empty for original illustrations).
     source: str = "generated:svg"
+    #: Why a V4 request was served by V3 ("" when it was not), see `plan_for`.
+    routed: str = ""
     license: str = "CyberAlertX (generated on our server)"
     credit: dict[str, str] = field(default_factory=dict)
 
 
 def plan_for(story: Any, renderer: str | None = None) -> Plan:
+    """The image plan for `story` under `renderer` (default: the active one).
+
+    Hybrid policy (V4.1.2): editorial-4 draws a story only when its brief
+    found an evidence-backed scene. A low-confidence brief (the generic
+    `dossier` fallback) is served by V3, so V4 coverage never grows through
+    a weak generic card. The story key, asset id and URLs are the same either
+    way; only the renderer that draws it differs."""
     renderer = renderer or active()
     if renderer == V4:
         from .v4 import brief as v4
         from .v4 import library
         b = v4.build(story)
+        if not v4_applies(b):
+            plan = _v3_plan(story)
+            plan.routed = f"low-confidence V4 brief ({b.scene}): served by {V3}"
+            return plan
         plan = Plan(V4, b, v4.alt_text(b), v4.inputs_hash(b))
         lib = library.get(b.library_id) if b.library_id else None
         if lib is not None:
@@ -62,6 +78,17 @@ def plan_for(story: Any, renderer: str | None = None) -> Plan:
                             "annotation CyberAlertX")
             plan.credit = {"en": lib.credit, "ua": lib.credit_ua}
         return plan
+    return _v3_plan(story)
+
+
+def v4_applies(brief: Any) -> bool:
+    """True when editorial-4 should draw this V4 brief: an evidence-backed
+    scene, not the low-confidence `dossier` fallback."""
+    from .v4.brief import FALLBACK
+    return bool(brief.confidence != "low" and brief.scene != FALLBACK.id)
+
+
+def _v3_plan(story: Any) -> Plan:
     from .illustrations import visual_brief
     vb, alt, h = visual_brief(story)
     return Plan(V3, vb, alt, h)

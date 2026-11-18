@@ -3,8 +3,10 @@
     venv/bin/python ops/media/alt_audit.py [--json OUT.json] [--svg DIR]
 
 For every story currently eligible for an illustration, builds the V4
-(`cax-editorial-4`) brief from the live stores, renders it in memory and
-reports:
+(`cax-editorial-4`) brief from the live stores. Stories the hybrid policy
+serves with V3 (`renderer.v4_applies` false: the low-confidence `dossier`
+fallback) are counted and skipped; the rest are rendered in memory and
+checked:
 
 * **alt**: `v4.consistency.check_brief` problems (a number, quoted label or
   name in the alt text that the image does not draw; a figure claimed but
@@ -36,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(ROOT))
     from cyberalertx.api.app import _PostService
     from cyberalertx.intel.engine import run as intel_run
+    from cyberalertx.media.renderer import v4_applies
     from cyberalertx.media.illustrations import EligibilityConfig, eligibility
     from cyberalertx.media.v4.brief import DEMONYMS, GENERIC_TERMS, alt_text, build
     from cyberalertx.media.v4.consistency import check_brief
@@ -52,10 +55,14 @@ def main(argv: list[str] | None = None) -> int:
     cfg = EligibilityConfig.from_env()
     bare = {t.lower() for t in GENERIC_TERMS | DEMONYMS}
     rows: dict[str, dict[str, Any]] = {}
+    routed: list[str] = []
     for st in intel.stories:
         if not eligibility(st, intel.evals.get(st.key), cfg=cfg).eligible:
             continue
         b = build(st)
+        if not v4_applies(b):
+            routed.append(st.key)          # hybrid policy: V3 draws it, nothing of V4 is shown
+            continue
         doc = render_doc(b)
         problems = check_brief(b, doc.labels)
         review = [x for x in doc.labels if x.lower() in bare]
@@ -69,7 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(rows, ensure_ascii=False, indent=1, default=list), encoding="utf-8")
     bad = {k: r for k, r in rows.items() if r["problems"]}
-    print(f"{len(rows)} eligible stories audited; {len(bad)} with problems")
+    print(f"{len(rows) + len(routed)} eligible stories: {len(rows)} drawn by V4 audited, {len(bad)} with problems; "
+          f"{len(routed)} low-confidence routed to V3")
     print("by scene:", dict(Counter(str(r["scene"]) for r in rows.values()).most_common()))
     for k, r in bad.items():
         for p in r["problems"]:

@@ -232,6 +232,31 @@ checks, not in the art.
   unchanged, the engine replaces its stored alt text only if the current
   code draws the stored image byte for byte.
 
+### Hybrid policy: confidence routing (V4.1.2)
+
+With `CYBERALERTX_ILLUSTRATION_RENDERER=editorial-4`, V4 draws a story only
+when its brief found an evidence-backed scene: confidence `high` or `medium`,
+with the headline supporting it. A low-confidence brief is the generic
+`dossier` fallback. It is served by V3 (`renderer.v4_applies`,
+`renderer.plan_for`), so V4 coverage never grows through a weak generic
+card.
+
+This is the permanent policy, not a workaround:
+
+* **Identity is unchanged.** Story key, asset id and URLs are the same
+  whichever renderer draws a story.
+* **No churn on V3 images.** A routed story gets exactly the V3 plan, with
+  the same alt text and inputs hash, so an existing V3 image is reused,
+  never redrawn.
+* **Coverage on 18 Nov 2026:** 123 of 145 eligible stories are drawn by V4
+  and 22 by V3. `ops/media/alt_audit.py` reports both numbers.
+* **Backfill.** A backfill moves routed stories from cax-svg-2 to cax-svg-3,
+  not to a dossier card. `backfill --dry-run` lists them as `renderer change
+  (cax-svg-2 -> cax-svg-3)`.
+
+The `dossier` scene stays in the code and the catalogue. It is no longer
+published under the hybrid policy.
+
 ## Scenes
 
 There are 37 scene modules: the 35 catalogue scenes, `hpc_drawn`
