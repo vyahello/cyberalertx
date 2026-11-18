@@ -338,3 +338,13 @@ ALTERNATIVES: dict[str, Callable[[Doc, EditorialBrief, random.Random], None]] = 
 @scene("ics_controller")
 def ics_controller(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     _comp_rail(doc, brief, rng)
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str]:
+    """Names the identifier only when one is drawn (a CVE from the facts)."""
+    ident, _ = _identifier(brief)
+    if ident == "ADVISORY":
+        return ("Illustration: industrial controller hardware on a DIN rail, under an 'ADVISORY' label.",
+                "Ілюстрація: промисловий контролер на DIN-рейці з написом «ADVISORY».")
+    return (f"Illustration: industrial controller hardware on a DIN rail, with the advisory's identifier {ident}.",
+            f"Ілюстрація: промисловий контролер на DIN-рейці з ідентифікатором бюлетеня {ident}.")

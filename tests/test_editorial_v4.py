@@ -599,3 +599,28 @@ def test_alt_text_is_refreshed_only_for_an_image_drawn_byte_for_byte(monkeypatch
                             storage_key="0" * 64 + ".svg")
     assert engine._draws_stored_image(plan, same)          # type: ignore[arg-type]
     assert not engine._draws_stored_image(plan, other)     # type: ignore[arg-type]
+
+
+def test_advisory_alt_names_the_drawn_status_not_patch_status() -> None:
+    b = B.build(story("Apache warns of Roller RCE vulnerability exploited in attacks",
+                      "Apache has released security updates to address a critical Roller flaw that threat actors "
+                      "are exploiting."))
+    assert b.scene == "vuln_advisory"
+    en = B.alt_text(b)["en"]
+    assert "'EXPLOITED'" in en and "'CRITICAL'" in en and "patch status" not in en
+
+
+def test_sites_alt_mentions_the_phone_only_when_it_is_drawn() -> None:
+    title = "IKEA, Salesforce and Zoom websites hacked to push malware"
+    plain = replace(B.build(story(title, "Visitors were redirected.")), scene="compromised_sites",
+                    status="compromise", entities=("IKEA", "Salesforce", "Zoom"))
+    assert "phone" not in B.alt_text(plain)["en"]
+    ios = replace(plain, text=plain.text + " iphone users were targeted")
+    assert "phone" in B.alt_text(ios)["en"]
+
+
+def test_ics_alt_names_an_identifier_only_when_one_is_drawn() -> None:
+    b = _brief_for("ics_controller", facts={})
+    assert "'ADVISORY'" in B.alt_text(b)["en"] and "identifier" not in B.alt_text(b)["en"]
+    b2 = _brief_for("ics_controller", facts={"cves": ["CVE-2026-1111"]})
+    assert "CVE-2026-1111" in B.alt_text(b2)["en"]

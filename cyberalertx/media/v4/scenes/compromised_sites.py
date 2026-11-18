@@ -102,11 +102,23 @@ def _single(brief: EditorialBrief) -> bool:
     return re.search(r"\bsites\b|websites|сайти|сайтів|dozens|десятк|\b\d+\s", head) is None
 
 
-def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
-    if not _single(brief):
-        return None
-    return ("Illustration: a compromised website carrying an injected element.",
-            "Ілюстрація: зламаний вебсайт із вбудованим стороннім елементом.")
+def alt_for(brief: EditorialBrief) -> tuple[str, str]:
+    """The sites as drawn; the phone only in the variant that draws it."""
+    if _single(brief):
+        return ("Illustration: a compromised website carrying an injected element.",
+                "Ілюстрація: зламаний вебсайт із вбудованим стороннім елементом.")
+    text = brief.text or ""
+    head = text[:200]
+    names = [e for e in brief.entities if T.supported(e, "display") == e and mentions(e, head)][:3]
+    phone = brief.status in _ATTACK and any(k in text for k in ("iphone", "ios", "apple"))
+    en = "Illustration: a row of company websites" + (f", among them {', '.join(names)}," if names else "") + \
+        " carrying the same injected element"
+    ua = "Ілюстрація: ряд сайтів компаній" + (f", серед них {', '.join(names)}," if names else "") + \
+        " з тим самим вбудованим елементом"
+    if phone:
+        en += ", and a phone showing a warning"
+        ua += ", і телефон із попередженням"
+    return en + ".", ua + "."
 
 
 @scene("compromised_sites")

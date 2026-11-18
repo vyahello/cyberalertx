@@ -397,3 +397,24 @@ def vuln_advisory(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
         _catalogue(doc, a, rng)
         return
     rng.choice((_stage, _stage, _bulletin))(doc, a, rng)
+
+
+_STATUS_UA = {"EXPLOITED": "EXPLOITED", "PROOF OF CONCEPT": "PROOF OF CONCEPT", "PATCH AVAILABLE": "PATCH AVAILABLE",
+              "DISCLOSED": "DISCLOSED"}
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str]:
+    """The advisory as drawn: product name, the status badge and the severity
+    pill (the catalogue text said 'patch status' for every variant)."""
+    from ..kit import PALETTES
+    a = _facts(brief)
+    status = _status(a, PALETTES["midnight"])[0]
+    if a.kev and a.cves:
+        return (f"Illustration: a CISA KEV catalogue entry marked 'EXPLOITED', listing {a.cves[0]}.",
+                f"Ілюстрація: запис каталогу CISA KEV із позначкою «EXPLOITED» і номером {a.cves[0]}.")
+    what_en = f"a security advisory for {a.name}" if a.name != "Advisory" else "a security advisory"
+    what_ua = f"бюлетень безпеки для {a.name}" if a.name != "Advisory" else "бюлетень безпеки"
+    sev_en = f" and '{a.sev}'" if a.sev else ""
+    sev_ua = f" і «{a.sev}»" if a.sev else ""
+    return (f"Illustration: {what_en}, marked '{status}'{sev_en}.",
+            f"Ілюстрація: {what_ua} з позначкою «{_STATUS_UA[status]}»{sev_ua}.")

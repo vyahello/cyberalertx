@@ -212,9 +212,15 @@ checks, not in the art.
   * `v4/consistency.check` reports a number, a quoted Latin-script label or a
     name in the alt text that no label shows, and a claimed figure when no
     number is drawn.
-  * Scenes with variants (breach, police, crypto theft, the drawn
-    supercomputer hall) build their alt text from the same plan as the
-    drawing.
+  * Scenes with variants build their alt text from the same plan as the
+    drawing: breach, police, crypto theft, the drawn supercomputer hall,
+    advisory, ICS and compromised sites. The advisory alt text, for
+    example, names the drawn status badge and severity; it used to say
+    "patch status" under an EXPLOITED badge.
+  * The audit's hand review of every distinct alt text found three
+    mismatches that no pattern can catch: the advisory's "patch status", the
+    compromised-sites phone (drawn only in the attack + iPhone variant) and
+    the ICS "identifier" when only "ADVISORY" is drawn.
 * **Where the check runs.**
   * Tests cover every scene across facts, entities and statuses.
   * `ops/media/alt_audit.py` runs it on the live eligible set: it is
