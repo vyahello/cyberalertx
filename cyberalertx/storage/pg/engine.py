@@ -27,13 +27,21 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy import Engine, create_engine
 
 logger = logging.getLogger(__name__)
 
 _engine: Optional[Engine] = None
+#: The raw URL `_engine` was built from. When the configured URL changes
+#: (a test override, a re-read environment), the cached engine is disposed
+#: and rebuilt, so an engine made from an earlier URL is never reused (O48).
+_engine_url: Optional[str] = None
+#: Optional check run on every URL before an engine is built. Production
+#: leaves it unset; the test suite installs one that refuses anything but the
+#: dedicated test database (tests/conftest.py).
+url_guard: Optional[Callable[[str], None]] = None
 
 
 # Env-var-overridable pool parameters. Defaults match the docstring above.
@@ -87,15 +95,20 @@ def _normalize_pg_url(url: str) -> str:
 
 def get_engine() -> Engine:
     """Return the process-wide engine, constructing it on first call."""
-    global _engine
-    if _engine is not None:
-        return _engine
+    global _engine, _engine_url
     raw_url = os.getenv("CYBERALERTX_PG_URL")
+    if _engine is not None and raw_url == _engine_url:
+        return _engine
+    if _engine is not None:                    # the URL changed since the engine was built
+        _engine.dispose()
+        _engine, _engine_url = None, None
     if not raw_url:
         raise RuntimeError(
             "CYBERALERTX_PG_URL is not set. Set it to your Supabase / Postgres "
             "connection string (e.g. postgresql://USER:PASS@HOST:5432/DB?sslmode=require)."
         )
+    if url_guard is not None:
+        url_guard(raw_url)
     url = _normalize_pg_url(raw_url)
     connect_args = _connect_args(url)
     logger.info(
@@ -112,15 +125,17 @@ def get_engine() -> Engine:
         connect_args=connect_args,
         future=True,
     )
+    _engine_url = raw_url
     return _engine
 
 
 def dispose_engine() -> None:
     """Tear down the pool. Useful in tests and clean shutdown."""
-    global _engine
+    global _engine, _engine_url
     if _engine is not None:
         _engine.dispose()
         _engine = None
+    _engine_url = None
 
 
 __all__ = ["get_engine", "dispose_engine"]

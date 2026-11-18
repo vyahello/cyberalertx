@@ -28,6 +28,9 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return object()
 
     monkeypatch.setattr(eng, "create_engine", fake_create_engine)
+    # create_engine is faked: nothing can connect, so the test-database guard
+    # (tests/conftest.py, O48) is not needed for these placeholder hosts.
+    monkeypatch.setattr(eng, "url_guard", None)
     eng._engine = None
     yield seen
     eng._engine = None

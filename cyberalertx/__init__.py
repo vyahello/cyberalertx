@@ -10,11 +10,17 @@ Loader contract:
   * `override=False` — values already in the real environment (shell,
     CI, docker-compose, pytest monkeypatch) WIN over .env.
   * Loaded once per process. No-op when .env is absent.
+  * Skipped entirely when CYBERALERTX_NO_DOTENV=1: the test suite sets it
+    (tests/conftest.py) so a run inside the production checkout never picks
+    up production settings (O48).
 """
 __version__ = "0.1.0"
 
 
 def _load_dotenv_if_available() -> None:
+    import os
+    if os.environ.get("CYBERALERTX_NO_DOTENV") == "1":
+        return
     try:
         from dotenv import find_dotenv, load_dotenv
     except ImportError:
