@@ -605,6 +605,38 @@ def score_scenes(texts: dict[str, str]) -> list[tuple[float, SceneSpec, list[str
     return out
 
 
+#: Scenes whose picture asserts that an attack or compromise took place: a
+#: server knocked over, records leaking, a wiped host, money draining.
+INCIDENT_SCENES = frozenset({
+    "kernel_dos", "edge_wiper", "ransomware_impact", "gpu_cryptominer", "crypto_theft", "payment_skimmer",
+    "compromised_sites", "session_theft", "usb_worm", "cloud_breach", "breach_notice", "espionage_backdoor",
+    "dev_supply_chain", "code_signing", "third_party_script", "deepfake_call", "credential_phish",
+})
+#: Evidence statuses (pipeline.evidence) that report an attack or compromise.
+ATTACK_STATUSES = frozenset({"exploited", "confirmed", "attacks_observed", "compromise"})
+#: A headline that announces a vulnerability, a fix or a warning.
+_ADVISORY = re.compile(
+    r"\bwarn(?:s|ing|ed)?\b|advisor(?:y|ies)|\bflaws?\b|vulnerabilit|\bbugs?\b|\bpatch(?:es|ed)?\b|"
+    r"\bfix(?:es|ed)?\b|security updates?|\bCVE-\d|\b(?:can|could|may|might) (?:crash|allow|let|lead|enable|"
+    r"cause|expose)\b|попереджа|вразлив|виправ|оновлен|бюлетен", re.I)
+#: Headline wording that reports an incident, not a possibility.
+_INCIDENT = re.compile(
+    r"\bexploited\b|\bexploiting\b|actively exploit|in the wild|under (?:active )?attack|\battacked\b|\bhacked\b|"
+    r"\bbreach(?:ed|es)?\b|\bcompromised\b|\bstole\b|\bstolen\b|\bleak(?:ed|s)?\b|\binfect(?:ed|s|ing)\b|"
+    r"\bhijack|\bwiped?\b|\bspread(?:s|ing)\b|\b(?:hackers|attackers|threat actors|criminals|cybercriminals|"
+    r"gangs?|apt\w*) (?:exploit|abuse|use|target|hit|breach|hijack|deploy)|експлуатую|експлуатува|атакува|"
+    r"зламал|зламан|викрал|витік|заражен|скомпрометов", re.I)
+
+
+def advisory_without_incident(headline: str, status: str) -> bool:
+    """O55: the headline announces a flaw, fix or warning, and neither the
+    evidence status nor the headline reports an attack. Such a story is drawn
+    as exposure, never as an incident ("F5 warns flaws CAN crash traffic" is
+    not a crashed server)."""
+    return (status not in ATTACK_STATUSES and _ADVISORY.search(headline) is not None
+            and _INCIDENT.search(headline) is None)
+
+
 def build(story: Any) -> EditorialBrief:
     from ...pipeline.evidence import assess
 
@@ -617,6 +649,9 @@ def build(story: Any) -> EditorialBrief:
     ev = assess(anchor)
     category = str(anchor.category or "other").lower()
     status = ("compromise" if ev.compromise == "confirmed" else ev.exploitation or "not_reported")
+    if advisory_without_incident(title, status):
+        # O55: an advisory never wins an incident scene; the next-ranked scene decides.
+        ranked = [r for r in ranked if r[1].id not in INCIDENT_SCENES]
 
     spec, why, conf = FALLBACK, ["no catalogue scene is supported by the sources"], "low"
     if ranked:

@@ -257,6 +257,22 @@ This is the permanent policy, not a workaround:
 The `dossier` scene stays in the code and the catalogue. It is no longer
 published under the hybrid policy.
 
+### Advisories are drawn as exposure (V4.1.3, O55)
+
+Canary 3 stopped on an F5 advisory ("flaws CAN crash traffic") drawn as a
+server being knocked over. `brief.advisory_without_incident(headline,
+status)` is true for a headline that announces a flaw, fix or warning when
+neither the evidence status nor the headline reports an attack. Such a story
+never wins a scene in `brief.INCIDENT_SCENES`, which covers scenes whose
+picture asserts that an attack or compromise took place: kernel DoS, wiper,
+ransomware, breach, skimmer and others. The next-ranked scene decides,
+normally `vuln_advisory`.
+
+An exploitation status (`exploited`, `confirmed`, `attacks_observed`,
+`compromise`) or incident wording in the headline reopens the incident
+scenes. Incident wording means "exploited", "hackers exploit", "attacked",
+"breached", "stolen" or "in the wild".
+
 ## Scenes
 
 There are 37 scene modules: the 35 catalogue scenes, `hpc_drawn`

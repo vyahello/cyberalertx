@@ -14,7 +14,8 @@ from ..kit import Doc, f
 
 # Capitalised headline words that are not product or organisation names.
 _NOISE = {
-    "Including", "Year-Old", "Enabling", "Authenticated", "Unauthenticated", "Adds", "Two", "Three", "Four", "Five",
+    "Including", "Year-Old", "Enabling", "Authenticated", "Unauthenticated", "Pre-Auth", "Pre-Authentication",
+    "Post-Auth", "Adds", "Two", "Three", "Four", "Five",
     "Six", "Seven", "Eight", "Nine", "Ten", "Known", "Exploited", "Vulnerabilities", "Zero-Day", "Zero-Days",
     "Turns", "Security", "Critical", "High", "Read", "Overwrite", "Leak", "Enable", "Execution", "Let", "Execute",
     "Privilege", "Escalation", "Fixes", "Malicious", "Repositories", "During", "Recursive", "November", "October",
@@ -36,7 +37,9 @@ _REPORTERS = {"CISA", "FBI", "Google", "Claude", "Opus", "Anthropic", "Kaspersky
 def product_groups(brief: EditorialBrief) -> list[str]:
     """Product / organisation names of the headline, in headline order, with
     adjacent capitalised words joined ("Red Hat Quay")."""
-    ents = [e for e in brief.entities if e not in _NOISE and T.supported(e, "display") == e]
+    # a CVE identifier is not a product name (the advisory draws it on its own line)
+    ents = [e for e in brief.entities if e not in _NOISE and T.supported(e, "display") == e
+            and not re.match(r"CVE-\d", e, re.I)]
     text = brief.text
     groups: list[list[str]] = []
     for e in ents:

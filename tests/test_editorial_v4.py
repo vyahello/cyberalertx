@@ -710,3 +710,63 @@ def test_canary_draws_confident_stories_with_v4_and_keeps_weak_ones_on_v3(monkey
     fake_intel(monkeypatch, [strong, weak, new])
     assert engine.run(anchors + [new.anchor], store=store, now=NOW).generated == ["s:new-weak"]
     assert store.get("illus:s:new-weak").generation_model == "cax-svg-3"   # type: ignore[union-attr]
+
+
+# ------------------------------------------------------------------ O55: advisories are never drawn as incidents
+
+F5 = ("F5 Warns 6 Critical BIG-IP Flaws Can Crash Traffic in Specific Setups, May Allow RCE",
+      "F5 has disclosed six critical BIG-IP flaws that let unauthenticated attackers crash TMM on certain iRule or "
+      "APM setups, possibly allowing RCE.")
+
+
+@pytest.mark.parametrize("title,body", [
+    F5,
+    ("Critical Pre-Auth MongoDB Flaw (CVE-2026-118383) Can Crash Lagging Servers on Failover",
+     "A MongoDB fix stops a crash that hits replica set servers after failover."),
+    ("Citrix Patches 12 NetScaler and Secure Access Client Flaws, Including Authentication Bypass", ""),
+    ("New NoisyTCP vulnerability lets attackers crash Linux servers", ""),
+    ("Researchers publish exploit for critical RCE flaw in Fortinet FortiGate", ""),       # a PoC is not an attack
+    ("Critical Ivanti EPMM flaw could let attackers crash devices, patch now", ""),
+    ("Microsoft попереджає про критичну вразливість, яка може призвести до збою серверів", ""),
+])
+def test_an_advisory_is_drawn_as_exposure_not_as_an_incident(title: str, body: str) -> None:
+    b = B.build(story(title, body))
+    assert b.status not in B.ATTACK_STATUSES
+    assert B.advisory_without_incident(title, b.status)
+    assert b.scene not in B.INCIDENT_SCENES, (b.scene, b.evidence)
+    assert b.scene == "vuln_advisory"
+
+
+@pytest.mark.parametrize("title,scene", [
+    ("Hackers exploit Citrix flaw to deploy wiper on ESXi hosts", "edge_wiper"),
+    ("Attackers exploit F5 BIG-IP flaw to crash servers in ongoing DDoS campaign", "kernel_dos"),
+    ("NoisyTCP attack lets remote hackers crash Linux servers", "kernel_dos"),           # no advisory wording
+    ("Uber notifies drivers of data breach affecting nearly 150,000 people", "breach_notice"),
+])
+def test_incidents_with_evidence_keep_their_incident_scene(title: str, scene: str) -> None:
+    assert B.build(story(title)).scene == scene
+
+
+@pytest.mark.parametrize("status,allowed", [("not_reported", False), ("exploited", True), ("confirmed", True),
+                                            ("attacks_observed", True), ("compromise", True)])
+def test_exploitation_evidence_reopens_incident_scenes_for_an_advisory(status: str, allowed: bool) -> None:
+    assert B.advisory_without_incident(F5[0], status) is not allowed
+
+
+def test_f5_advisory_image_and_alt_show_the_disclosed_flaws() -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story(*F5))
+    labels = render_doc(b).labels
+    assert any("F5" in x for x in labels) and any("BIG-IP" in x for x in labels)
+    assert "DISCLOSED" in labels and "EXPLOITED" not in labels
+    assert check_brief(b, labels) == [] and "'DISCLOSED'" in B.alt_text(b)["en"]
+
+
+def test_attack_preconditions_and_cve_ids_are_not_product_names() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story("Critical Pre-Auth MongoDB Flaw (CVE-2026-118383) Can Crash Lagging Servers on Failover",
+                      "A MongoDB fix stops a crash that hits replica set servers after failover."))
+    labels = render_doc(b).labels
+    assert "MongoDB" in labels and not any("Pre-Auth" in x for x in labels)
+    assert sum(x == "CVE-2026-118383" for x in labels) == 1
