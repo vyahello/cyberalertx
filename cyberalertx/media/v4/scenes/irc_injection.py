@@ -1,18 +1,20 @@
-"""IRC server command injection: a chat message carrying shell delimiters is
-handed on by the IRC daemon without being neutralised, and the part after the
-delimiter runs as a command on the server.
+"""IRC server command injection (delimiter handling): a chat message carrying
+a delimiter the IRC daemon does not neutralise ends up as a command run on the
+server.
 
-Left (hero): a terminal IRC client in a channel, with one crafted line. Right:
-the server's shell, where the same text shows up as a command run by the
-daemon's account. The payload is a harmless placeholder (`id`), not the real
-exploit; the CVE identifier is drawn only from brief.facts."""
+Left (hero): a terminal IRC client in a channel, with one crafted line whose
+delimiter is drawn as a marked token, not as a specific character: the
+sources say "improper neutralization of delimiters", not which delimiter or
+how the command is run. Right: the server, stating only what the sources
+state (command executed by the IRC server; exploitation per the evidence).
+The CVE identifier is drawn only from brief.facts."""
 from __future__ import annotations
 
 import random
 
 from ..brief import EditorialBrief
 from .. import type as T
-from ..kit import Box, Doc, arrow, background, pill, vignette, window
+from ..kit import Box, Doc, icon, arrow, background, pill, vignette, window
 from . import scene
 
 _ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
@@ -62,15 +64,17 @@ def irc_injection(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     doc.text("14:04", x0, cy, 20, ts, "mono")
     cx = x0 + T.measure("00:00 ", 20, "mono")
     cx += doc.text("<guest42> ", cx, cy, 20, nicks["guest42"], "mono_bold")
-    cx += doc.text("ping lag", cx, cy, 20, txt, "mono")
-    d_x = cx
-    cx += doc.text(";", cx, cy, 26, "#FFFFFF", "mono_bold") + 4
+    cx += doc.text("ping lag", cx, cy, 20, txt, "mono") + 8
+    # the delimiter: a marked token, no specific character (not published)
+    d_w = T.measure("delim", 14, "mono_bold") + 18
+    doc.rect(cx, cy - 22, d_w, 28, p.danger, 6)
+    doc.text("delim", cx + 9, cy - 3, 14, "#FFFFFF", "mono_bold")
+    d_x = cx + d_w / 2
+    cx += d_w + 8
     cmd_x = cx
-    doc.text("id", cx, cy, 20, "#FFB4AD", "mono_bold")
-    # mark the delimiter
-    doc.rect(d_x - 5, cy - 26, T.measure(";", 26, "mono_bold") + 10, 34, "none", 5, stroke=p.danger, sw=2)
-    doc.path(f"M{d_x + 6:.1f} {cy + 10:.1f}V{cy + 40:.1f}H{d_x - 30:.1f}", stroke=p.danger, sw=1.5)
-    doc.text("shell delimiter", d_x - 40, cy + 46, 16, p.danger, "mono", anchor="end")
+    doc.text("<command>", cx, cy, 20, "#FFB4AD", "mono_bold")
+    doc.path(f"M{d_x:.1f} {cy + 10:.1f}V{cy + 40:.1f}H{d_x - 36:.1f}", stroke=p.danger, sw=1.5)
+    doc.text("delimiter not neutralised", d_x - 46, cy + 46, 16, p.danger, "mono", anchor="end")
 
     # input line + status bar, as in a terminal client
     sb = Box(body.x, body.b - 78, body.w, 36)
@@ -81,20 +85,24 @@ def irc_injection(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
 
     # ---- the server's shell
     sw = Box(980, 420, 580, 330)
-    sbody = window(doc, sw, title="chat-server  shell", surface="#120B0C", chrome="#21171A", depth=1.2)
+    sbody = window(doc, sw, title="chat server", surface="#120B0C", chrome="#21171A", depth=1.2)
     doc.rect(sw.x, sw.y, sw.w, sw.h, "none", 14, stroke=p.danger if attack else p.line, sw=2)
-    lines = [("ircd  1187  unrealircd -F", sys_c, "mono")]
+    lines = [("unrealircd", sys_c, "mono_bold"),
+             ("delimiter-handling flaw", "#F3D58A", "mono")]
     if attack:
-        lines += [("ircd  2291   \\_ sh -c \"... lag;id\"", "#FFB4AD", "mono_bold"),
-                  ("ircd  2292       \\_ id", "#FFB4AD", "mono_bold"),
+        lines += [("", txt, "mono"),
+                  ("command executed by", "#FFB4AD", "mono_bold"),
+                  ("the IRC server", "#FFB4AD", "mono_bold"),
                   ("", txt, "mono"),
-                  ("uid=1001(ircd) gid=1001(ircd)", "#FFFFFF", "mono_bold")]
+                  ("execution details not published", sys_c, "mono")]
     else:
         lines += [("delimiters in messages: not neutralised", "#F3D58A", "mono")]
-    for i, (s, col, font) in enumerate(lines):
-        doc.text(s, sbody.x + 24, sbody.y + 44 + i * 38, 18, col, font)
+    for i, (s_, col, font) in enumerate(lines):
+        doc.text(s_, sbody.x + 24, sbody.y + 44 + i * 36, 18, col, font)
+    if attack:
+        icon(doc, "terminal", sbody.r - 64, sbody.y + 150, 56, p.danger, 2.4)
 
-    # message -> shell
+    # message -> server
     sx = cmd_x + 12
     arrow(doc, [(sx, cy + 14), (sx, sbody.y + 82 - 6), (sbody.x - 14, sbody.y + 82 - 6)], p.danger, sw=4,
           head=16, smooth=False)

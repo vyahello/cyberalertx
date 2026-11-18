@@ -7,8 +7,9 @@ available / disclosed) — next to a drawing of the kind of product affected
 laptop, repository, 3D printer).
 
 Three treatments, chosen by seed, so thirty advisories in a row do not look
-alike: a printed bulletin sheet, a Swiss-style type poster and a terminal
-advisory record. CISA catalogue additions get a catalogue ledger instead.
+alike: a printed bulletin sheet, a Swiss-style type poster and a spotlight
+(status panel + the product lit on a stage, built to read at feed size). CISA
+catalogue additions get a catalogue ledger instead.
 Nothing here invents a number."""
 from __future__ import annotations
 
@@ -199,7 +200,7 @@ def _sheet(doc: Doc, a: _Adv, rng: random.Random) -> None:
     slot = Box(930, 210, 600, 480)
     anchor = _product(doc, a, slot, rng, st_col)
     _tag(doc, anchor, slot, a.cves[0] if a.cves else T.fit(a.name, 22, 300, "mono_bold"), st_label, st_col)
-    doc.focus = Box(200, 60, 1280, 720)
+    doc.focus = Box(70, 40, 1380, 776)            # include the sheet's left edge (name)
     vignette(doc, 0.4)
 
 
@@ -239,63 +240,68 @@ def _poster(doc: Doc, a: _Adv, rng: random.Random) -> None:
     vignette(doc, 0.45)
 
 
-# ---------------------------------------------------------------- C: terminal advisory record
+# ---------------------------------------------------------------- C: spotlight
 
-def _terminal(doc: Doc, a: _Adv, rng: random.Random) -> None:
+_DARKEN = {"EXPLOITED": "#5A1410", "PROOF OF CONCEPT": "#4A3410", "PATCH AVAILABLE": "#0F3A24",
+           "DISCLOSED": "#3E3010"}
+
+
+def _spotlight(doc: Doc, a: _Adv, rng: random.Random) -> None:
+    """Built for the feed thumbnail: a solid status panel carrying the product
+    name and the evidence status, and the product itself lit on a stage."""
     p = doc.pal
-    background(doc, light=(0.2, 0.3))
+    background(doc, light=(0.78, 0.35))
     st_label, st_col = _status(a, p)
-    rows: list[tuple[str, str, str]] = []
-    if a.sev:
-        rows.append(("severity", a.sev.lower(), p.danger if a.sev == "CRITICAL" else p.warn))
-    rows.append(("status", st_label.lower(), st_col))
-    if a.flaws:
-        rows.append(("fixes", ("~" if a.flaws_approx else "") + a.flaws + " flaws", p.ink))
-    n_cve = max(1, len(a.cves))
-    sz = 25
-    lh = sz * 1.75
-    hgt = 300 + (len(rows) + n_cve + (1 if a.others else 0)) * lh
-    win = Box(90, max(80, 450 - hgt / 2), 860, hgt)
-    body = window(doc, win, title="advisory", surface="#0D1320", chrome="#172033")
-    slug = re.sub(r"[^a-z0-9]+", "-", a.name.lower()).strip("-") or "product"
-    x, y = body.x + 52, body.y + 66
-    doc.text("$ ", x, y, sz, p.muted, "mono")
-    doc.text(T.fit(f"advisory show {slug}", sz, body.w - 140, "mono"), x + T.measure("$ ", sz, "mono"), y, sz,
-             p.ink, "mono")
-    size = fit_size(a.name, 84, body.w - 110)
-    cap = T.cap_height(size, "display")
-    y += 40 + cap
-    doc.text(a.name, x - 4, y, size, p.ink, "display")
-    y += 26
-    if a.others:
-        y += lh * 0.8
-        doc.text(T.fit("also: " + ", ".join(a.others), 22, body.w - 110, "mono"), x, y, 22, p.muted, "mono")
-    y += lh * 1.1
-    key_w = T.measure("severity  ", sz, "mono")
-    for k, v, c in rows:
-        doc.text(k, x, y, sz, p.muted, "mono")
-        doc.text(v, x + key_w, y, sz, c, "mono_bold")
-        y += lh
-    doc.text("cve", x, y, sz, p.muted, "mono")
-    if a.cves:
-        for i, c in enumerate(a.cves):
-            doc.text(c, x + key_w, y + i * lh, sz, p.accent if i == 0 else p.ink, "mono_bold" if i == 0 else "mono")
-        y += lh * len(a.cves)
+    # ---- the stage (right): light cone, floor, the product
+    doc.add(f'<ellipse cx="1110" cy="430" rx="560" ry="420" fill="{doc.rad([(0, st_col, 0.20), (1, st_col, 0)])}"/>')
+    doc.rect(700, 700, 900, 200, doc.lin([(0, "#000", 0.0), (1, "#000", 0.45)]))
+    doc.add(f'<ellipse cx="1110" cy="742" rx="380" ry="34" fill="#000" opacity="0.55" '
+            f'filter="{doc.blur(14)}"/>')
+    # The product fills the stage (by height for tall objects like a phone).
+    slot = Box(790, 130, 640, 610)
+    w = min(slot.w * 0.9, slot.h * 0.95 / ASPECT[a.kind])
+    if a.kind == "phone" and a.wallet:
+        anchor = handset(doc, slot.cx, slot.cy, w, st_col, rng, mode="wallet")
     else:
-        doc.text("not assigned in the report", x + key_w, y, sz, p.muted, "mono")
-        y += lh
-    doc.text("$ ", x, y, sz, p.muted, "mono")
-    doc.rect(x + T.measure("$ ", sz, "mono"), y - sz * 0.8, sz * 0.6, sz * 1.05, p.ink, opacity=0.8)
-    slot = Box(1000, 230, 540, 440)
-    anchor = _product(doc, a, slot, rng, st_col)
-    stamp(doc, 1270, 150, st_label, st_col, size=26 if len(st_label) > 10 else 32, angle=-5)
-    doc.circle(anchor[0], anchor[1], 7, st_col)
-    doc.circle(anchor[0], anchor[1], 16, "none", st_col, 2, 0.6)
-    doc.focus = Box(80, 80, 1460, 820)
-    vignette(doc, 0.4)
+        anchor = DRAW[a.kind](doc, slot.cx, slot.cy, w, st_col, rng)
+    doc.circle(anchor[0], anchor[1], 9, st_col)
+    doc.circle(anchor[0], anchor[1], 22, "none", st_col, 3, 0.7)
+    doc.circle(anchor[0], anchor[1], 40, "none", st_col, 2, 0.3)
+    # ---- the status panel (left), full height
+    pw = 660
+    doc.rect(0, 0, pw, 900, doc.lin([(0, _DARKEN.get(st_label, "#2A2F3A"), 1), (1, "#0B0F18", 1)], 0, 0, 0.3, 1))
+    doc.rect(pw - 6, 0, 6, 900, st_col)
+    doc.text("SECURITY ADVISORY", 72, 112, 20, "#FFFFFF", "ui_bold", tracking=4, opacity=0.75)
+    name = a.name
+    size = fit_size(name, 120, pw - 130)
+    base = 160 + T.cap_height(size, "display")
+    doc.text(name, 68, base, size, "#FFFFFF", "display", tracking=-size * 0.015)
+    y = base + 40
+    if a.others:
+        doc.text(T.fit("+ " + ", ".join(a.others), 26, pw - 140, "ui"), 72, y + 10, 26, "#FFFFFF", "ui",
+                 opacity=0.75)
+        y += 50
+    # status band: the one thing that must read at 176 px
+    band_y = max(y + 30, 430)
+    doc.rect(0, band_y, pw - 6, 118, st_col)
+    st_size = fit_size(st_label, 58, pw - 140)
+    doc.text(st_label, 72, band_y + 59 + T.cap_height(st_size, "display") / 2, st_size, "#0A0F1A", "display")
+    y = band_y + 190
+    if a.cves:
+        for i, c in enumerate(a.cves[:2]):
+            doc.text(c, 72, y + i * 52, 34 if i == 0 else 26, "#FFFFFF", "mono_bold" if i == 0 else "mono",
+                     opacity=1 if i == 0 else 0.7)
+    elif a.flaws:
+        n = ("~" if a.flaws_approx else "") + a.flaws
+        w = doc.text(n, 72, y + 20, 72, "#FFFFFF", "display")
+        doc.text("flaws", 72 + w + 18, y + 20, 32, "#FFFFFF", "ui", opacity=0.8)
+    else:
+        doc.text("no CVE in the report", 72, y, 26, "#FFFFFF", "mono", opacity=0.65)
+    if a.sev:
+        pill(doc, 72, 800, a.sev, fg="#FFFFFF", bg="#0000", size=20, font="ui_bold", pad=16, stroke="#FFFFFF")
+    doc.focus = Box(0, 60, 1300, 731)
+    vignette(doc, 0.35)
 
-
-# ---------------------------------------------------------------- CISA catalogue additions
 
 def _catalogue(doc: Doc, a: _Adv, rng: random.Random) -> None:
     """KEV additions: a catalogue ledger whose newest rows are the story's CVEs."""
@@ -339,4 +345,4 @@ def vuln_advisory(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     if a.kev and a.cves:
         _catalogue(doc, a, rng)
         return
-    rng.choice((_sheet, _poster, _terminal))(doc, a, rng)
+    rng.choice((_sheet, _poster, _spotlight))(doc, a, rng)

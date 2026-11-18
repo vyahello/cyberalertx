@@ -67,12 +67,14 @@ gets a scene that depicts its own subject. None of them uses the fallback.
 
 ## Still needs human review (scored below 4 on relevance, recognition, quality or accuracy)
 
+Updated 18 Nov: #28, #29 and #34 were fixed after the review, and their images were re-inspected at full size and at 176 px.
+
 | # | Story | Score below 4 | What to fix |
 |---|---|---|---|
-| 28 | Stolen Fireworks AI key → Cursor breach → trojanised Claude Code extension | accuracy 3 | The key → marketplace → update chain is drawn, but the sources do not describe the loader code or the publishing path. Consider removing the code panel |
-| 29 | UnrealIRCd command injection | accuracy 3 | The sources say "improper neutralization of delimiters". The `;` / `sh -c` mechanism is plausible, not confirmed |
+| 28 | Stolen Fireworks AI key → Cursor breach → trojanised Claude Code extension | ~~accuracy 3~~ → **fixed** | The invented loader code, `curl \| sh` process, key scope, "auto-update" and "restart not required" were removed. The editor now shows the extension's update with its contents redacted as "not described in the reports"; only the key holder, the marketplace and the malicious version (all in the sources) remain |
+| 29 | UnrealIRCd command injection | ~~accuracy 3~~ → **fixed** | No `;`, `sh -c` or `uid=` output. The crafted message marks an abstract delimiter token ("delimiter not neutralised"). The server panel states only "delimiter-handling flaw", "command executed by the IRC server" and "execution details not published" |
 | 31 | North Korean deepfake video calls ($400M+) | visual quality 3 | The half-rendered face is flat, close to clip-art. The mesh idea works; the skin and hair rendering needs a better hand |
-| 34 | Telegram RCE claims (supplementary, `vuln_advisory`) | visual quality 3 | Sparse: a terminal and a phone. The advisory scene needs richer product drawings for mobile apps |
+| 34 | Telegram RCE claims (supplementary, `vuln_advisory`) | ~~visual quality 3~~ → **improved** | The sparse terminal layout was replaced by a "spotlight" built for feed size: a full-height status panel (name, status band in the evidence colour, identifiers) and the product drawn large on a lit stage. Used for about a third of advisories (12 of 35 today). The sheet layout's thumbnail crop no longer cuts the product name |
 | 35, 36 | Trigram campaign, Fandango checkout skimming (`dossier`) | relevance 3, recognition 3 | Restrained by design. Missing scenes would serve them and the other 25 dossier stories: payment skimmer, police takedown, IoT camera, crypto exchange theft, drone/defence, eBPF rootkit |
 
 ## Weaker but above the bar
