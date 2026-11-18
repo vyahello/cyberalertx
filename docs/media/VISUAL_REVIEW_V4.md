@@ -16,7 +16,7 @@ named examples: Fugaku, GitHub SHA pinning and Microsoft 365 session phishing.
 The supplementary 4 show the two scenes the archive actually uses most:
 `vuln_advisory` (35 of 152 eligible stories) and the `dossier` fallback (27 of
 152). The full gallery is kept on the host at
-`/home/cax/review/illustrations-v4/index.html`, built by
+`$REVIEW_DIR/illustrations-v4/index.html`, built by
 `ops/media/build_review_gallery.py`. For every story it shows:
 
 * the headline and story ID;

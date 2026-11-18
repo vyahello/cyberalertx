@@ -4,6 +4,11 @@
 Nothing below runs without the owner's explicit approval. Each phase is
 approved separately.
 
+Paths use the placeholders of the other runbooks: `$APP_HOME` (the app
+checkout, with `.env` and `data/`), `$APP_ROOT/current` (the active release),
+`$OPS_TOOLS` (release tooling) and `$BACKUPS` (the protected backup root).
+Set them in the shell before running a block.
+
 Out of scope here: the archive backfill (152 eligible stories, 313
 illustrations in the index). That is a later, separate decision taken after
 the canary.
@@ -46,7 +51,7 @@ The release is built from `main` with the standard procedure: `git archive`,
 **not** set. The owner switches:
 
 ```bash
-sudo bash /home/cax/stagec-tools/switch_when_idle.sh <RELEASE_ID>
+sudo bash $OPS_TOOLS/switch_when_idle.sh <RELEASE_ID>
 ```
 
 **Expected:** no illustration changes; V3 stays the renderer. Telegram and
@@ -57,7 +62,7 @@ archive). The feed thumbnail of V3 images keeps its 62% crop.
 **Rollback:**
 
 ```bash
-sudo bash /home/cax/stagec-tools/release_switch.sh 20261117-1852-9821880
+sudo bash $OPS_TOOLS/release_switch.sh 20261117-1852-9821880
 ```
 
 ## Phase 1: pre-flight (as `cax`; read-only apart from a protected backup)
@@ -66,14 +71,14 @@ Run right after an hourly generate run has finished (the timer fires at about
 :01; see `systemctl list-timers cyberalertx-generate.timer`):
 
 ```bash
-cd /home/cax/cyberalertx/current
-B=/home/cax/backups/pre-v4-canary-$(date +%Y%m%d-%H%M)
+cd $APP_ROOT/current
+B=$BACKUPS/pre-v4-canary-$(date +%Y%m%d-%H%M)
 install -d -m 700 "$B"
-cp -a /home/cax/cax/data/media/assets.json "$B"/assets.json            # the image index
+cp -a $APP_HOME/data/media/assets.json "$B"/assets.json            # the image index
 venv/bin/python ops/media/illustration_inventory.py snapshot "$B"/inventory.json
-wc -l < /home/cax/cax/data/telegram_published.jsonl > "$B"/telegram_ledger_lines.txt
-sha256sum /home/cax/cax/.env > "$B"/env.sha256                        # proves .env is not edited
-grep -c '^THREADS_ENABLED=0' /home/cax/cax/.env                       # expect 1
+wc -l < $APP_HOME/data/telegram_published.jsonl > "$B"/telegram_ledger_lines.txt
+sha256sum $APP_HOME/.env > "$B"/env.sha256                        # proves .env is not edited
+grep -c '^THREADS_ENABLED=0' $APP_HOME/.env                       # expect 1
 systemctl list-timers 'cyberalertx-*' --all > "$B"/timers.txt
 echo "$B"
 ```
@@ -115,13 +120,13 @@ already in progress keeps V3.
 ### After the first media pass (about :01–:10 after activation)
 
 ```bash
-cd /home/cax/cyberalertx/current
+cd $APP_ROOT/current
 journalctl -u cyberalertx-generate.service --since "-30 min" --no-pager -o cat \
   | awk '/"generated"|"failed"|Traceback/{p=1} p{print} /\]/{p=0}'          # generated + failed lists
 venv/bin/python ops/media/illustration_inventory.py compare "$B"/inventory.json     # exit 0 required
 venv/bin/python ops/media/illustration_inventory.py v4-stories
 sha256sum -c "$B"/env.sha256
-grep -c '^THREADS_ENABLED=0' /home/cax/cax/.env                                    # still 1
+grep -c '^THREADS_ENABLED=0' $APP_HOME/.env                                    # still 1
 ```
 
 **Pass criteria:**
@@ -183,7 +188,7 @@ systemctl show cyberalertx-generate.service -p Environment   # variable gone
 rollback):
 
 ```bash
-cd /home/cax/cyberalertx/current
+cd $APP_ROOT/current
 for s in $(venv/bin/python ops/media/illustration_inventory.py v4-stories); do
   venv/bin/python -m cyberalertx.tools.media regenerate "$s"
 done
@@ -201,7 +206,7 @@ stops writes while copying):
 
 ```bash
 sudo systemctl stop cyberalertx-generate.timer
-cp -a "$B"/assets.json /home/cax/cax/data/media/assets.json
+cp -a "$B"/assets.json $APP_HOME/data/media/assets.json
 sudo systemctl start cyberalertx-generate.timer
 ```
 
