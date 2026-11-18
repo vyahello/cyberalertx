@@ -332,3 +332,44 @@ def test_canary_rollback_rerenders_only_the_v4_images(monkeypatch: pytest.Monkey
     assert back is not None and back.generation_model == "cax-svg-3" and v4.storage_key in back.previous_storage_keys
     keep = store.get("illus:s:old")
     assert keep is not None and (keep.storage_key, keep.generation_model) == archive
+
+
+@pytest.mark.parametrize("title,scene", [
+    ("Operation Endgame Takes Down Gootloader, CastleRAT and StealC Servers, Seizes 600 Domains", "police_takedown"),
+    ("Police dismantle Gootloader, CastleRAT, StealC malware infrastructure", "police_takedown"),
+    ("FBI agent stole $2.5 million in crypto from hackers under investigation", "crypto_theft"),
+    ("Fandango says hackers stole payment card details from checkout pages", "payment_skimmer"),
+    # the means (deepfake calls) is the depictable subject, not the theft
+    ("FBI Says North Korean Hackers Stole Over $400 Million in Crypto Using Deepfake Video Calls", "deepfake_call"),
+    # a takedown mentioned as history does not make a worm story a police action
+    ("Retadup Worm Resurfaces 7 Years After Takedown to Spread CoffeeLoader Malware", "usb_worm"),
+    ("Court clears brothers of $25 million Ethereum crypto heist charges", "court_case"),
+])
+def test_v41_routing(title: str, scene: str) -> None:
+    assert B.build(story(title)).scene == scene
+
+
+def test_a_cvss_score_is_not_a_flaw_count() -> None:
+    assert "flaws" not in B.extract_facts("SAP fixes CVSS 10.0 flaws in NetWeaver", "", "")
+    assert "flaws" not in B.extract_facts("Patch for a flaw with a CVSS score of 9.8 vulnerabilities", "", "")
+    assert B.extract_facts("SAP fixes 35 flaws in NetWeaver", "", "")["flaws"] == "35"
+
+
+def test_alt_text_describes_the_variant_the_scene_draws() -> None:
+    leak = B.build(story("Lapsus$ hacker who leaked 90 GTA VI videos pleads guilty"))
+    assert leak.scene == "court_case" and "90 leaked videos" in B.alt_text(leak)["en"]
+    denied = B.build(story("Binance denies data breach after alleged ShinyHunters claims", category="breach"))
+    if denied.scene == "breach_notice":
+        assert "breach denied" in B.alt_text(denied)["en"]
+    years = B.build(story("Ransomware affiliate suspect extradited to US, faces 27 years in prison"))
+    assert "27 tally strokes" in B.alt_text(years)["en"]
+
+
+def test_a_year_in_a_film_title_is_not_a_governance_story() -> None:
+    assert B.build(story("Прем'єра «Того, хто біжить по лезу 2099»: як виглядали головні зірки")).scene != "governance"
+    assert B.build(story("Кібербезпека — це не лише питання IT: що потрібно знати у 2027 році")).scene == "governance"
+
+
+def test_a_phishing_story_about_passwords_is_not_password_policy() -> None:
+    b = B.build(story("Шахраї полюють на паролі: як зловмисники використовують збій Microsoft 365 для фішингу"))
+    assert b.scene in ("credential_phish", "session_theft")

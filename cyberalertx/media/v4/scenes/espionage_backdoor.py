@@ -1,151 +1,139 @@
-"""Espionage backdoors that use a legitimate cloud service as their command
-channel: a government workstation inside its network polls an ordinary
-cloud-storage folder; the operator drops command files into that folder and
-picks up the results. To the network it is routine traffic to a known cloud
-service. Generic storage interface, `.example` domain, no map."""
+"""Espionage backdoor, taken literally: a government building at night, its
+public front lit and closed, and in the side wall a small door left ajar,
+light spilling out. From that door a thin channel climbs to an ordinary
+cloud, which is where the sources say the backdoor gets its commands (when
+they say so); otherwise the channel runs out of frame. When the sources say
+mail was stolen, envelopes travel along it.
+
+Everything is a symbol: no workstation screenshot, no process list, no file
+names, no operator console, no command strings. The operation's name appears
+as plain text only when the headline names it."""
 from __future__ import annotations
 
 import random
-import re
 
+from .. import type as T
 from ..brief import EditorialBrief
-from ..kit import Box, Doc, arrow, f, icon, pill
+from ..kit import Box, Doc, W, H, f
 from . import scene
 
-
-def _monitor(doc: Doc, x: float, y: float, w: float, h: float, accent: str, danger: str) -> Box:
-    """A desktop monitor on a stand, front elevation. Returns the screen box."""
-    doc.add(f'<ellipse cx="{f(x + w / 2)}" cy="{f(y + h + 118)}" rx="{f(w * 0.36)}" ry="16" fill="#000" '
-            f'opacity="0.45" filter="{doc.blur(10)}"/>')
-    # stand + base
-    doc.path(f"M{f(x + w / 2 - 34)} {f(y + h)}L{f(x + w / 2 - 46)} {f(y + h + 96)}H{f(x + w / 2 + 46)}"
-             f"L{f(x + w / 2 + 34)} {f(y + h)}Z", fill=doc.lin([(0, "#2A3346", 1), (1, "#141A26", 1)], 0, 0, 1, 0))
-    doc.rect(x + w / 2 - 130, y + h + 92, 260, 20, doc.lin([(0, "#3A4560", 1), (1, "#1A2130", 1)]), 8)
-    # bezel
-    doc.rect(x, y, w, h, doc.lin([(0, "#2C3448", 1), (1, "#161C29", 1)]), 16)
-    doc.rect(x + 1, y + 1, w - 2, 3, "#FFFFFF", 2, opacity=0.12)
-    s = Box(x + 18, y + 18, w - 36, h - 50)
-    doc.rect(s.x, s.y, s.w, s.h, doc.lin([(0, "#20304A", 1), (1, "#141F33", 1)]), 4)
-    doc.circle(x + w / 2, y + h - 16, 3.5, "#4ADE80", opacity=0.8)
-    return s
+_ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
 
 
-def _desktop(doc: Doc, s: Box, rng: random.Random, danger: str) -> tuple[float, float]:
-    """An ordinary office desktop; the backdoor runs as one quiet process.
-    Returns the anchor of the backdoor's row."""
-    # a document window
-    d = Box(s.x + 24, s.y + 24, s.w * 0.62, s.h - 70)
-    doc.rect(d.x, d.y, d.w, d.h, "#EEF1F6", 6)
-    doc.rect(d.x, d.y, d.w, 24, "#D5DBE5", 6)
-    doc.rect(d.x, d.y + 18, d.w, 6, "#D5DBE5")
-    doc.rect(d.x + 26, d.y + 46, d.w * 0.5, 10, "#55617A", 3)
-    for k in range(8):
-        doc.rect(d.x + 26, d.y + 72 + k * 20, (d.w - 52) * rng.uniform(0.6, 1.0), 7, "#B9C2D2", 3)
-    # process list, small, on the right
-    pl = Box(d.r + 16, s.y + 24, s.r - d.r - 40, s.h - 70)
-    doc.rect(pl.x, pl.y, pl.w, pl.h, "#0D1524", 6, stroke="#2A3650")
-    doc.text("processes", pl.x + 12, pl.y + 22, 13, "#8191AD", "ui_bold")
-    names = ("explorer", "outlook", "svc-sync", "winword", "runtime")
-    hit = (0.0, 0.0)
-    for k, n in enumerate(names):
-        yy = pl.y + 48 + k * 28
-        bad = n == "svc-sync"
-        if bad:
-            doc.rect(pl.x + 4, yy - 16, pl.w - 8, 24, danger, 3, opacity=0.25)
-            hit = (pl.r, yy - 4)
-            pill(doc, pl.x + 8, pl.b - 40, "backdoor", fg="#FFFFFF", bg=danger, size=13, font="ui_bold")
-        doc.text(n, pl.x + 12, yy, 13, danger if bad else "#C7D0E0", "mono_bold" if bad else "mono")
-    # taskbar
-    doc.rect(s.x, s.b - 30, s.w, 30, "#0D1524")
-    for k in range(5):
-        doc.rect(s.x + 16 + k * 30, s.b - 22, 18, 14, "#3A4A66", 3)
-    return hit
+def _cloud(doc: Doc, cx: float, cy: float, s: float, fill: str) -> None:
+    doc.path(f"M{f(cx - s)} {f(cy + 0.3 * s)}A{f(0.3 * s)} {f(0.3 * s)} 0 0 1 {f(cx - 0.75 * s)} {f(cy - 0.12 * s)}"
+             f"A{f(0.38 * s)} {f(0.38 * s)} 0 0 1 {f(cx - 0.12 * s)} {f(cy - 0.36 * s)}"
+             f"A{f(0.42 * s)} {f(0.42 * s)} 0 0 1 {f(cx + 0.62 * s)} {f(cy - 0.06 * s)}"
+             f"A{f(0.28 * s)} {f(0.28 * s)} 0 0 1 {f(cx + s)} {f(cy + 0.3 * s)}Z", fill=fill)
 
 
-def _file_row(doc: Doc, x: float, y: float, w: float, name: str, meta: str, color: str, up: bool) -> None:
-    doc.rect(x, y, w, 64, "#FFFFFF", 8, stroke=color, sw=2)
-    doc.path(f"M{f(x + 22)} {f(y + 14)}h18l8 8v28h-26z", fill="#FFFFFF", stroke=color, sw=2)
-    doc.path(f"M{f(x + 40)} {f(y + 14)}v8h8", stroke=color, sw=2)
-    doc.text(name, x + 66, y + 30, 19, "#0F1B2A", "mono_bold")
-    doc.text(meta, x + 66, y + 52, 14, "#5B6B7D", "ui")
-    icon(doc, "upload" if up else "download", x + w - 30, y + 32, 24, color, 2.4)
+def _envelope(doc: Doc, cx: float, cy: float, w: float, color: str, rot: float) -> None:
+    h = w * 0.66
+    with doc.g(transform=f"rotate({f(rot)} {f(cx)} {f(cy)})"):
+        doc.rect(cx - w / 2, cy - h / 2, w, h, color, 3)
+        doc.path(f"M{f(cx - w / 2)} {f(cy - h / 2)}L{f(cx)} {f(cy + h * 0.1)}L{f(cx + w / 2)} {f(cy - h / 2)}",
+                 stroke="#3A1A12", sw=2)
+
+
+def _building(doc: Doc, ink: str) -> tuple[float, float, float, float]:
+    """A classical government building in three-quarter view: pediment and
+    columns on the front face, a plain side wall receding to the right.
+    Returns the side wall's (x0, x1, top-at-x, base) helper values for the door."""
+    stone, stone_dk, shade = "#C9D3E3", "#8D9AB0", "#56627A"
+    gx = 840.0                        # the front/side corner
+    fx0 = 150.0                       # front face left edge
+    top, base = 330.0, 760.0          # entablature top and ground at the corner
+    sx1, s_top, s_base = 1240.0, 380.0, 700.0   # far end of the side wall
+    # ground shadow
+    doc.add(f'<ellipse cx="{f((fx0 + sx1) / 2)}" cy="{f(base + 20)}" rx="{f((sx1 - fx0) * 0.62)}" ry="40" '
+            f'fill="#000" opacity="0.5" filter="{doc.blur(18)}"/>')
+    # side wall (in shade) and its roof
+    doc.poly([(gx, top), (sx1, s_top), (sx1, s_base), (gx, base)], doc.lin([(0, shade, 1), (1, "#323A4C", 1)],
+                                                                           0, 0, 1, 0))
+    apex = ((fx0 + gx) / 2, top - 150)
+    back = (apex[0] + (sx1 - gx) * 0.92, apex[1] + (s_top - top) * 1.5 + 20)
+    doc.poly([apex, (gx + 20, top), (sx1 + 12, s_top), back], doc.lin([(0, "#4A556C", 1), (1, "#2C3446", 1)],
+                                                                       0, 0, 1, 1))
+    # cornice line along the side
+    doc.line((gx, top + 24), (sx1, s_top + 14), "#6A7690", 3)
+    # front face: steps, columns, entablature, pediment
+    for i in range(3):
+        doc.rect(fx0 - 30 + i * 14, base - 26 * (i + 1) + 26, gx - fx0 + 60 - i * 28, 26,
+                 stone if i == 2 else stone_dk)
+    doc.rect(fx0, top, gx - fx0, 64, stone)
+    doc.rect(fx0, top + 64, gx - fx0, 10, stone_dk)
+    doc.poly([(fx0 - 20, top), ((fx0 + gx) / 2, top - 150), (gx + 20, top)], stone)
+    doc.poly([(fx0 + 40, top - 14), ((fx0 + gx) / 2, top - 122), (gx - 40, top - 14)], "#AEB9CC")
+    n = 6
+    span = (gx - fx0 - 60) / (n - 1)
+    doc.rect(fx0, top + 74, gx - fx0, base - 78 - top - 74, "#2A3142")   # the dark portico behind columns
+    for i in range(n):
+        cx = fx0 + 30 + i * span
+        doc.rect(cx - 24, top + 80, 48, base - 78 - top - 84, doc.lin([(0, "#E2E8F2", 1), (0.6, stone, 1),
+                                                                      (1, stone_dk, 1)], 0, 0, 1, 0))
+        doc.rect(cx - 32, top + 74, 64, 14, stone)
+        doc.rect(cx - 32, base - 92, 64, 14, stone)
+    # front doors: shut
+    doc.rect((fx0 + gx) / 2 - 46, base - 250, 92, 172, "#1C2232")
+    doc.line(((fx0 + gx) / 2, base - 250), ((fx0 + gx) / 2, base - 78), "#3A4458", 2)
+    return gx, sx1, top, base
 
 
 @scene("espionage_backdoor")
 def espionage_backdoor(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
     text = brief.text or ""
-    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#0E1626", 1), (1, "#070B14", 1)], 0, 0, 0.4, 1))
-    doc.rect(0, 0, 1600, 900, doc.rad([(0, "#5EEAD4", 0.10), (1, "#5EEAD4", 0)], 0.55, 0.35, 0.55))
-    cmd_c, res_c = "#F2C14E", p.danger
+    red = p.danger
+    cloud = any(k in text for k in ("cloud", "хмар", "onedrive", "dropbox", "google drive", "graph api"))
+    mail = any(k in text for k in ("email", "mail", "exchange", "пошт", "лист"))
+    active = brief.status in _ATTACK
 
-    # ---- the government network (left): a dashed perimeter around a workstation
-    net = Box(40, 120, 560, 690)
-    doc.rect(net.x, net.y, net.w, net.h, "#FFFFFF", 22, opacity=0.025)
-    doc.rect(net.x, net.y, net.w, net.h, "none", 22, stroke="#5B6B87", sw=2, extra=' stroke-dasharray="9 8"')
-    doc.rect(net.x + 28, net.y - 18, 236, 36, "#0E1626", 18)
-    icon(doc, "shieldx", net.x + 50, net.y, 22, "#8C9BB5", 1.8)
-    doc.text("government network", net.x + 70, net.y + 7, 19, "#C9D3E3", "ui_bold")
-    scr = _monitor(doc, net.x + 40, net.y + 120, net.w - 80, 330, p.accent, p.danger)
-    hit = _desktop(doc, scr, rng, p.danger)
-    doc.text("WS-0214  |  ministry workstation", net.x + net.w / 2, net.y + 92, 16, "#8C9BB5", "mono",
-             anchor="middle")
-    pill(doc, net.x + net.w / 2, net.b - 70, "egress to cloud storage: allowed", fg="#C9F2DF", bg="#123227",
-         size=15, font="ui", anchor="middle", stroke="#1F5A43")
+    # night: deep blue sky, moonlight from the upper left
+    doc.rect(0, 0, W, H, doc.lin([(0, "#0B1424", 1), (0.75, "#121D33", 1), (1, "#070B14", 1)]))
+    doc.rect(0, 0, W, H, doc.rad([(0, "#8FB0E6", 0.20), (1, "#8FB0E6", 0)], 0.18, 0.12, 0.5))
+    doc.rect(0, 760, W, H - 760, doc.lin([(0, "#0A0F1A", 1), (1, "#05070C", 1)]))
 
-    # ---- the cloud storage folder (hero, centre-right): light, ordinary, trusted
-    cf = Box(720, 150, 520, 600)
-    doc.shadow(cf.x, cf.y, cf.w, cf.h, 18, 1.3)
-    doc.rect(cf.x, cf.y, cf.w, cf.h, "#F8FAFC", 18)
-    doc.rect(cf.x, cf.y, cf.w, 66, "#E8EEF4", 18)
-    doc.rect(cf.x, cf.y + 50, cf.w, 16, "#E8EEF4")
-    # cloud glyph + address
-    cx, cy = cf.x + 44, cf.y + 34
-    doc.path(f"M{f(cx - 20)} {f(cy + 11)}H{f(cx + 20)}A11 11 0 0 0 {f(cx + 18)} {f(cy - 9)}A15 15 0 0 0 "
-             f"{f(cx - 9)} {f(cy - 12)}A11 11 0 0 0 {f(cx - 20)} {f(cy + 11)}Z", stroke="#0B6BCB", sw=2.6)
-    icon(doc, "lock", cf.x + 86, cy, 16, "#13804B", 2)
-    doc.text("storage.cloud.example", cf.x + 102, cy + 6, 18, "#0F1B2A", "mono")
-    doc.text("My files  /  sync  /  tmp", cf.x + 32, cf.y + 112, 22, "#0F1B2A", "display")
-    doc.line((cf.x + 32, cf.y + 132), (cf.r - 32, cf.y + 132), "#D5DEE8", 1.5)
-    # ordinary contents
-    for k, (n, m) in enumerate((("notes.docx", "2 days ago"), ("photos/", "last week"))):
-        yy = cf.y + 158 + k * 50
-        doc.path(f"M{f(cf.x + 36)} {f(yy)}h14l6 6v18h-20z", fill="none", stroke="#9AAABD", sw=1.8)
-        doc.text(n, cf.x + 72, yy + 18, 17, "#45556A", "mono")
-        doc.text(m, cf.r - 36, yy + 18, 14, "#8495A8", "ui", anchor="end")
-    # the command channel: a command file in, a result file out
-    rw = cf.w - 64
-    _file_row(doc, cf.x + 32, cf.y + 290, rw, "c_7f3a.tmp", "uploaded by operator  -  command", cmd_c,
-              False)
-    _file_row(doc, cf.x + 32, cf.y + 380, rw, "r_7f3a.tmp", "uploaded by WS-0214  -  command output", res_c, True)
-    doc.text("To the network: routine traffic to a known cloud service.", cf.x + 32, cf.b - 40, 17, "#5B6B7D",
-             "ui")
+    gx, sx1, top, base = _building(doc, p.ink)
 
-    # ---- the operator (right edge): a terminal that only talks to the cloud folder
-    op = Box(1330, 300, 240, 260)
-    doc.shadow(op.x, op.y, op.w, op.h, 12, 1.0)
-    doc.rect(op.x, op.y, op.w, op.h, "#05080F", 12, stroke="#26324A")
-    doc.text("operator", op.x + 20, op.y + 34, 16, "#8C9BB5", "ui_bold")
-    lines = [("$ put cmd", cmd_c), ("  c_7f3a.tmp", "#C9D3E3"), ("$ get result", res_c), ("  r_7f3a.tmp", "#C9D3E3"),
-             ("$ _", "#C9D3E3")]
-    for k, (t, c) in enumerate(lines):
-        doc.text(t, op.x + 20, op.y + 76 + k * 32, 17, c, "mono")
+    # the back door in the side wall: ajar, light spilling onto the ground
+    t = 0.55                                       # position along the side wall
+    dx = gx + (sx1 - gx) * t
+    s_top, s_base = 380.0, 700.0
+    wall_b = base + (s_base - base) * t
+    dh, dw = 150.0, 70.0
+    slope = (s_base - base) / (sx1 - gx)
+    d0 = (dx, wall_b)
+    d1 = (dx + dw, wall_b + slope * dw)
+    door = [(d0[0], d0[1] - dh), (d1[0], d1[1] - dh * 0.96), d1, d0]
+    glow = red if active else "#F5B83D"
+    doc.poly([d0, d1, (d1[0] + 160, d1[1] + 70), (d0[0] - 40, d0[1] + 90)], glow, opacity=0.28)
+    doc.glow(dx + dw / 2, wall_b - dh / 2, 120, 130, glow, 0.35)
+    doc.poly(door, glow)
+    # the door leaf, swung open towards the viewer
+    doc.poly([(d0[0], d0[1] - dh), (d0[0] - 46, d0[1] - dh + 20), (d0[0] - 46, d0[1] + 14), d0], "#1A2030",
+             stroke="#3A4458", sw=1.5)
 
-    # ---- flows. Commands: operator -> folder -> workstation; results: back the other way.
-    c_row, r_row = cf.y + 322, cf.y + 412
-    arrow(doc, [(op.x - 8, op.y + 90), (cf.r + 50, op.y + 90), (cf.r + 50, c_row), (cf.r + 10, c_row)], cmd_c,
-          sw=3, head=14)
-    mx = net.x + net.w - 40 + 8                          # the monitor's right edge
-    arrow(doc, [(cf.x - 10, c_row), (net.r + 74, c_row), (net.r + 74, hit[1] - 6), (mx, hit[1] - 6)],
-          cmd_c, sw=3, head=14)
-    arrow(doc, [(mx, hit[1] + 22), (net.r + 40, hit[1] + 22), (net.r + 40, r_row), (cf.x - 10, r_row)],
-          res_c, sw=3.5, head=15)
-    arrow(doc, [(cf.r + 10, r_row), (cf.r + 80, r_row), (cf.r + 80, op.y + 160), (op.x - 8, op.y + 160)], res_c,
-          sw=3.5, head=15)
-    pill(doc, net.r - 20, hit[1] - 60, "commands in", fg="#0E1626", bg=cmd_c, size=14, font="ui_bold")
-    pill(doc, net.r + 10, r_row + 22, "results out", fg="#FFFFFF", bg=res_c, size=14, font="ui_bold")
+    # the channel: from the door up to the cloud (or out of frame)
+    start = (dx + dw / 2, wall_b - dh - 10)
+    end = (1330.0, 300.0) if cloud else (W + 20, 120.0)
+    c1 = (start[0] + 40, start[1] - 180)
+    path = f"M{f(start[0])} {f(start[1])}Q{f(c1[0])} {f(c1[1])} {f(end[0])} {f(end[1])}"
+    doc.path(path, stroke=glow, sw=7, dash="2 16", opacity=0.95)
+    if mail:
+        for k, u in enumerate((0.35, 0.62)):
+            x = (1 - u) ** 2 * start[0] + 2 * (1 - u) * u * c1[0] + u * u * end[0]
+            y = (1 - u) ** 2 * start[1] + 2 * (1 - u) * u * c1[1] + u * u * end[1]
+            _envelope(doc, x, y, 64 - k * 10, "#F2E3C9", -18 + k * 10)
+    if cloud:
+        doc.glow(1360, 210, 230, 110, "#9FB4D8", 0.18)
+        _cloud(doc, 1360, 220, 210, doc.lin([(0, "#E6ECF5", 1), (1, "#A9B7CC", 1)]))
 
-    # region, only as the sources state it
-    if re.search(r"\basia\b", text) and re.search(r"\bafrica\b", text):
-        doc.text("targets: government networks in Asia and Africa", 720, 830, 18, "#8C9BB5", "ui")
-    doc.focus = Box(40, 110, 1260, 709)
+    # the operation name, when the headline gives one
+    head = text[:120]
+    name = next((e for e in brief.entities if e.lower() in head and T.supported(e, "display") == e
+                 and any(ch.isupper() for ch in e[1:])), "")
+    if name:
+        doc.text(name, 150, 140, 72, p.ink, "display", opacity=0.92)
+
+    doc.rect(0, 0, W, H, doc.rad([(0.6, "#000", 0), (1, "#000", 0.5)], 0.5, 0.5, 0.78))
+    doc.focus = Box(110, 40, 1460, 821)

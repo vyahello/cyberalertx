@@ -1,145 +1,119 @@
-"""Crafted TCP traffic crashes a Linux server: a TCP header (RFC 9293
-layout) for the crafted segments, a dense stream of them reaching the
-server's network port, and the server console stopped on a kernel failure.
+"""Remote crash (denial of service) as one physical image: a server tower
+knocked off balance by a noisy signal arriving over the network. The
+headline's claim is exactly that (crafted traffic crashes the server); the
+picture adds nothing technical to it.
 
-The trace is generic and plausible (receive path, fatal exception in
-interrupt); no CVE, function name of the bug or address is claimed."""
+No console, no kernel trace, no packet header, no hostname, no interface
+name. The flaw's name (or a CVE from `brief.facts`) appears as plain text;
+the affected services appear as small labels only when the sources list them."""
 from __future__ import annotations
 
+import math
 import random
 
+from .. import type as T
 from ..brief import EditorialBrief
-from ..kit import H, W, Box, Doc, f, window
+from ..kit import Box, Doc, W, H, f
 from . import scene
 
-
-def _header(doc: Doc, b: Box, danger: str) -> tuple[float, float]:
-    """TCP header diagram: 32-bit rows. Returns the right-middle anchor."""
-    p = doc.pal
-    doc.shadow(b.x, b.y, b.w, b.h, 12, 0.9)
-    doc.rect(b.x, b.y, b.w, b.h, "#111A2A", 12, stroke=danger, sw=2)
-    doc.text("TCP segment", b.x + 24, b.y + 40, 20, p.ink, "ui_bold")
-    doc.text("crafted", b.r - 24, b.y + 40, 18, danger, "mono_bold", anchor="end")
-    gx, gw = b.x + 24, b.w - 48
-    top = b.y + 82
-    # bit ruler
-    for k in range(0, 33, 8):
-        x = gx + gw * k / 32
-        doc.line((x, top - 14), (x, top - 4), p.muted, 1.2)
-        doc.text(str(k if k < 32 else 31), x, top - 20, 11, p.muted, "mono", anchor="middle")
-    rows = [
-        [("source port", 16), ("destination port", 16)],
-        [("sequence number", 32)],
-        [("acknowledgment number", 32)],
-        [("off", 4), ("rsv", 4), ("flags", 8), ("window", 16)],
-        [("checksum", 16), ("urgent pointer", 16)],
-        [("options", 32)],
-    ]
-    rh = 44.0
-    for r, cells in enumerate(rows):
-        y = top + r * rh
-        x = gx
-        for name, bits in cells:
-            w = gw * bits / 32
-            hot = False      # the sources do not say which field is malformed
-            doc.rect(x, y, w, rh, "#18233A" if not hot else "#2A1620", 0, stroke="#3A4A66", sw=1.2)
-            doc.text(name, x + w / 2, y + rh / 2 + 5, 14, p.ink if not hot else "#FFB4AE", "mono",
-                     anchor="middle")
-            x += w
-    # payload stub
-    y = top + len(rows) * rh
-    doc.rect(gx, y, gw, 36, "none", 0, stroke="#3A4A66", sw=1.2, extra=' stroke-dasharray="6 6"')
-    doc.text("data", gx + gw / 2, y + 23, 14, p.muted, "mono", anchor="middle")
-    return b.r, b.y + b.h / 2
+_ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
+_SERVICES = ("nginx", "apache", "ssh", "mongodb", "redis", "postgresql", "mysql")
 
 
-def _server(doc: Doc, b: Box, brief: EditorialBrief, danger: str) -> tuple[float, float]:
-    """1U server, front elevation. Returns the NIC port position."""
-    p = doc.pal
-    doc.shadow(b.x, b.y, b.w, b.h, 6, 0.8)
-    doc.rect(b.x, b.y, b.w, b.h, doc.lin([(0, "#2A3448", 1), (1, "#1A2232", 1)]), 5, stroke="#3E4C66", sw=1.2)
-    for k in range(4):
-        dx = b.x + 18 + k * 70
-        doc.rect(dx, b.y + 12, 62, b.h - 24, "#121A28", 3, stroke="#33415A", sw=1)
-        doc.path("".join(f"M{f(dx + 8)} {f(b.y + 20 + j * 6)}h40" for j in range(int((b.h - 40) / 6))),
-                 stroke="#26324A", sw=2.4)
-    # status: fault LED
-    doc.circle(b.r - 150, b.y + 24, 5, danger)
-    doc.glow(b.r - 150, b.y + 24, 14, 14, danger, 0.6)
-    doc.circle(b.r - 130, b.y + 24, 5, "#2A3448", "#4A5A78", 1)
-    # NIC
-    px, py = b.r - 92, b.y + 16
-    doc.rect(px, py, 40, 30, "#0B0F18", 3, stroke="#5B6B88", sw=1.2)
-    doc.rect(px + 8, py + 6, 24, 16, "#000")
-    doc.rect(px + 3, py + 2, 7, 4, "#FBBF24", 1)
-    doc.text("eth0", px + 20, b.b + 22, 13, p.muted, "mono", anchor="middle")
-    # services named by the sources
-    svc = [s for s in ("nginx", "apache", "ssh") if s in brief.text]
-    if svc:
-        doc.text("  ".join(svc), b.x, b.b + 22, 14, p.muted, "mono")
-    return px + 20, py + 15
+def _tower(doc: Doc, x: float, y: float, w: float, h: float, red: str, hit_y: float) -> None:
+    """A tower server in oblique view, drawn upright at (x, y, w, h)."""
+    dx, dy = 120.0, 70.0
+    doc.poly([(x, y), (x + dx, y - dy), (x + w + dx, y - dy), (x + w, y)], doc.lin([(0, "#55607A", 1),
+                                                                                   (1, "#3A4459", 1)], 0, 0, 1, 0))
+    doc.poly([(x + w, y), (x + w + dx, y - dy), (x + w + dx, y + h - dy), (x + w, y + h)],
+             doc.lin([(0, "#20283A", 1), (1, "#141A27", 1)]))
+    doc.rect(x, y, w, h, doc.lin([(0, "#56627C", 1), (1, "#2E374B", 1)], 0, 0, 1, 1))
+    doc.rect(x, y, w, 4, "#FFFFFF", opacity=0.2)
+    # drive bays
+    for i in range(4):
+        by = y + 40 + i * 58
+        doc.rect(x + 28, by, w - 56, 44, "#1A2030", 4, stroke="#4E5A72", sw=1.2)
+        doc.rect(x + 44, by + 18, w - 120, 8, "#3A4458", 3)
+    # vent
+    for i in range(9):
+        doc.rect(x + 28, y + 300 + i * 22, w - 56, 8, "#171C29", 3)
+    # the point of impact on the front
+    doc.glow(x + 10, hit_y, 90, 110, red, 0.5)
+
+
+def _noise(rng: random.Random, x0: float, x1: float, y: float, amp: float) -> str:
+    """A signal line that gets noisier towards its end."""
+    pts = [(x0, y)]
+    x = x0
+    while x < x1:
+        x += rng.uniform(10, 22)
+        t = (x - x0) / (x1 - x0)
+        a = amp * (0.1 + 0.9 * t ** 1.6)
+        pts.append((min(x, x1), y + rng.uniform(-a, a)))
+    pts.append((x1, y))
+    return "M" + "L".join(f"{f(a)} {f(b)}" for a, b in pts)
 
 
 @scene("kernel_dos")
 def kernel_dos(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
-    doc.rect(0, 0, W, H, doc.lin([(0, p.bg1, 1), (1, p.bg0, 1)], 0, 0, 0.3, 1))
-    doc.rect(0, 0, W, H, doc.rad([(0, "#FFFFFF", 0.06), (1, "#FFFFFF", 0)], 0.65, 0.35, 0.6))
+    text = brief.text or ""
+    red = p.danger
 
-    hb = Box(60, 80, 560, 420)
-    hx, hy = _header(doc, hb, p.danger)
+    doc.rect(0, 0, W, H, doc.lin([(0, "#0F1828", 1), (1, "#070B13", 1)]))
+    doc.rect(0, 0, W, H, doc.rad([(0, "#6F8FC8", 0.18), (1, "#6F8FC8", 0)], 0.72, 0.3, 0.5))
+    floor = 760.0
+    doc.rect(0, floor, W, H - floor, doc.lin([(0, "#121B2C", 1), (1, "#06090F", 1)]))
+    doc.line((0, floor), (W, floor), "#2A3650", 2)
 
-    srv = Box(70, 690, 520, 64)
-    nx, ny = _server(doc, srv, brief, p.danger)
+    # the tower, tipping over to the right around its right foot
+    tx, tw, th = 860.0, 290.0, 560.0
+    ty = floor - th
+    hit_y = ty + th * 0.42
+    tilt = 13.0
+    # its shadow on the floor, stretched in the direction of the fall
+    doc.add(f'<ellipse cx="{f(tx + tw + 140)}" cy="{f(floor + 10)}" rx="{f(tw * 1.1)}" ry="24" fill="#000" '
+            f'opacity="0.6" filter="{doc.blur(14)}"/>')
+    with doc.g(transform=f"rotate({tilt} {f(tx + tw)} {f(floor)})"):
+        _tower(doc, tx, ty, tw, th, red, hit_y)
+    # motion arcs swept by the top corners as it tips
+    for cx_, cy_ in ((tx, ty), (tx + 120, ty - 70)):
+        r = math.hypot(cx_ - (tx + tw), cy_ - floor)
+        a0 = math.atan2(cy_ - floor, cx_ - (tx + tw))
+        pts = []
+        for k in range(9):
+            a = a0 + math.radians(tilt * (0.15 + 0.85 * k / 8))
+            pts.append((tx + tw + r * math.cos(a), floor + r * math.sin(a)))
+        doc.path("M" + "L".join(f"{f(a)} {f(b)}" for a, b in pts), stroke="#9FB4D8", sw=3, opacity=0.35,
+                 dash="10 10")
 
-    # the stream: many copies of the crafted segment arriving at the NIC
-    sy = 606.0
-    xs = [-10 + i * 25.0 for i in range(19)]
-    for i, x in enumerate(xs):
-        a = 0.25 + 0.75 * i / len(xs)
-        doc.rect(x, sy - 10, 20, 20, p.danger, 3, opacity=a)
-        doc.rect(x, sy - 10, 7, 20, "#FFFFFF", 2, opacity=0.25 * a)
-    doc.path(f"M{f(xs[-1] + 24)} {f(sy)}H{f(nx - 16)}Q{f(nx)} {f(sy)} {f(nx)} {f(sy + 16)}V{f(ny - 18)}",
-             stroke=p.danger, sw=3.5)
-    doc.poly([(nx, ny - 8), (nx - 9, ny - 24), (nx + 9, ny - 24)], p.danger)
-    # the diagram describes each segment of the stream
-    doc.path(f"M{f(hb.cx)} {f(hb.b)}V{f(sy - 22)}", stroke=p.danger, sw=1.5, dash="4 5", opacity=0.8)
+    # the noisy signal arriving from the left, ending at the impact point
+    rad = math.radians(tilt)
+    px, py = tx + tw, floor
+    vx, vy = tx - px, hit_y - py
+    hx = px + vx * math.cos(rad) - vy * math.sin(rad)
+    hy = py + vx * math.sin(rad) + vy * math.cos(rad)
+    d = _noise(rng, -10, hx - 6, hy, 70)
+    doc.path(d, stroke=red, sw=10, opacity=0.18)
+    doc.path(d, stroke=red, sw=4)
+    doc.circle(hx - 2, hy, 9, "#FFD2C8")
 
-    # console: stopped on a kernel failure
-    win = Box(720, 90, 830, 690)
-    body = window(doc, win, title="srv-web-01 - Linux console", surface="#070B12", chrome="#121A28")
-    tx, ty = body.x + 28, body.y + 44
-    ts = "[ 8125.44{:04d}]"
-    lines: list[tuple[str, str]] = [
-        ("srv-web-01 login:", "#8C9AB3"),
-        ("", "#8C9AB3"),
-        (ts.format(1902) + " general protection fault: 0000 [#1] SMP", "#E8EDF5"),
-        (ts.format(1917) + " CPU: 3 PID: 0 Comm: swapper/3", "#C9D3E3"),
-        (ts.format(1931) + " RIP: 0010:0xffffffff8a3c41d2", "#C9D3E3"),
-        (ts.format(1946) + " Call Trace:", "#C9D3E3"),
-        (ts.format(1950) + "  <IRQ>", "#8C9AB3"),
-        (ts.format(1958) + "  tcp_v4_rcv+0x...", "#C9D3E3"),
-        (ts.format(1966) + "  ip_protocol_deliver_rcu+0x...", "#C9D3E3"),
-        (ts.format(1973) + "  ip_local_deliver_finish+0x...", "#C9D3E3"),
-        (ts.format(1981) + "  __netif_receive_skb_one_core+0x...", "#C9D3E3"),
-        (ts.format(1990) + "  net_rx_action+0x...", "#C9D3E3"),
-        (ts.format(1998) + "  </IRQ>", "#8C9AB3"),
-    ]
-    size, lh = 17.0, 31.0
-    for i, (s, c) in enumerate(lines):
-        doc.text(s, tx, ty + i * lh, size, c, "mono")
-    # the panic line (focal)
-    py = ty + len(lines) * lh + 34
-    doc.rect(body.x + 14, py - 34, body.w - 28, 96, p.danger, 6, opacity=0.14)
-    doc.rect(body.x + 14, py - 34, 5, 96, p.danger)
-    doc.text("Kernel panic - not syncing:", tx, py, 24, "#FFFFFF", "mono_bold")
-    doc.text("Fatal exception in interrupt", tx, py + 38, 24, p.danger, "mono_bold")
-    doc.text("---[ end Kernel panic ]---", tx, py + 104, 17, "#8C9AB3", "mono")
-    doc.rect(tx, py + 124, 12, 22, "#8C9AB3", opacity=0.6)
+    # the flaw's name, and what it affects when the sources list it
+    head = text[:160]
+    name = next((e for e in brief.entities if e.lower() in head and T.supported(e, "display") == e), "")
+    cves = brief.facts.get("cves") or []
+    label = (str(cves[0]) if cves else "") or name
+    if label:
+        size = 110.0 if len(label) < 12 else 64.0
+        doc.text(label, 80, 180, size, p.ink, "display")
+    services = [s for s in _SERVICES if s in text][:3]
+    if services:
+        x = 84.0
+        for s in services:
+            w = T.measure(s, 34, "mono") + 36
+            doc.rect(x, 230, w, 54, "none", 27, stroke="#5B6B86", sw=2)
+            doc.text(s, x + 18, 267, 34, "#B7C3D8", "mono")
+            x += w + 16
 
-    # link: server -> its console
-    doc.path(f"M{f(srv.r)} {f(srv.cy)}C{f(srv.r + 60)} {f(srv.cy)} {f(win.x - 60)} {f(win.b - 60)} "
-             f"{f(win.x)} {f(win.b - 60)}", stroke="#4A5A78", sw=2, dash="4 6")
-
-    doc.rect(0, 0, W, H, doc.rad([(0.55, "#000", 0), (1, "#000", 0.5)], 0.5, 0.5, 0.78))
-    doc.focus = Box(40, 80, 1520, 855)
+    doc.rect(0, 0, W, H, doc.rad([(0.6, "#000", 0), (1, "#000", 0.5)], 0.5, 0.5, 0.78))
+    doc.focus = Box(40, 70, 1440, 810)

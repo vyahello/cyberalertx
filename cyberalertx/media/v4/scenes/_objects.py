@@ -27,13 +27,21 @@ def contact(doc: Doc, cx: float, y: float, w: float, opacity: float = 0.5) -> No
             f'opacity="{opacity:.2f}" filter="{doc.blur(10)}"/>')
 
 
-def server(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Random) -> Pt:
-    """A 2U rack server in three-quarter view; one drive bay marked."""
+def server(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Random, style: int = 0) -> Pt:
+    """A 2U rack server in three-quarter view; one drive bay marked.
+    `style=1`: three rack units stacked on a shelf, the middle one marked."""
+    if style == 1:
+        return _server_stack(doc, cx, cy, w, mark, rng)
     h = w * 0.22
     cx -= w * 0.13
     x, y = cx - w / 2, cy - h / 2
     contact(doc, cx + w * 0.08, y + h + 10, w * 1.1)
-    _box3(doc, x, y, w, h, w * 0.5, "#2B3038", "#3B414B", "#1C2026")
+    _box3(doc, x, y, w, h, w * 0.5, "#2B3038", doc.lin([(0, "#59616D", 1), (1, "#3B414B", 1)], 0, 1, 1, 0),
+          "#1C2026")
+    dx, dy = w * 0.5 * 0.55, w * 0.5 * 0.32
+    doc.line((x, y), (x + dx, y - dy), "#8A939F", 1.5, 0.8)
+    doc.line((x + dx, y - dy), (x + w + dx, y - dy), "#8A939F", 1.5, 0.6)
+    doc.line((x, y), (x + w, y), "#9AA3AF", 2, 0.9)
     doc.rect(x, y, w, h, doc.lin([(0, "#3A404A", 1), (1, "#22262D", 1)]), 4, stroke="#12151A", sw=1.5)
     doc.rect(x, y, w, 2.5, "#FFFFFF", opacity=0.12)
     for ex in (x + 6, x + w - 28):
@@ -53,6 +61,39 @@ def server(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Rand
     hx = bx0 + hit * bw + (bw - 6) / 2
     doc.rect(bx0 + hit * bw - 3, y + 6, bw, h - 12, "none", 4, stroke=mark, sw=3)
     return hx, y + 6
+
+
+def _server_stack(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Random) -> Pt:
+    """Three rack units (1U switch, 2U server, 2U storage) in three-quarter
+    view, the server unit marked."""
+    w *= 0.86
+    u = w * 0.072
+    hs = (u, 2 * u, 2 * u)
+    h = sum(hs) + 2 * 6
+    cx -= w * 0.12
+    x, y = cx - w / 2, cy - h / 2
+    depth = w * 0.42
+    dx, dy = depth * 0.55, depth * 0.32
+    contact(doc, cx + w * 0.1, y + h + 12, w * 1.15)
+    doc.poly([(x, y), (x + dx, y - dy), (x + w + dx, y - dy), (x + w, y)],
+             doc.lin([(0, "#59616D", 1), (1, "#3B414B", 1)], 0, 1, 1, 0))
+    doc.poly([(x + w, y), (x + w + dx, y - dy), (x + w + dx, y + h - dy), (x + w, y + h)], "#1A1D22")
+    doc.line((x, y), (x + w, y), "#9AA3AF", 2, 0.9)
+    doc.line((x + dx, y - dy), (x + w + dx, y - dy), "#8A939F", 1.5, 0.6)
+    doc.rect(x, y, w, h, "#0E1014", 4)
+    yy = y + 6
+    hit = (0.0, 0.0)
+    for i, (hh, kind) in enumerate(zip(hs, ("switch", "server", "storage"))):
+        rack_unit(doc, x + 6, yy, w - 12, hh - 4, kind=kind, rng_bits=rng.randrange(9))
+        if i == 1:
+            doc.rect(x + 2, yy - 3, w - 4, hh + 2, "none", 5, stroke=mark, sw=3.5)
+            hit = (x + w * 0.66, yy + hh / 2)
+        yy += hh + 2
+    # side vents
+    for k in range(6):
+        doc.line((x + w + dx * 0.2 + k * dx * 0.12, y - dy * 0.2 - k * dy * 0.12 + h * 0.2),
+                 (x + w + dx * 0.2 + k * dx * 0.12, y - dy * 0.2 - k * dy * 0.12 + h * 0.75), "#2A2F37", 3)
+    return hit
 
 
 def appliance(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Random) -> Pt:
@@ -215,46 +256,57 @@ def laptop(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Rand
     doc.rect(sx, sy + sh_ - 30, sw_, 30, "#0E1524", opacity=0.9)
     for i in range(5):
         doc.rect(sx + sw_ / 2 - 80 + i * 34, sy + sh_ - 22, 22, 14, "#3A4A66", 3)
-    wx, wy, ww, wh = sx + sw_ * 0.2, sy + sh_ * 0.14, sw_ * 0.6, sh_ * 0.56
+    # two plain application windows (no invented dialog); the front one marked
+    bw_, bh_ = sw_ * 0.5, sh_ * 0.5
+    doc.rect(sx + sw_ * 0.08, sy + sh_ * 0.1, bw_, bh_, "#C9D2DE", 6)
+    doc.rect(sx + sw_ * 0.08, sy + sh_ * 0.1, bw_, 22, "#AEB9C7", 6)
+    wx, wy, ww, wh = sx + sw_ * 0.34, sy + sh_ * 0.24, sw_ * 0.56, sh_ * 0.52
+    doc.rect(wx + 6, wy + 10, ww, wh, "#000", 6, opacity=0.3)
     doc.rect(wx, wy, ww, wh, "#F4F6F9", 6)
-    doc.rect(wx, wy, ww, 26, "#E1E6ED", 6)
-    for i, c in enumerate(("#C3CCD8", "#C3CCD8", mark)):
-        doc.rect(wx + ww - 76 + i * 24, wy + 9, 14, 8, c, 2)
-    icon(doc, "shieldx", wx + 40, wy + 70, 40, mark, 2.4)
-    doc.rect(wx + 74, wy + 56, ww * 0.5, 9, "#8C97A6", 4)
-    doc.rect(wx + 74, wy + 76, ww * 0.38, 7, "#C3CCD8", 3)
-    doc.rect(wx + ww - 120, wy + wh - 44, 96, 28, mark, 5)
+    doc.rect(wx, wy, ww, 28, "#E1E6ED", 6)
+    for i in range(3):
+        doc.circle(wx + 18 + i * 16, wy + 14, 4.5, "#C3CCD8")
+    for i, fr in enumerate((0.7, 0.55, 0.62, 0.4)):
+        doc.rect(wx + 24, wy + 52 + i * wh * 0.15, (ww - 48) * fr, wh * 0.06, "#C3CCD8", 3)
+    doc.rect(wx - 3, wy - 3, ww + 6, wh + 6, "none", 8, stroke=mark, sw=3)
     # base
     by = y + sh
     doc.path(f"M{f(x - w * 0.08)} {f(by)}H{f(x + w * 1.08)}L{f(x + w * 1.04)} {f(by + w * 0.04)}H{f(x - w * 0.04)}Z",
              fill=doc.lin([(0, "#B7BDC6", 1), (1, "#7E8590", 1)]))
     doc.rect(cx - w * 0.1, by, w * 0.2, 6, "#8C929B", 3)
-    return wx + 40, wy + 50
+    return wx + ww * 0.5, wy + wh * 0.55
 
 
 def editor(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Random) -> Pt:
-    """A repository file tree with a submodule entry marked."""
+    """A repository tree (recursive clone: the repository and its submodule),
+    the submodule entry marked. Only git's own names; other entries are
+    placeholder bars, not invented file names."""
     h = w * 0.82
     x, y = cx - w / 2, cy - h / 2
-    doc.shadow(x, y, w, h, 12, 0.9)
-    doc.rect(x, y, w, h, "#0F1522", 12, stroke="#2A3650", sw=1.2)
-    doc.rect(x, y, w, 40, "#172033", 12)
-    doc.rect(x, y + 28, w, 12, "#172033")
+    doc.shadow(x, y, w, h, 14, 1.0)
+    doc.rect(x, y, w, h, "#111A2B", 14, stroke="#3B4A68", sw=2)
+    doc.rect(x, y, w, 48, "#1C2740", 14)
+    doc.rect(x, y + 34, w, 14, "#1C2740")
     for i in range(3):
-        doc.circle(x + 20 + i * 16, y + 20, 5, ("#FF5F57", "#FEBC2E", "#28C840")[i], opacity=0.85)
-    rows = [(0, "repo/", "#E8EDF5"), (1, ".gitmodules", "#E8EDF5"), (1, "src/", "#7D8AA3"),
-            (1, "vendor/", "#7D8AA3"), (2, "lib/  (submodule)", mark), (3, ".git/", mark),
-            (1, "README.md", "#7D8AA3")]
-    hit_y = 0.0
+        doc.circle(x + 24 + i * 18, y + 24, 6, ("#FF5F57", "#FEBC2E", "#28C840")[i], opacity=0.85)
+    fs = w * 0.045
+    step = (h - 90) / 7.4
+    rows: list[tuple[int, str, str]] = [(0, "repo/", "#E8EDF5"), (1, ".gitmodules", "#E8EDF5"), (1, "", ""),
+                                        (1, "", ""), (1, "submodule/", mark), (2, "", ""), (1, "", "")]
+    hit = (cx, cy)
     for i, (lvl, name, col) in enumerate(rows):
-        yy = y + 84 + i * 46
-        tx = x + 36 + lvl * 30
-        icon(doc, "file", tx + 10, yy - 7, 22, col, 1.8)
-        doc.text(name, tx + 32, yy, 22, col, "mono")
+        yy = y + 48 + step * (i + 0.95)
+        tx = x + w * 0.07 + lvl * w * 0.07
         if i == 4:
-            doc.rect(x + 12, yy - 30, w - 24, 42, mark, 6, opacity=0.14)
-            hit_y = yy - 9
-    return x + w - 12, hit_y
+            doc.rect(x + 10, yy - step * 0.62, w - 20, step * 0.9, mark, 8, opacity=0.16)
+            doc.rect(x + 10, yy - step * 0.62, 6, step * 0.9, mark)
+            hit = (tx + w * 0.5, yy - fs * 0.35)
+        icon(doc, "file", tx + fs * 0.4, yy - fs * 0.35, fs * 1.05, col or "#5B6B85", 2)
+        if name:
+            doc.text(name, tx + fs * 1.4, yy, fs, col, "mono_bold" if i == 4 else "mono")
+        else:
+            doc.rect(tx + fs * 1.4, yy - fs * 0.62, w * rng.uniform(0.18, 0.34), fs * 0.5, "#2C3A55", fs * 0.25)
+    return hit
 
 
 def printer3d(doc: Doc, cx: float, cy: float, w: float, mark: str, rng: random.Random) -> Pt:

@@ -87,20 +87,80 @@ cyberalertx/media/v4/
 9. **ASCII text only, via `doc.text`.** Other characters are dropped by
    `type.supported`.
 
+## V4.1 rules (18 Nov 2026)
+
+V4.1 tightened the authoring rules after the first review. They apply to every
+scene.
+
+1. **Evidence first.** A scene distinguishes:
+   * facts the source states;
+   * the confirmed mechanism;
+   * plausible details;
+   * editorial interpretation.
+
+   Only the first two become concrete content. Scenes never invent code, shell
+   commands or output, CVEs, hashes, product interfaces, legal documents,
+   victim details, attack stages, malware behaviour, infrastructure, numbers
+   or status indicators. Anything conceptual is drawn as visibly conceptual:
+   an abstract token, a silhouette, a redacted block or a symbol. Examples:
+   * a commit SHA is drawn as a fingerprint glyph, never hex;
+   * an unstated delimiter is a marked token;
+   * the contents of an undescribed trojanised update are redacted.
+2. **Thumbnail first.** The feed shows 176 × 99 px, cropped to `doc.focus`.
+   Each image therefore has:
+   * one dominant subject filling at least 40% of that crop;
+   * no more than two or three text items that must be read, each with a cap
+     height of at least 60 px inside a crop about 1,100 px wide;
+   * strong value contrast.
+
+   Everything smaller is texture.
+3. **No formula.** No more "window, then arrow, then status card" diagrams.
+   Each scene has its own object, metaphor, crop and light.
+4. **Variants say what they show.** A scene that draws story-dependent
+   variants exposes `alt_for(brief)`, and `brief.alt_text` uses it. For
+   example:
+   * a court case: leaked videos, a crypto amount, or a sentence in years;
+   * a disputed breach: "breach denied" / "alleged";
+   * an agents-only automation story.
+5. **Alternatives.** A scene may expose `ALTERNATIVES = {"a": fn, "b": fn}`.
+   The registered function is the selected composition. The review gallery
+   renders the others side by side.
+
+### Routing additions
+
+* New scenes `police_takedown`, `crypto_theft` and `payment_skimmer`. They
+  cover the takedown, crypto-theft and checkout-skimming stories that
+  previously fell back. An IoT-camera scene was considered and not built: one
+  story in the current window does not justify it.
+* `SceneSpec.excludes`: a scene never applies when its pattern matches the
+  headline. A court decision or a deepfake method is the subject, not the
+  theft it involves. A phishing story about passwords is not password policy.
+* Fact extraction:
+  * a CVSS score is no longer read as a flaw count;
+  * a number cannot start inside a decimal ("9.8" is not "8");
+  * counts allow up to three words between the number and its noun
+    ("90 GTA VI videos").
+* The fallback (`dossier`) now covers 22 of 152 eligible stories (14%), down
+  from 28. It is a designed cover built from the story's own identifiers, not
+  a blank form.
+
 ## Scenes
 
-There are 34 scene modules: the 32 catalogue scenes, `hpc_drawn`
+There are 37 scene modules: the 35 catalogue scenes, `hpc_drawn`
 (supercomputer stories without a library photo) and the `dossier` fallback.
 
 | Group | Scenes |
 |---|---|
 | Infrastructure | `hpc_hall` (photo), `hpc_drawn`, `ics_controller`, `refrigeration_controller`, `gpu_cryptominer`, `edge_wiper`, `telecom`, `kernel_dos` |
-| Software and web | `ci_pinning`, `session_theft`, `rmm_console`, `patch_to_exploit`, `ai_code_audit`, `third_party_script`, `compromised_sites`, `dev_supply_chain`, `irc_injection`, `code_signing` |
-| People, legal, data | `court_case`, `deepfake_call`, `breach_notice`, `cloud_breach`, `espionage_backdoor`, `usb_worm`, `credential_phish` |
+| Software and web | `ci_pinning`, `session_theft`, `rmm_console`, `patch_to_exploit`, `ai_code_audit`, `third_party_script`, `compromised_sites`, `dev_supply_chain`, `irc_injection`, `code_signing`, `payment_skimmer` |
+| People, legal, data | `court_case`, `deepfake_call`, `breach_notice`, `cloud_breach`, `espionage_backdoor`, `usb_worm`, `credential_phish`, `police_takedown`, `crypto_theft` |
 | Analysis and advisories | `weekly_recap`, `disclosure_deadline`, `ai_offensive_tool`, `ransomware_impact`, `mfa_policy`, `selfhosted_saas`, `governance`, `vuln_advisory`, `dossier` |
 
-Shared drawing helpers live in `scenes/_objects.py` (product elevations for
-advisories) and `scenes/_editorial.py`.
+Shared drawing helpers live in modules prefixed `_`:
+* `_objects.py`: product elevations;
+* `_editorial.py`: type helpers;
+* `_camera.py`: a small perspective camera;
+* `_hpc.py`: the supercomputer type column and account tokens.
 
 ## Thumbnails
 

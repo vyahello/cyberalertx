@@ -1,131 +1,99 @@
-"""Model-assisted code review: source code is being read function by function,
-one function is flagged, and the path from untrusted input to a dangerous
-call is traced through it. The subject is the review itself (the editor,
-its review rail and the finding), not a picture of "AI".
+"""Model-assisted code review: a long page of source code, drawn as abstract
+syntax-coloured token bars (texture: no readable code), swept by a scanning
+band of light as it is read top to bottom; where the band stops, a large
+lens magnifies the lines and one of them is flagged in the danger colour.
 
-The example is a generic, textbook pattern (user input reaching a shell
-command); it stands for "a flaw found by automated review", not for the
-specific bug of any story."""
+The subject is the review itself (reading, sweeping, flagging), not a
+picture of "AI". No code, file names, function names, bug classes or
+severities are drawn: the sources of these stories do not state them."""
 from __future__ import annotations
 
 import random
-from typing import Sequence
 
 from ..brief import EditorialBrief
-from .. import type as T
-from ..kit import Run, Box, Doc, background, code, icon, pill, vignette, window
+from ..kit import Box, Doc, background, f, vignette
 from . import scene
+
+_SYNTAX = ("#C7B8FF", "#DCD6EE", "#9EE6C4", "#FFD58A", "#8F86B3")
+
+
+def _lines(rng: random.Random, n: int) -> list[list[tuple[float, float, str]]]:
+    """n lines of (x offset, width, colour) tokens; deterministic from rng."""
+    out: list[list[tuple[float, float, str]]] = []
+    indent = 0
+    for _ in range(n):
+        r = rng.random()
+        if r < 0.12:
+            out.append([])
+            indent = 0 if rng.random() < 0.5 else indent
+            continue
+        indent = max(0, min(3, indent + rng.choice((-1, 0, 0, 1))))
+        x = indent * 44.0
+        toks = []
+        for _ in range(rng.randint(2, 5)):
+            w = rng.uniform(30, 150)
+            toks.append((x, w, rng.choice(_SYNTAX)))
+            x += w + rng.uniform(10, 18)
+        out.append(toks)
+    return out
+
+
+def _draw_lines(doc: Doc, lines: list[list[tuple[float, float, str]]], x0: float, y0: float, lh: float,
+                th: float, flag: int, danger: str, opacity: float = 1.0) -> None:
+    with doc.g(opacity=opacity):
+        for i, toks in enumerate(lines):
+            y = y0 + i * lh
+            for x, w, c in toks:
+                doc.rect(x0 + x, y, w, th, danger if i == flag else c, th / 2, opacity=1 if i == flag else 0.85)
 
 
 @scene("ai_code_audit")
 def ai_code_audit(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
-    background(doc, light=(0.25, 0.15))
-    kw, tx, cm, st, fn = "#C7B8FF", "#DCD6EE", "#6F6889", "#9EE6C4", "#FFD58A"
-
-    # ---- the editor (hero), cropped by the left edge
-    win = Box(-36, 84, 1130, 790)
-    body = window(doc, win, title="media/views.py", surface="#120E20", chrome="#1D1733")
-    # file tab strip
-    doc.rect(body.x, body.y, body.w, 42, "#17122A")
-    doc.rect(body.x + 60, body.y, 200, 42, "#120E20")
-    doc.rect(body.x + 60, body.y, 200, 2, p.accent)
-    doc.text("views.py", body.x + 84, body.y + 27, 16, p.ink, "mono")
-    doc.text("storage.py", body.x + 292, body.y + 27, 16, p.muted, "mono")
-    doc.text("auth.py", body.x + 432, body.y + 27, 16, p.muted, "mono")
-
-    size, lh = 22, 1.66
-    step = size * lh
-    lines: list[Sequence[Run] | str] = [
-        [("def ", kw), ("list_reports", fn), ("(request):", tx)],
-        [("    rows = db.reports.for_user(request.user)", tx)],
-        [("    return", kw), (" render(", tx), ('"reports.html"', st), (", rows)", tx)],
-        "",
-        [("def ", kw), ("thumbnail", fn), ("(request):", tx)],
-        [("    src = request.form[", tx), ('"url"', st), ("]", tx)],
-        [("    size = request.form.get(", tx), ('"size"', st), (", ", tx), ('"128"', st), (")", tx)],
-        [("    cmd = ", tx), ('f"convert {src} -resize {size} t.png"', st)],
-        [("    subprocess.run(cmd, shell=", tx), ("True", kw), (")", tx)],
-        [("    return", kw), (" send_file(", tx), ('"t.png"', st), (")", tx)],
-        "",
-        [("def ", kw), ("delete_report", fn), ("(request, rid):", tx)],
-        [("    report = db.reports.get(rid, owner=request.user)", tx)],
-        [("    report.delete()", tx)],
-        [("    return", kw), (" redirect(", tx), ('"/reports"', st), (")", tx)],
-    ]
-    x0 = body.x + 120
-    top = body.y + 96
-    code(doc, x0, top, lines, size=size, lh=lh, start=37, width=930,
-         marks={i: p.danger for i in range(4, 10)})
-    # untouched functions sit back
-    for rng_lines in ((0, 3), (11, 15)):
-        y_a = top + rng_lines[0] * step - size * 1.05
-        doc.rect(body.x + 52, y_a, body.w, (rng_lines[1] - rng_lines[0]) * step, "#120E20", opacity=0.45)
-
-    # ---- the review rail: one verdict per function, in the gutter
-    rail_x = body.x + 42
-    for i, ok in ((0, True), (4, False), (11, True)):
-        cy = top + i * step - size * 0.35
-        if ok:
-            doc.circle(rail_x, cy, 11, "#1C3A2E")
-            icon(doc, "check", rail_x, cy, 15, p.safe, 2.4)
-        else:
-            doc.circle(rail_x, cy, 13, p.danger)
-            icon(doc, "warn", rail_x, cy - 1, 17, "#FFFFFF", 2.2)
-
-    # ---- the traced path: input -> command string -> shell
-    def tok_x(line: int, prefix: str) -> float:
-        return x0 + T.measure(prefix, size, "mono")
-
-    def tok_y(line: int) -> float:
-        return top + line * step - size * 0.35
-
-    hops = [
-        (5, tok_x(5, "    src = "), tok_x(5, '    src = request.form["url"]')),
-        (7, tok_x(7, '    cmd = f"convert '), tok_x(7, '    cmd = f"convert {src}')),
-        (8, tok_x(8, "    "), tok_x(8, "    subprocess.run(cmd, shell=True)")),
-    ]
-    for ln, a, b in hops:
-        y = tok_y(ln) + 14
-        doc.path(f"M{a:.1f} {y:.1f}H{b:.1f}", stroke=p.danger, sw=3)
-    lane = x0 + 760
-    pts = []
-    for ln, _, _ in hops:
-        row = lines[ln]
-        flat = row if isinstance(row, str) else "".join(t for t, _ in row)
-        end = x0 + T.measure(flat, size, "mono")
-        y = tok_y(ln)
-        doc.path(f"M{end + 14:.1f} {y:.1f}H{lane - 18:.1f}", stroke=p.danger, sw=1.6, dash="2 6", opacity=0.8)
-        pts.append((lane, y))
-    doc.path(f"M{lane:.1f} {pts[0][1]:.1f}V{pts[-1][1]:.1f}", stroke=p.danger, sw=3)
-    for i, (px, py) in enumerate(pts):
-        doc.circle(px, py, 15, p.danger)
-        doc.text(str(i + 1), px, py + 6, 17, "#FFFFFF", "mono_bold", anchor="middle")
-    # from the trace to the finding
-    doc.path(f"M{lane + 16:.1f} {pts[1][1]:.1f}H1066", stroke=p.danger, sw=2, opacity=0.8)
-
-    # ---- the finding (card that leaves the editor)
-    card = Box(1070, 300, 480, 382)
-    doc.shadow(card.x, card.y, card.w, card.h, 14, 1.0)
-    doc.rect(card.x, card.y, card.w, card.h, "#1E1631", 14, stroke=p.danger, sw=2)
-    doc.rect(card.x, card.y, card.w, 56, "#2C1830", 14)
-    doc.rect(card.x, card.y + 42, card.w, 14, "#2C1830")
-    doc.text("AUTOMATED REVIEW", card.x + 26, card.y + 36, 14, p.danger, "ui_bold", tracking=1.6)
-    pill(doc, card.r - 22, card.y + 13, "high", fg="#FFFFFF", bg=p.danger, size=13, font="ui_bold",
-         anchor="end")
-    doc.text("Command injection", card.x + 26, card.y + 104, 32, p.ink, "display")
-    doc.text("thumbnail()  views.py:41", card.x + 26, card.y + 138, 17, p.muted, "mono")
-    trace = [("1", 'request.form["url"]', "untrusted input"), ("2", "f\"convert {src} ...\"", "string built"),
-             ("3", "subprocess.run(shell=True)", "runs in a shell")]
-    for i, (n, what, why) in enumerate(trace):
-        y = card.y + 192 + i * 58
-        doc.circle(card.x + 40, y, 13, p.danger)
-        doc.text(n, card.x + 40, y + 6, 16, "#FFFFFF", "mono_bold", anchor="middle")
-        if i < 2:
-            doc.line((card.x + 40, y + 15), (card.x + 40, y + 43), p.danger, 2, 0.6)
-        doc.text(what, card.x + 68, y + 1, 17, p.ink, "mono")
-        doc.text(why, card.x + 68, y + 24, 14, p.muted, "ui")
-    doc.text("payload:  url=x.png; id", card.x + 26, card.b - 22, 16, p.accent, "mono")
-
+    background(doc, light=(0.3, 0.1))
+    lines = _lines(rng, 26)
+    flag = 15
+    while not lines[flag]:
+        flag += 1
+    x0, y0, lh, th = 380.0, 60.0, 34.0, 14.0
+    # the page
+    page = Box(280, -20, 1000, 960)
+    doc.rect(page.x + 20, page.y, page.w, page.h, "#000", 0, opacity=0.4, extra=f' filter="{doc.blur(24)}"')
+    doc.rect(page.x, page.y, page.w, page.h, "#120E20")
+    for i in range(len(lines)):          # gutter ticks (no numbers)
+        doc.rect(page.x + 40, y0 + i * lh + 4, 26, 6, "#3A3256", 3)
+    # the read part above the band is dimmed; the unread part below is plain
+    _draw_lines(doc, lines[:flag], x0, y0, lh, th, -1, p.danger, opacity=0.45)
+    _draw_lines(doc, lines[flag:], x0, y0 + flag * lh, lh, th, 0, p.danger, opacity=0.9)
+    by = y0 + flag * lh + th / 2
+    # the scanning band, stopped on the flagged line
+    doc.rect(page.x, by - 120, page.w, 120, doc.lin([(0, p.accent, 0), (1, p.accent, 0.22)]))
+    doc.rect(page.x, by - 3, page.w, 6, p.accent, opacity=0.85)
+    doc.glow(page.x + page.w / 2, by, page.w * 0.5, 30, p.accent, 0.3)
+    # gutter marker on the flagged line
+    doc.rect(page.x, by - lh / 2, 10, lh, p.danger)
+    # the lens: magnified lines around the flag
+    cx, cy, r = 1040.0, by, 270.0
+    lens_clip = doc.clip_path(f"M{f(cx - r)} {f(cy)}a{f(r)} {f(r)} 0 1 0 {f(2 * r)} 0a{f(r)} {f(r)} 0 1 0 "
+                              f"{f(-2 * r)} 0Z")
+    doc.circle(cx + 16, cy + 30, r + 26, "#000", opacity=0.45)
+    with doc.g(clip=lens_clip):
+        doc.rect(cx - r, cy - r, 2 * r, 2 * r, "#1A1430")
+        k = 2.0
+        with doc.g(f"translate({f(cx)} {f(cy)}) scale({k}) translate({f(-690)} {f(-by)})"):
+            _draw_lines(doc, lines[flag - 6:flag], x0, y0 + (flag - 6) * lh, lh, th, -1, p.danger, 0.55)
+            _draw_lines(doc, lines[flag:flag + 7], x0, y0 + flag * lh, lh, th, 0, p.danger, 0.95)
+        doc.rect(cx - r, cy - 36, 2 * r, 72, p.danger, opacity=0.12)
+    doc.circle(cx, cy, r, "none", "#2A2340", 34)
+    doc.circle(cx, cy, r, "none", doc.lin([(0, "#E9E4FF", 1), (1, "#7A6FA8", 1)], 0, 0, 1, 1), 22)
+    doc.path(f"M{f(cx - r * 0.72)} {f(cy - r * 0.42)}A{f(r * 0.86)} {f(r * 0.86)} 0 0 1 {f(cx - r * 0.1)} "
+             f"{f(cy - r * 0.84)}", stroke="#FFFFFF", sw=10, opacity=0.35)
+    # handle
+    hx, hy = cx + r * 0.72, cy + r * 0.72
+    doc.path(f"M{f(hx)} {f(hy)}L{f(hx + 190)} {f(hy + 190)}", stroke="#000", sw=58, opacity=0.35,
+             extra=f' filter="{doc.blur(10)}"')
+    doc.path(f"M{f(hx)} {f(hy)}L{f(hx + 190)} {f(hy + 190)}", stroke="#2A2340", sw=52)
+    doc.path(f"M{f(hx + 14)} {f(hy + 6)}L{f(hx + 186)} {f(hy + 178)}", stroke="#5A4E86", sw=12, opacity=0.8)
     vignette(doc, 0.45)
-    doc.focus = Box(330, 250, 1220, 686)
+    doc.focus = Box(360, 250, 1160, 653)
+    _ = brief

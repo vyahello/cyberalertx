@@ -163,3 +163,13 @@ def rack_unit(doc: Doc, x: float, y: float, w: float, h: float, *, kind: str = "
             doc.rect(bx + i * (w * 0.1), y + 5, w * 0.085, h - 10, "#20252C", 2, stroke="#0E1014", sw=1)
         doc.circle(x + w - 34, y + h / 2 - 4, 3, led)
         doc.circle(x + w - 34, y + h / 2 + 5, 3, "#3A404A")
+
+
+def headline_main(text: str) -> str:
+    """The headline's main clause, recovered from `brief.text` (which starts
+    with the main clause followed by the full headline). Scenes read headline
+    figures from here and nothing deeper in the sources."""
+    for k in range(8, min(len(text), 400)):
+        if text[k] == " " and text[k + 1:].startswith(text[:k]):
+            return text[:k]
+    return text[:160]

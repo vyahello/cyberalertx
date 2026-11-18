@@ -1,17 +1,18 @@
-"""GPU cryptomining hidden by a tampered monitoring library: a graphics card
-seated in a server board, fans spinning and heat rising off the fin stack,
-while the monitoring terminal (which reads the card through a modified
-NVML-style library) reports it idle.
+"""GPU cryptomining hidden by a tampered library: a graphics card seated in a
+server board, heat rising off the fin stack, and in front of it a large
+conceptual load gauge with two needles: the reading the tampered library
+reports (low, pale) and the card's real load (pinned high, red, ghosted).
 
-Generic card design: no vendor logo, no product name on the shroud. The
-library name appears only as a filename in the terminal."""
+The gauge is a visibly conceptual instrument (no numbers, no tool name, no
+command output): the sources state only that the malware alters GPU usage
+readings. Generic card design: no vendor logo, no product name."""
 from __future__ import annotations
 
 import math
 import random
 
 from ..brief import EditorialBrief
-from ..kit import H, W, Box, Doc, f, window
+from ..kit import H, W, Box, Doc, f
 from . import scene
 
 
@@ -130,55 +131,76 @@ def _heat(doc: Doc, x0: float, x1: float, y: float, danger: str, rng: random.Ran
     doc.path("".join(d), stroke=danger, sw=2.5, opacity=0.5)
 
 
+def _gauge(doc: Doc, cx: float, cy: float, r: float, safe: str, danger: str, label: str) -> None:
+    """Analog load gauge: bezel, face, zone arcs, two needles."""
+    a0, a1 = math.radians(215), math.radians(-35)        # sweep, clockwise from lower-left
+
+    def at(t: float, rr: float) -> tuple[float, float]:
+        a = a0 + (a1 - a0) * t
+        return cx + rr * math.cos(a), cy - rr * math.sin(a)
+
+    def arc(t0: float, t1: float, rr: float) -> str:
+        (x0, y0), (x1, y1) = at(t0, rr), at(t1, rr)
+        large = 1 if abs(t1 - t0) * 250 > 180 else 0
+        return f"M{f(x0)} {f(y0)}A{f(rr)} {f(rr)} 0 {large} 1 {f(x1)} {f(y1)}"
+
+    doc.circle(cx + 14, cy + 34, r + 10, "#000", opacity=0.55)
+    doc.add(f'<circle cx="{f(cx + 14)}" cy="{f(cy + 40)}" r="{f(r + 16)}" fill="#000" opacity="0.5" '
+            f'filter="{doc.blur(26)}"/>')
+    doc.circle(cx, cy, r + 22, doc.lin([(0, "#D7DEDA", 1), (0.5, "#7C8782", 1), (1, "#2C3330", 1)], 0, 0, 0.6, 1))
+    doc.circle(cx, cy, r + 8, doc.lin([(0, "#202824", 1), (1, "#4A544F", 1)], 0, 0, 0.4, 1))
+    doc.circle(cx, cy, r, doc.rad([(0, "#18241E", 1), (1, "#0A100D", 1)], 0.45, 0.35, 0.75))
+    # zones
+    doc.path(arc(0.0, 0.32, r * 0.80), stroke=safe, sw=r * 0.07, cap="butt", opacity=0.85)
+    doc.path(arc(0.70, 1.0, r * 0.80), stroke=danger, sw=r * 0.07, cap="butt", opacity=0.9)
+    # ticks
+    d = ""
+    for k in range(41):
+        t = k / 40
+        big = k % 5 == 0
+        (x0, y0), (x1, y1) = at(t, r * 0.90), at(t, r * (0.74 if big else 0.84))
+        d += f"M{f(x0)} {f(y0)}L{f(x1)} {f(y1)}"
+    doc.path(d, stroke="#DCE7E1", sw=3, opacity=0.75)
+    doc.text(label, cx, cy + r * 0.52, r * 0.24, "#DCE7E1", "display", anchor="middle", opacity=0.92)
+    # real load: pinned high, red, ghosted with a glow
+    tx, ty = at(0.94, r * 0.78)
+    doc.path(f"M{f(cx)} {f(cy)}L{f(tx)} {f(ty)}", stroke=danger, sw=16, opacity=0.35,
+             extra=f' filter="{doc.blur(8)}"')
+    doc.path(f"M{f(cx)} {f(cy)}L{f(tx)} {f(ty)}", stroke=danger, sw=10, opacity=0.95, dash="22 9", cap="butt")
+    # reported load: low, pale, solid
+    rx, ry = at(0.08, r * 0.80)
+    bx, by = at(0.58, r * 0.10)
+    doc.path(f"M{f(bx)} {f(by)}L{f(rx)} {f(ry)}", stroke="#000", sw=12, opacity=0.4,
+             extra=f' filter="{doc.blur(4)}"')
+    doc.path(f"M{f(bx)} {f(by)}L{f(rx)} {f(ry)}", stroke="#F2F6F3", sw=9)
+    doc.circle(cx, cy, r * 0.09, doc.lin([(0, "#E8EEEA", 1), (1, "#7C8782", 1)]))
+    doc.circle(cx, cy, r * 0.035, "#1A211D")
+    # glass reflection
+    doc.path(f"M{f(cx - r * 0.8)} {f(cy - r * 0.2)}A{f(r * 0.85)} {f(r * 0.85)} 0 0 1 {f(cx + r * 0.3)} "
+             f"{f(cy - r * 0.8)}A{f(r * 1.1)} {f(r * 1.1)} 0 0 0 {f(cx - r * 0.8)} {f(cy - r * 0.2)}Z",
+             fill="#FFFFFF", opacity=0.06)
+
+
 @scene("gpu_cryptominer")
 def gpu_cryptominer(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
     doc.rect(0, 0, W, H, doc.lin([(0, p.bg1, 1), (1, p.bg0, 1)], 0, 0, 0.3, 1))
     doc.rect(0, 0, W, H, doc.rad([(0, "#FFFFFF", 0.07), (1, "#FFFFFF", 0)], 0.3, 0.35, 0.6))
-    _board(doc, 690, rng)
-    # PCIe slot on the board
-    doc.rect(150, 676, 600, 30, "#121416", 4)
-    doc.rect(150, 676, 600, 6, "#2A2F33", 3)
-    doc.rect(752, 670, 26, 40, "#22262A", 3)
-
-    x0, y0, L, Hc = 132, 330, 860, 362
+    _board(doc, 740, rng)
+    x0, y0, L, Hc = 120, 380, 900, 362
+    sx0, sw = x0 + 18, 610
+    doc.rect(sx0, 726, sw, 30, "#121416", 4)
     s = _card(doc, x0, y0, L, Hc, p.danger, rng)
-    # slot body in front of the gold fingers (the card is seated)
-    doc.rect(150, 690, 600, 34, doc.lin([(0, "#1A1D20", 1), (1, "#0D0F11", 1)]), 3)
-    doc.rect(150, 690, 600, 3, "#30363B", 1)
+    doc.rect(sx0, 740, sw, 34, doc.lin([(0, "#1A1D20", 1), (1, "#0D0F11", 1)]), 3)
+    doc.rect(sx0, 740, sw, 3, "#30363B", 1)
+    # the card is working hard: red heat inside the fans and off the fin stack
+    r = min(s.h * 0.39, s.w * 0.17)
+    for fxc in (s.x + s.w * 0.29, s.x + s.w * 0.69):
+        doc.circle(fxc, s.cy + 4, r, doc.rad([(0, p.danger, 0.55), (0.6, p.danger, 0.18), (1, p.danger, 0)]))
     _heat(doc, x0 + 40, x0 + L - 80, y0 - 26, p.danger, rng)
-    # actual load: a full bar, no figure (the sources state none)
-    lx, ly = x0 + 40, 92
-    doc.text("GPU load", lx, ly, 18, p.muted, "ui_bold")
-    doc.rect(lx, ly + 14, 380, 22, "#1E2A24", 5)
-    doc.rect(lx, ly + 14, 380, 22, p.danger, 5)
-    doc.text("mining", lx + 396, ly + 32, 18, p.danger, "mono_bold")
-
-    # monitoring terminal: the tampered library reports idle
-    win = Box(1030, 170, 520, 380)
-    body = window(doc, win, title="root@gpu-node-03: ~", surface="#0C1310", chrome="#16211B")
-    tx, ty = body.x + 26, body.y + 44
-    doc.text("$ gpu-monitor --query", tx, ty, 18, "#C9D8CF", "mono")
-    doc.text("GPU 0", tx, ty + 46, 18, "#8FA59A", "mono")
-    doc.text("utilisation", tx, ty + 84, 18, "#8FA59A", "mono")
-    hb = Box(tx + 190, ty + 52, 150, 58)
-    doc.rect(hb.x, hb.y, hb.w, hb.h, p.danger, 6, opacity=0.14)
-    doc.rect(hb.x, hb.y, hb.w, hb.h, "none", 6, stroke=p.danger, sw=2.5)
-    doc.text("0%", hb.x + 20, hb.y + 44, 40, "#FFFFFF", "mono_bold")
-    doc.text("state", tx, ty + 132, 18, "#8FA59A", "mono")
-    doc.text("idle", tx + 190, ty + 132, 18, "#C9D8CF", "mono")
-    doc.text("processes", tx, ty + 168, 18, "#8FA59A", "mono")
-    doc.text("none found", tx + 190, ty + 168, 18, "#C9D8CF", "mono")
-    doc.line((tx, ty + 196), (body.r - 26, ty + 196), "#24352C", 1.5)
-    doc.text("via libnvidia-ml.so.1", tx, ty + 232, 17, "#8FA59A", "mono")
-    doc.text("modified", tx + 270, ty + 232, 17, p.danger, "mono_bold")
-    doc.text("$", tx, ty + 274, 18, "#C9D8CF", "mono")
-    doc.rect(tx + 18, ty + 258, 11, 20, "#C9D8CF")
-
-    # the contradiction: the card it describes
-    doc.path(f"M{f(s.r - 30)} {f(s.y + 40)}C{f(s.r + 10)} {f(s.y - 10)} {f(win.x - 40)} {f(hb.cy)} "
-             f"{f(win.x + 4)} {f(hb.cy)}", stroke=p.danger, sw=2.5, dash="8 7")
-    doc.circle(s.r - 30, s.y + 40, 6, p.danger)
-
+    name = next((e for e in brief.entities if e.upper() == "SANSAR"), "")
+    if name:
+        doc.text(name, 130, 150, 64, p.ink, "display", tracking=4)
+    _gauge(doc, 1160, 380, 280, p.safe, p.danger, "GPU")
     doc.rect(0, 0, W, H, doc.rad([(0.55, "#000", 0), (1, "#000", 0.5)], 0.45, 0.5, 0.78))
-    doc.focus = Box(120, 120, 1440, 810)
+    doc.focus = Box(110, 40, 1400, 788)

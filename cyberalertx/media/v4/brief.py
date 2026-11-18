@@ -42,14 +42,16 @@ class SceneSpec:
     alt_ua: str = ""
     #: The scene needs this pattern somewhere in the texts to qualify at all.
     requires: str = ""
+    #: The scene never applies when this matches: another scene owns that subject.
+    excludes: str = ""
 
 
 def _s(id: str, pats: list[tuple[str, float]], palette: str, subject: str, action: str, environment: str,
        mechanism: str, alt_en: str, alt_ua: str, *, supporting: tuple[str, ...] = (),
-       exclude: tuple[str, ...] = (), requires: str = "") -> SceneSpec:
+       exclude: tuple[str, ...] = (), requires: str = "", excludes: str = "") -> SceneSpec:
     return SceneSpec(id, tuple(pats), palette, subject, action, environment, mechanism, supporting,
                      ("generic cubes", "glowing orbs", "hooded hackers", "brand logos") + exclude, alt_en, alt_ua,
-                     requires)
+                     requires, excludes)
 
 
 # Order matters only for ties: more specific scenes first.
@@ -57,226 +59,232 @@ CATALOGUE: tuple[SceneSpec, ...] = (
     _s("weekly_recap", [(r"weekly recap|week in review|тижнев\w* (огляд|дайджест)|дайджест", 9)], "midnight",
        "several unrelated products, each with its own new flaw", "a roundup of the week's vulnerabilities",
        "a board of product tiles", "one marker per product named in the roundup",
-       "Illustration: a board of product tiles (a remote-management console, an operating-system window, a "
-       "browser and a smart fridge), each flagged with a new vulnerability.",
-       "Ілюстрація: дошка з плитками продуктів (консоль віддаленого керування, вікно ОС, браузер і розумний "
-       "холодильник), на кожній позначено нову вразливість."),
+       "Illustration: a lightning bolt splitting four product tiles, each flagged with a new vulnerability.",
+       "Ілюстрація: блискавка між чотирма плитками продуктів, на кожній позначено нову вразливість."),
     _s("hpc_hall", [(r"supercomput|суперкомп|супер-?ПК|\bHPC\b|Fugaku|Фугаку|top500", 6)], "midnight",
        "a national supercomputer installation", "unauthorised access and stolen user accounts",
        "a high-performance computing machine hall", "account compromise (no technical detail published)",
-       "Illustration: rows of supercomputer racks in a machine hall, with a list of user accounts marked as "
-       "compromised.",
-       "Ілюстрація: ряди стійок суперкомп'ютера в машинному залі та перелік облікових записів, позначених як "
-       "скомпрометовані.", supporting=("account list", "count from the headline")),
+       "Illustration: a supercomputer machine hall, with the figure the story reports set beside it.",
+       "Ілюстрація: машинний зал суперкомп'ютера з цифрою, яку наводить новина.", supporting=("account list", "count from the headline")),
     _s("ci_pinning", [(r"SHA pinning|pinn(ed|ing) (to|actions)|GitHub Actions?|\.github/workflows|"
                        r"CI/CD|workflow file", 6), (r"GitHub", 2)], "paper",
        "a GitHub Actions workflow and its dependency references",
        "a malicious commit passed off as a trusted action", "a CI/CD workflow file and commit graph",
        "mutable tag vs immutable commit SHA; an impostor commit reachable by reference",
-       "Illustration: a CI workflow file in which a version tag resolves to an impostor commit, beside the same "
-       "dependency pinned to a full commit SHA.",
-       "Ілюстрація: файл CI-процесу, де тег версії вказує на підроблений коміт, поруч та сама залежність, "
-       "закріплена повним SHA коміту."),
+       "Illustration: a version tag that can be moved, and a pinned commit that still points at look-alike "
+       "code instead of the official action.",
+       "Ілюстрація: тег версії, який можна перемістити, і закріплений коміт, що все одно вказує на код-"
+       "підробку замість офіційної дії."),
     _s("session_theft", [(r"session|токен|token|cookie|AiTM|adversary-in-the-middle|\bM365\b|Microsoft 365|"
                           r"Office 365|\bOAuth\b", 5), (r"phishing kit|фішинг", 3)], "glacier",
        "a cloud office sign-in page cloned by a phishing kit",
        "the victim's session token is captured and replayed", "a browser sign-in flow",
        "adversary-in-the-middle proxy relays the login and keeps the session token",
-       "Illustration: a look-alike sign-in page relays the victim's login to the real service while a proxy "
-       "copies the session token, which is then replayed from another browser.",
-       "Ілюстрація: підроблена сторінка входу передає логін жертви справжньому сервісу, а проксі копіює "
-       "токен сесії, який потім використовують з іншого браузера.",
+       "Illustration: a sign-in passes through a phishing kit's relay to the real service, while a copy of "
+       "the session token is replayed by the attacker.",
+       "Ілюстрація: вхід проходить через ретранслятор фішингового набору до справжнього сервісу, а копію "
+       "токена сесії зловмисник використовує повторно.",
        exclude=("real Microsoft logos or interface",)),
     _s("rmm_console", [(r"N-central|N-able|\bRMM\b|remote monitoring|remote management|ScreenConnect|"
                         r"ConnectWise|Kaseya|SimpleHelp|віддален\w* (керуван|адміністр)|endpoint management|\bUEM\b", 7)], "midnight",
        "a remote monitoring and management console and its fleet of endpoints",
        "attackers abuse the management platform to push their own payload to managed machines",
        "an MSP's management console", "flaws in the management server; payload deployed through it",
-       "Illustration: a remote-management console pushes a task to a fleet of managed computers, several of which "
-       "now run an unwanted process at full load.",
-       "Ілюстрація: консоль віддаленого керування розсилає завдання на парк комп'ютерів; на кількох уже працює "
-       "небажаний процес із повним навантаженням."),
+       "Illustration: a remote-management control bar with strings to a fleet of managed computers.",
+       "Ілюстрація: панель віддаленого керування, від якої тягнуться нитки до парку керованих комп'ютерів."),
     _s("patch_to_exploit", [(r"fully[- ]automated|повністю автоматизован|autonomous|agentic|AI agents?|"
                              r"ШІ-агент|агентн", 6), (r"\bAI\b|ШІ|штучн", 2),
                             (r"exploit|patch|вразлив|кібератак|attack", 2)], "violet",
        "an automated AI pipeline that turns a published patch into a working exploit",
        "AI agents analyse a fix and generate an exploit without a human operator",
        "a code-review workspace", "patch diffing -> vulnerable function -> generated exploit",
-       "Illustration: a security patch diff on one side, an automated agent pipeline in the middle and the "
-       "generated exploit code on the other.",
-       "Ілюстрація: різниця коду в патчі з одного боку, автоматизований конвеєр ШІ-агентів посередині та "
-       "згенерований експлойт з іншого.", requires=r"\bAI\b|ШІ|штучн|agent"),
+       "Illustration: a software fix projected into the teeth of a key: automated agents turning a patch "
+       "into an exploit.",
+       "Ілюстрація: виправлення коду проєктується на зубці ключа: автоматизовані агенти перетворюють патч на"
+       " експлойт.", requires=r"\bAI\b|ШІ|штучн|agent"),
     _s("disclosure_deadline", [(r"disclosure (deadline|policy|window)|Project Zero|розкритт", 7)], "paper",
        "a vulnerability disclosure timeline", "the time vendors get to ship a fix is being shortened",
        "a bug-tracker timeline", "report -> fix deadline -> public disclosure",
-       "Illustration: a vulnerability report on a timeline whose deadline marker moves earlier.",
-       "Ілюстрація: звіт про вразливість на шкалі часу, де позначку крайнього терміну зсунуто раніше."),
+       "Illustration: a tape measure starting at a bug, cut short by scissors: the disclosure deadline gets "
+       "shorter.",
+       "Ілюстрація: рулетка, що починається від «жука», укорочена ножицями: строк розкриття скорочується."),
     _s("ai_offensive_tool", [(r"ARTEX|Artex|AI-powered (cyber)?attack|ШІ-інструмент|AI tool", 7),
                              (r"cloud|хмар", 1)], "violet",
        "an AI-driven offensive tool", "a tool built for defence is run against real targets",
        "an operator console", "automated reconnaissance and intrusion steps",
-       "Illustration: an AI-driven security tool's task list runs reconnaissance and intrusion steps against a "
-       "company's cloud tenant.",
-       "Ілюстрація: список завдань ШІ-інструмента безпеки виконує розвідку та проникнення в хмарне середовище "
-       "компанії."),
+       "Illustration: a security-testing tool's sights swung from a practice target onto a real target.",
+       "Ілюстрація: приціл інструмента для тестування безпеки, переведений з навчальної мішені на справжню "
+       "ціль."),
     _s("refrigeration_controller", [(r"refrigerat|холодильн\w* (контролер|обладнан)|Danfoss|cold room|"
                                      r"temperature controller|холодильн\w* систем", 8)], "glacier",
        "a commercial refrigeration controller", "remote takeover of the controller without a login",
        "a refrigerated display case and its controller", "unauthenticated network access to the controller",
-       "Illustration: a refrigeration controller on a cold-room panel, its network port reachable without a "
-       "login and its set point open to change.",
-       "Ілюстрація: контролер холодильної установки на панелі камери; мережевий порт доступний без входу, "
-       "а задану температуру можна змінити."),
+       "Illustration: a refrigeration controller on a cold-room wall, its cable fitted with an open padlock.",
+       "Ілюстрація: контролер холодильної камери на стіні, на його кабелі — відкритий замок."),
     _s("ics_controller", [(r"Siemens|SIMATIC|\bPLC\b|SCADA|\bICS\b|\bOT\b|industrial|промислов|Schneider|"
                            r"Rockwell|Mitsubishi Electric|ABB\b|HMI\b", 6)], "steel",
        "industrial control hardware and engineering software", "security advisory for industrial products",
        "a control cabinet", "advisory-level vulnerabilities in engineering software and controllers",
-       "Illustration: an industrial control cabinet with PLC modules on a DIN rail, linked to an engineering "
-       "workstation that is flagged by a security advisory.",
-       "Ілюстрація: промислова шафа керування з модулями ПЛК на DIN-рейці, пов'язана з інженерною станцією, "
-       "щодо якої оприлюднено попередження безпеки."),
+       "Illustration: industrial controller hardware on a DIN rail, with the advisory's identifier.",
+       "Ілюстрація: промисловий контролер на DIN-рейці з ідентифікатором бюлетеня безпеки."),
     _s("court_case", [(r"\bcourt\b|charges?\b|pleads?|pleaded|guilty|sentenc\w*|extradit\w*|prison|convicted|"
                        r"indict\w*|acquit\w*|clears?\b|arrest\w*|\bсуд\w*|визнав провину|вирок|екстрадиц\w*|"
                        r"арешт\w*|ув'язнен", 8)], "court",
        "a criminal case against an alleged cybercriminal", "the case reaches a court decision",
        "a court docket", "legal proceedings (no technical detail)",
-       "Illustration: a court case file and docket with the key figures of the case.",
-       "Ілюстрація: матеріали судової справи з ключовими цифрами провадження."),
-    _s("deepfake_call", [(r"deepfake|діпфейк|deep-fake|video calls?|відеодзвін", 8)], "violet",
+       "Illustration: the court case's outcome with its key figure, as reported.",
+       "Ілюстрація: рішення в судовій справі з ключовою цифрою, як повідомляється."),
+    _s("police_takedown", [(r"\btake[sn]? down\b|takedown of|dismantl\w*|\bseiz\w*|Operation Endgame|Europol|"
+                            r"ліквідува\w*|вилучи\w* сервер", 8), (r"servers?|infrastructure|domains?|інфраструктур", 2)],
+       "steel", "criminal infrastructure taken offline by law enforcement",
+       "police seize or dismantle the servers and domains behind a malware operation",
+       "a seized server and its domains", "law-enforcement action (what was seized, only as reported)",
+       "Illustration: a darkened server rack taped off as seized, with evidence tags naming what was taken "
+       "down.",
+       "Ілюстрація: вимкнена серверна стійка, обгороджена стрічкою «вилучено», з бирками того, що "
+       "ліквідовано.",
+       requires=r"police|law enforcement|Europol|FBI|Endgame|поліці|правоохорон|operation"),
+    _s("crypto_theft", [(r"stole .{0,40}crypto|crypto(currency)? (heist|theft)|stolen from (Binance|Bybit|Coinbase|"
+                         r"an? (crypto )?exchange)|вкрадені з|викрав .{0,40}крипто|drain(ed|er)", 7),
+                        (r"\$\s?\d|\d+[,.]?\d* ?(million|млн)", 2)], "midnight",
+       "cryptocurrency taken from its owner", "funds move out of a wallet or exchange",
+       "a wallet or exchange balance", "theft of cryptocurrency (amount only as reported)",
+       "Illustration: the reported stolen amount set in large hollow figures that are draining empty.",
+       "Ілюстрація: заявлена викрадена сума великими порожнистими цифрами, з яких витікає вміст.",
+       requires=r"crypto|bitcoin|ethereum|binance|bybit|wallet|крипто|гаманц|блокчейн",
+       # a court decision or a deepfake method is the story's subject, not the theft
+       excludes=r"\bcourt\b|charges|acquit\w*|plead\w*|sentenc\w*|convicted|\bсуд\w*|deepfake|діпфейк"),
+    _s("payment_skimmer", [(r"skimm\w*|checkout pages?|payment card (details|data)|card details|Magecart|"
+                            r"платіжн\w* карт", 8)], "glacier",
+       "a website checkout page with a card skimmer", "card details are copied as customers pay",
+       "an online checkout", "script on the checkout page copies card data (only as reported)",
+       "Illustration: an online checkout form peeled back to reveal a hidden copy of its card fields.",
+       "Ілюстрація: форма оплати на сайті, під загнутим кутом якої — прихована копія полів картки."),
+    _s("deepfake_call", [(r"deepfake|діпфейк|deep-fake|video calls?|відеодзвін", 20)], "violet",
        "a video call with a synthetic participant", "victims are deceived by deepfaked video calls",
        "a video-conferencing window", "real-time face synthesis on a call",
-       "Illustration: a video call in which one participant's face is a synthetic mesh, while a transfer is "
-       "being approved.",
-       "Ілюстрація: відеодзвінок, у якому обличчя одного з учасників — синтетична сітка, а тим часом "
-       "погоджується переказ."),
+       "Illustration: a video call whose participant wears a mask over a synthetic face.",
+       "Ілюстрація: відеодзвінок, учасник якого носить маску поверх синтетичного обличчя."),
     _s("third_party_script", [(r"supply[- ]chain attack infects|Optimizely|third-party (script|tag)|"
                                r"(JavaScript|JS) (library|tag)|Magecart|skimmer|CDN", 8)], "midnight",
        "a shared third-party script loaded by many websites",
        "a tampered script is served to every site that includes it",
        "websites loading one third-party tag", "supply-chain compromise of a hosted script",
-       "Illustration: one tampered third-party script file feeding several company websites at once.",
-       "Ілюстрація: один змінений сторонній скрипт одночасно потрапляє на кілька сайтів компаній."),
+       "Illustration: one tampered script file threaded to many websites at once.",
+       "Ілюстрація: один змінений файл скрипту, пов'язаний одночасно з багатьма сайтами."),
     _s("compromised_sites", [(r"sites? .*(hacked|compromised)|сайти .*зламали|watering[- ]hole|"
                               r"websites? (hacked|compromised)", 8), (r"iPhone|iOS|crypto|криптовалют", 2)],
        "midnight", "legitimate company websites altered to attack their visitors",
        "visitors are served wallet-draining scripts and iPhone exploits", "several trusted websites",
        "injected scripts on compromised sites",
-       "Illustration: familiar-looking company websites with an injected script, serving a wallet drainer to a "
-       "desktop visitor and an exploit to an iPhone.",
-       "Ілюстрація: сайти відомих компаній із вбудованим шкідливим скриптом, що атакує гаманець відвідувача "
-       "комп'ютера та iPhone."),
+       "Illustration: a row of company websites carrying the same injected element, and a phone showing a "
+       "warning.",
+       "Ілюстрація: ряд сайтів компаній з однаковим вбудованим елементом і телефон із попередженням."),
     _s("usb_worm", [(r"\bUSB\b|worm|хробак|черв'?як|Retadup|removable", 7)], "forest",
        "a USB worm spreading between computers", "the worm copies itself through removable drives",
        "an office desk", "removable-media propagation, then a second-stage loader",
-       "Illustration: an infected USB drive in a laptop, with the worm's copies travelling to other drives and "
-       "machines.",
-       "Ілюстрація: заражена USB-флешка в ноутбуці, копії хробака переходять на інші накопичувачі та "
-       "комп'ютери."),
+       "Illustration: a USB flash drive with a trail of copies of itself.",
+       "Ілюстрація: USB-флешка зі слідом власних копій."),
     _s("gpu_cryptominer", [(r"\bGPU\b|NVIDIA|graphics card|відеокарт", 7), (r"cryptomin|miner|майнер", 2)],
        "forest", "a GPU hijacked for cryptomining", "a modified driver library hides the GPU load",
        "a Linux server with a graphics card", "tampered monitoring library reports idle while the GPU is maxed",
-       "Illustration: a graphics card running at full load while the monitoring terminal reports it idle.",
-       "Ілюстрація: відеокарта працює на повну потужність, а термінал моніторингу показує, що вона "
-       "простоює.", requires=r"\bGPU\b|NVIDIA|graphics card|відеокарт"),
+       "Illustration: a hot graphics card beside a gauge whose reported reading is low while the real load "
+       "is pinned high.",
+       "Ілюстрація: гаряча відеокарта поруч зі шкалою: показане навантаження низьке, а справжнє — "
+       "максимальне.", requires=r"\bGPU\b|NVIDIA|graphics card|відеокарт"),
     _s("kernel_dos", [(r"crash|denial[- ]of[- ]service|\bDoS\b|kernel panic|NoisyTCP|TCP", 6),
                       (r"Linux", 2)], "midnight",
        "Linux servers and their network stack", "crafted network traffic crashes the server",
        "a server console", "malformed TCP traffic triggering a kernel failure",
-       "Illustration: a stream of crafted network packets reaching a Linux server whose console shows a "
-       "kernel failure.",
-       "Ілюстрація: потік спеціально сформованих мережевих пакетів досягає Linux-сервера, консоль якого "
-       "показує збій ядра."),
+       "Illustration: a server knocked over by a noisy stream of network traffic.",
+       "Ілюстрація: сервер, перекинутий шумним потоком мережевого трафіку."),
     _s("irc_injection", [(r"\bIRC\b|UnrealIRCd", 8), (r"command injection", 3)], "midnight",
        "an IRC server", "a crafted message makes the server run attacker commands",
        "a chat server and its shell", "command injection through the IRC daemon",
-       "Illustration: an IRC channel window where a crafted message becomes a command running in the server's "
-       "shell.",
-       "Ілюстрація: вікно IRC-каналу, де спеціально сформоване повідомлення перетворюється на команду в "
-       "оболонці сервера."),
+       "Illustration: a chat message broken at a delimiter that is not neutralised, the broken-off command "
+       "falling into a server.",
+       "Ілюстрація: повідомлення в чаті, розірване на неекранованому роздільнику; відламана команда падає в "
+       "сервер."),
     _s("edge_wiper", [(r"gateways?|firewall|Check Point|FortiGate|Fortinet|Palo Alto|Ivanti|Citrix|"
                        r"VPN appliance|шлюз", 6), (r"wiper|ESXi|вайпер", 4)], "ember",
        "a network security gateway", "attackers break in through the gateway and wipe virtual machines",
        "a server room edge", "edge-device exploit -> hypervisor -> destructive wiper",
-       "Illustration: a rack-mounted security gateway with an intrusion path leading to a virtualisation host "
-       "whose virtual machines are being wiped.",
-       "Ілюстрація: стійковий шлюз безпеки, від якого шлях атаки веде до хоста віртуалізації, де стираються "
-       "віртуальні машини."),
+       "Illustration: a security gateway with a lit crack, leading to a virtualisation host whose layers "
+       "break apart.",
+       "Ілюстрація: шлюз безпеки з тріщиною, від якої шлях веде до хоста віртуалізації, що розпадається."),
     _s("code_signing", [(r"code[- ]signing|signing (server|certificate|key)|підпис\w* код", 7),
                         (r"Log4Shell|Log4j|vCenter", 3)], "ember",
        "a code-signing server and its certificate", "attackers reach the signing infrastructure",
        "a build and signing environment", "exploited server -> signing server -> trusted certificate exposed",
-       "Illustration: an intrusion path from an exploited server to a code-signing server, whose certificate "
-       "is lifted out.",
-       "Ілюстрація: шлях вторгнення від зламаного сервера до сервера підпису коду, звідки забирають "
-       "сертифікат."),
+       "Illustration: a cracked code-signing seal at the end of an intrusion path.",
+       "Ілюстрація: тріснута печатка підпису коду в кінці шляху вторгнення."),
     _s("dev_supply_chain", [(r"API key|stolen key|extension|VS Code|marketplace|\bnpm\b|PyPI|package|"
                              r"розширенн|poisoned update|отруєн\w* оновленн|\b[\w]+-js\b|\bSDK\b", 6), (r"trojaniz|backdoor|троян", 3)],
        "midnight",
        "a developer tool supply chain", "a stolen key leads to a trojanised developer extension",
        "a code editor and extension marketplace", "leaked credential -> publishing access -> malicious update",
-       "Illustration: a leaked API key leads to a code editor extension update that carries a trojan.",
-       "Ілюстрація: викрадений API-ключ веде до оновлення розширення редактора коду з трояном."),
+       "Illustration: a stolen key turned in the lock of a code-editor extension listing marked trojanized; "
+       "its contents are not described.",
+       "Ілюстрація: викрадений ключ у замку сторінки розширення редактора коду з позначкою «троян»; його "
+       "вміст не описано."),
     _s("ransomware_impact", [(r"ransomware|програм\w*-?вимагач|вимагач|encrypt\w* (files|servers)|"
                               r"зашифрува", 7)], "ember",
        "systems encrypted by ransomware", "files and servers are made unavailable",
        "the affected organisation's systems", "encryption of files and servers",
-       "Illustration: a file server whose folders have been encrypted, with a ransom note on screen.",
-       "Ілюстрація: файловий сервер із зашифрованими теками та повідомленням про викуп на екрані."),
+       "Illustration: the affected systems bound in chains and locked with a large padlock.",
+       "Ілюстрація: уражені системи, скуті ланцюгами й замкнені великим замком."),
     _s("telecom", [(r"telecom|телеком|\b5G\b|mobile network|operator|оператор|base station|зв'язку", 6)],
        "midnight", "telecommunications infrastructure", "operators harden the network against disruption",
        "a mobile network site", "network resilience (analysis, no incident)",
-       "Illustration: a mobile network mast and fibre backhaul, drawn as an engineering elevation.",
-       "Ілюстрація: щогла мобільного зв'язку та оптична магістраль у вигляді інженерного креслення."),
+       "Illustration: a mobile network mast against a dusk skyline, with radio waves.",
+       "Ілюстрація: щогла мобільного зв'язку на тлі вечірнього міста з радіохвилями."),
     _s("espionage_backdoor", [(r"backdoors?|\bC2\b|command-and-control|espionage|шпигун|\bAPT\b|"
                                r"government networks|урядов|держустанов|Turla|steal emails from gov", 6),
                               (r"cloud|хмар", 2)], "midnight",
        "a backdoor that hides its command channel in a legitimate cloud service",
        "government networks are infiltrated and controlled through cloud storage",
        "a government network and a public cloud service", "C2 over a legitimate cloud API",
-       "Illustration: a backdoored government workstation exchanging commands with a folder in an ordinary "
-       "cloud storage service.",
-       "Ілюстрація: урядовий комп'ютер із бекдором обмінюється командами через теку у звичайному хмарному "
-       "сховищі."),
+       "Illustration: a government building with a side door open to an ordinary cloud service.",
+       "Ілюстрація: урядова будівля з відчиненими бічними дверима до звичайного хмарного сервісу."),
     _s("cloud_breach", [(r"cloud (provider|breach|tenant|storage|account)|хмарн\w* (провайдер|сервіс)|"
                          r"\bS3\b|bucket|Azure|\bAWS\b|Snowflake", 6)], "glacier",
        "data held by a third-party cloud provider", "records are taken from the provider's environment",
        "a cloud tenant", "third-party / cloud provider compromise",
-       "Illustration: a cloud provider's storage holding a company's records, with a set of records leaving it.",
-       "Ілюстрація: сховище хмарного провайдера з записами компанії, частина записів його залишає."),
+       "Illustration: a key turned in the keyhole of a cloud service.",
+       "Ілюстрація: ключ у замковій щілині хмарного сервісу."),
     _s("breach_notice", [(r"data breach|breach (affect|notif)|notif(y|ies) .*breach|leak|exposed data|"
                           r"personal (data|information)|records|витік|персональн", 5),
                          (r"employees?|drivers?|customers?|patients?|users|людей|клієнт|співробітник", 2)],
        "paper", "personal records exposed in a breach", "the company notifies the affected people",
        "breach notification", "exposure of personal records (scope from the headline)",
-       "Illustration: a breach notification and a stack of personal record cards, with the number of affected "
-       "people.",
-       "Ілюстрація: повідомлення про витік і стос карток із персональними даними та кількість постраждалих."),
+       "Illustration: an envelope of breach notifications with redacted record cards and the number of "
+       "people affected.",
+       "Ілюстрація: конверт із повідомленнями про витік, приховані картки записів і кількість постраждалих."),
     _s("credential_phish", [(r"phish|фішинг", 6), (r"credential|login|password|парол", 2)], "glacier",
        "a phishing page that imitates a sign-in", "victims are lured into handing over their credentials",
        "an email and a look-alike page", "lure -> fake sign-in -> captured credentials",
-       "Illustration: a lure email leading to a look-alike sign-in page that captures the password.",
-       "Ілюстрація: лист-приманка веде на підроблену сторінку входу, що перехоплює пароль."),
+       "Illustration: a sign-in card hanging from a fishing hook, its password highlighted.",
+       "Ілюстрація: картка входу на рибальському гачку з виділеним паролем."),
     _s("mfa_policy", [(r"\bMFA\b|multi-factor|2FA|two-factor|passwords?|passkey|парол|"
                        r"автентифікац|CJIS", 6)], "paper",
        "password and multi-factor authentication requirements", "organisations tighten sign-in requirements",
        "a sign-in with a second factor", "policy guidance (no incident)",
-       "Illustration: a sign-in form with a password policy checklist and an approval request on a phone.",
-       "Ілюстрація: форма входу з переліком вимог до пароля та запитом на підтвердження на телефоні."),
+       "Illustration: a key ring holding a password key and a hardware security key.",
+       "Ілюстрація: зв'язка з ключем-паролем і апаратним ключем безпеки.",
+       excludes=r"phish|фішинг"),
     _s("selfhosted_saas", [(r"self-hosted|SaaS|on-prem|власн\w* (сервер|інструмент)", 7)], "paper",
        "self-hosted infrastructure versus a SaaS subscription", "a business weighs control against convenience",
        "a server cabinet and a cloud service", "comparison (analysis, no incident)",
-       "Illustration: a company's own server cabinet set against a SaaS subscription, with what each side "
-       "controls.",
-       "Ілюстрація: власна серверна шафа компанії поруч із SaaS-підпискою та переліком того, що контролює "
-       "кожна сторона."),
+       "Illustration: a balance weighing a self-hosted server cabinet against a SaaS cloud.",
+       "Ілюстрація: терези, на яких власна серверна шафа зважується проти SaaS-хмари."),
     _s("ai_code_audit", [(r"\b(AI|LLM|model|agent)s?\W+(?:\w+\W+){0,3}(found|finds|discover\w*|spot\w*|"
                           r"audit\w*|hunt\w*|uncover\w*)|vulnerability (discovery|research)|bug[- ]hunting|"
                           r"(ШІ|модель)\W+(?:\w+\W+){0,3}(знайш|виявил|виявив)", 6),
                          (r"vulnerab|вразлив|bug|flaw|code|код", 2)],
        "violet", "AI-assisted analysis of source code", "a model inspects code and flags a weakness",
        "a code-review workspace", "static analysis assisted by a model",
-       "Illustration: source code under automated review, with one function flagged as vulnerable.",
-       "Ілюстрація: вихідний код під автоматизованим аналізом, одну функцію позначено як вразливу.",
+       "Illustration: abstract source code under a scan line, with a magnifying lens over one flagged line.",
+       "Ілюстрація: абстрактний вихідний код під лінією сканування, лупа над однією позначеною рядком.",
        requires=r"\bAI\b|ШІ|LLM|machine learning"),
     _s("vuln_advisory", [(r"vulnerabilit|flaws?|вразлив|CVE-\d{4}-\d+|zero-day|0-day|patch|exploits?\b|"
                           r"cumulative updates?|security updates?|\bKB\d{7}\b", 4),
@@ -286,11 +294,12 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "Illustration: a security advisory for the affected product, listing its identifiers and patch status.",
        "Ілюстрація: бюлетень безпеки для вразливого продукту з ідентифікаторами та статусом виправлення."),
     _s("governance", [(r"не лише питання IT|board|CISO|strategy|стратег|compliance|regulation|NIS2|GDPR|"
-                       r"budget|бюджет|у 20\d\d|in 20\d\d|що потрібно знати", 4)], "paper",
+                       r"budget|бюджет|у 20\d\d році|що потрібно знати", 4)], "paper",
        "how an organisation governs cyber risk", "leaders plan security beyond the IT department",
        "a planning briefing", "analysis (no incident)",
-       "Illustration: a planning document with a risk matrix and responsibilities across departments.",
-       "Ілюстрація: плановий документ із матрицею ризиків і розподілом відповідальності між підрозділами."),
+       "Illustration: three cards on a boardroom table, each with a question about data, detection and "
+       "recovery.",
+       "Ілюстрація: три картки на столі для нарад із запитаннями про дані, виявлення та відновлення."),
 )
 SPECS = {s.id: s for s in CATALOGUE}
 
@@ -305,7 +314,7 @@ _TEXT_WEIGHTS = {"main": 3.0, "title": 2.0, "post": 1.0, "excerpt": 1.0}
 
 # ---------------------------------------------------------------- facts
 
-_NUM = r"(?<![\w$-])(\d{1,3}(?:[ ,. ]\d{3})+|\d+(?:\.\d+)?)"
+_NUM = r"(?<![\w$.,-])(\d{1,3}(?:[ ,. ]\d{3})+|\d+(?:\.\d+)?)"
 #: Scale words after a count ("37.6M records", "1.2 million people", "40 тис. клієнтів").
 _UNIT = r"(?:\s*(M|million|mln|млн\.?|мільйон\w*|K|thousand|тис\.?|тисяч\w*|B|bn|billion|млрд\.?)(?![\w]))?"
 _GAP = r"\s*(?:[^\W\d]+\s+){0,2}"           # up to two words: "customer records", "user accounts"
@@ -314,8 +323,10 @@ _FACT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("people", _NUM + _UNIT + _GAP + r"(?:people|individuals|persons|drivers|employees|customers|patients|users|"
                                     r"людей|осіб|клієнтів|водіїв)"),
     ("records", _NUM + _UNIT + _GAP + r"(?:records|(?<!облікових )записів)"),
-    ("videos", _NUM + r"\s*(?:videos?|відео)"),
-    ("flaws", _NUM + r"\s*(?:\w+\s){0,2}(?:flaws|vulnerabilities|bugs|вразливост\w*)"),
+    ("videos", _NUM + r"\s*(?:[^\W\d]+\s+){0,3}(?:videos?|відео)"),
+    # not a CVSS score ("CVSS 10.0 flaw" is one flaw rated 10.0)
+    ("flaws", r"(?<!cvss )(?<!cvss: )(?<!score of )" + _NUM + r"\s*(?:\w+\s){0,2}(?:flaws|vulnerabilities|bugs|"
+              r"вразливост\w*)"),
     ("years", _NUM + r"\s*(?:years|років|роки)"),
     ("days", _NUM + r"[- ]?(?:days?|днів|дні)"),
 )
@@ -475,6 +486,9 @@ def score_scenes(texts: dict[str, str]) -> list[tuple[float, SceneSpec, list[str
     for spec in CATALOGUE:
         if spec.requires and not re.search(spec.requires, joined, re.I):
             continue
+        # Exclusions read the headline only: that is where the subject is decided.
+        if spec.excludes and re.search(spec.excludes, f"{texts.get('main', '')} {texts.get('title', '')}", re.I):
+            continue
         # The first pattern names the scene's subject; the others only add
         # weight. "Linux" alone must not make a story a kernel crash.
         if spec.patterns and not re.search(spec.patterns[0][0], joined, re.I):
@@ -546,6 +560,16 @@ def build(story: Any) -> EditorialBrief:
 def alt_text(brief: EditorialBrief) -> dict[str, str]:
     spec = SPECS.get(brief.scene, FALLBACK)
     en, ua = spec.alt_en, spec.alt_ua
+    # A scene that draws story-dependent variants describes the one it drew.
+    try:
+        import importlib
+        mod = importlib.import_module(f"{__package__}.scenes.{brief.scene}")
+        hook = getattr(mod, "alt_for", None)
+        got = hook(brief) if hook else None
+    except ImportError:
+        got = None
+    if got:
+        en, ua = got
     if brief.library_id:
         a = library.get(brief.library_id)
         if a is not None:

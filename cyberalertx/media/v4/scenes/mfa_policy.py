@@ -1,113 +1,142 @@
-"""Password and MFA requirements (guidance, no incident): a sign-in form with
-the password policy it is checked against, and the second factor arriving
-as an approval request on a phone. When the story names a policy framework
-(e.g. CJIS) the policy document sits behind the form; when the story is about
-a default password, the same form shows the failing checks instead."""
+"""Password and MFA requirements: two factors as two objects on one key ring.
+A brass key with a masked password engraved on its bow (something you know)
+hangs beside a hardware security key (something you have), on a paper desk
+under a soft key light.
+
+Variants from the sources only: a named policy framework (CJIS, NIST...) or
+the story's product name is set as the headline label; when the story says
+tokens or 2FA were rotated / reset, a pair of reset arrows circles the ring;
+when it is about a default password (the stated `admin:admin` or a blank
+password), the second key is missing (an empty hook) and the password key
+carries a tag with the stated credential in the danger colour. No clause
+numbers, no sign-in screens, no invented fields."""
 from __future__ import annotations
 
+import math
 import random
 import re
 
 from .. import type as T
 from ..brief import EditorialBrief
-from ..kit import Box, Doc, arrow, background, icon, vignette, window
+from ..kit import Box, Doc, background, f, vignette
 from . import scene
-from ._editorial import grid, phone
+from ._editorial import fit_size, primary_product
 
 
-def _field(doc: Doc, x: float, y: float, w: float, label: str, value: str, *, dots: int = 0, col: str = "",
-           active: bool = False) -> None:
-    p = doc.pal
-    doc.text(label, x, y - 12, 16, p.muted, "ui_bold", tracking=1)
-    doc.rect(x, y, w, 52, "#FFFFFF", 8, stroke=col or (p.accent if active else p.line), sw=2.2 if (col or active)
-             else 1.4)
-    if dots:
-        for i in range(dots):
-            doc.circle(x + 24 + i * 19, y + 26, 5.5, p.on_surface)
-    else:
-        doc.text(value, x + 18, y + 34, 20, col or p.on_surface, "mono")
+def _brass_key(doc: Doc, x: float, y: float, rot: float, s: float, label_col: str) -> None:
+    """A key hanging from (x, y) (the bow's hole), rotated by `rot` degrees."""
+    metal = doc.lin([(0, "#F3D98B", 1), (0.45, "#C99A3A", 1), (1, "#8A6420", 1)], 0, 0, 1, 0.3)
+    with doc.g(f"translate({f(x + 18)} {f(y + 30)}) rotate({f(rot)})", opacity=0.22):
+        _key_shape(doc, s, "#000", blur=True)
+    with doc.g(f"translate({f(x)} {f(y)}) rotate({f(rot)})"):
+        _key_shape(doc, s, metal)
+        # engraved masked password on the bow
+        for k in range(4):
+            doc.circle(-45 * s + k * 30 * s, 120 * s, 10 * s, "#6E4E14", opacity=0.85)
+            doc.circle(-45 * s + k * 30 * s + 1.5, 120 * s + 2, 10 * s, "#FFF2C4", opacity=0.35)
+        doc.path(f"M{f(-80 * s)} {f(60 * s)}A{f(95 * s)} {f(95 * s)} 0 0 1 {f(60 * s)} {f(40 * s)}",
+                 stroke="#FFF6D6", sw=5 * s, opacity=0.6)
+
+
+def _key_shape(doc: Doc, s: float, fill: str, blur: bool = False) -> None:
+    ex = f' filter="{doc.blur(10)}"' if blur else ""
+    bow_r = 105 * s
+    cy = 115 * s
+    d = (f"M0 {f(cy - bow_r)}A{f(bow_r)} {f(bow_r)} 0 1 1 {f(-0.1)} {f(cy - bow_r)}Z"
+         f"M0 {f(10 * s)}a{f(16 * s)} {f(16 * s)} 0 1 0 0.1 0Z")
+    doc.path(d, fill=fill, extra=f' fill-rule="evenodd"{ex}')
+    sx, sy, sw, sl = -22 * s, cy + bow_r - 8 * s, 44 * s, 330 * s
+    doc.rect(sx, sy, sw, sl, fill, 6 * s, extra=ex)
+    # bit with teeth on the right
+    tb = sy + sl - 120 * s
+    teeth = (f"M{f(sx + sw)} {f(tb)}h{f(70 * s)}v{f(28 * s)}h{f(-24 * s)}v{f(16 * s)}h{f(24 * s)}v{f(30 * s)}"
+             f"h{f(-36 * s)}v{f(16 * s)}h{f(36 * s)}v{f(30 * s)}H{f(sx + sw)}Z")
+    doc.path(teeth, fill=fill, extra=ex)
+
+
+def _token(doc: Doc, x: float, y: float, rot: float, s: float, accent: str) -> None:
+    """A hardware security key hanging from (x, y) (its lanyard hole)."""
+    w, h = 170 * s, 360 * s
+    with doc.g(f"translate({f(x + 20)} {f(y + 34)}) rotate({f(rot)})", opacity=0.25):
+        doc.rect(-w / 2, -26 * s, w, h, "#000", 34 * s, extra=f' filter="{doc.blur(12)}"')
+    with doc.g(f"translate({f(x)} {f(y)}) rotate({f(rot)})"):
+        # USB-C connector at the bottom
+        doc.rect(-38 * s, h - 40 * s, 76 * s, 86 * s, doc.lin([(0, "#E9EDF1", 1), (0.5, "#9BA4AE", 1),
+                                                                 (1, "#D0D6DC", 1)], 0, 0, 1, 0), 14 * s)
+        doc.rect(-24 * s, h + 10 * s, 48 * s, 18 * s, "#3B4148", 9 * s)
+        body = doc.lin([(0, "#3A3D44", 1), (0.5, "#1C1E23", 1), (1, "#101114", 1)], 0, 0, 1, 0.2)
+        d = (f"M{f(-w / 2)} {f(-26 * s + 34 * s)}a{f(34 * s)} {f(34 * s)} 0 0 1 {f(34 * s)} {f(-34 * s)}"
+             f"h{f(w - 68 * s)}a{f(34 * s)} {f(34 * s)} 0 0 1 {f(34 * s)} {f(34 * s)}V{f(h - 30 * s)}"
+             f"a{f(30 * s)} {f(30 * s)} 0 0 1 {f(-30 * s)} {f(30 * s)}H{f(-w / 2 + 30 * s)}"
+             f"a{f(30 * s)} {f(30 * s)} 0 0 1 {f(-30 * s)} {f(-30 * s)}Z"
+             f"M0 {f(0)}a{f(18 * s)} {f(18 * s)} 0 1 0 0.1 0Z")
+        doc.path(d, fill=body, extra=' fill-rule="evenodd"')
+        doc.rect(-w / 2 + 10 * s, -18 * s, 8 * s, h - 30 * s, "#FFFFFF", 4 * s, opacity=0.10)
+        # gold touch contact
+        cy = h * 0.52
+        doc.circle(0, cy, 52 * s, doc.lin([(0, "#F7DE8E", 1), (1, "#B8892B", 1)], 0, 0, 1, 1))
+        doc.circle(0, cy, 40 * s, "none", "#8A6420", 2.5 * s, 0.6)
+
+
+def _ring(doc: Doc, cx: float, cy: float, r: float) -> None:
+    doc.add(f'<circle cx="{f(cx + 10)}" cy="{f(cy + 22)}" r="{f(r)}" fill="none" stroke="#000" stroke-width="16" '
+            f'opacity="0.18" filter="{doc.blur(7)}"/>')
+    doc.circle(cx, cy, r, "none", "#7E8790", 16)
+    doc.circle(cx, cy, r, "none", "#D9DEE3", 7)
+    doc.path(f"M{f(cx - r * 0.7)} {f(cy - r * 0.7)}A{f(r)} {f(r)} 0 0 1 {f(cx + r * 0.5)} {f(cy - r * 0.86)}",
+             stroke="#FFFFFF", sw=3, opacity=0.8)
 
 
 @scene("mfa_policy")
 def mfa_policy(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
-    background(doc, light=(0.4, 0.15))
-    grid(doc, 40, 0.28)
+    background(doc, light=(0.62, 0.2))
     t = brief.text
     default_pw = bool(re.search(r"default .{0,12}password|admin:admin|blank password", t))
+    reset = bool(re.search(r"rotat\w* .{0,30}(token|secret|key)|2fa resets?|mfa resets?|reset .{0,10}2fa", t))
     framework = next((e for e in brief.entities if e in ("CJIS", "NIST", "PCI", "HIPAA", "NIS2")), "")
+    name = framework or primary_product(brief)[0]
+    if name in ("MFA", "API", "2FA", "SMS"):
+        name = ""
+    factor = "MFA" if re.search(r"\bmfa\b|multi-factor", t) else "2FA" if re.search(r"\b2fa\b|two-factor", t) else ""
 
-    # ---- policy document behind the form
-    if framework:
-        dx, dy = 70, 70
-        with doc.g(transform=f"rotate(-4 {dx + 200} {dy + 300})"):
-            doc.shadow(dx, dy, 400, 560, 4, 0.6)
-            doc.rect(dx, dy, 400, 560, "#FBF8F2", 4)
-            doc.rect(dx, dy, 400, 10, p.accent)
-            doc.text(framework, dx + 36, dy + 96, 64, p.on_surface, "display")
-            doc.text("Security Policy", dx + 40, dy + 134, 22, p.muted, "ui")
-            for i in range(8):
-                y = dy + 190 + i * 40
-                if framework == "CJIS":     # 5.6: identification and authentication policy area
-                    doc.text(f"5.6.{i + 1}", dx + 40, y + 6, 16, p.muted, "mono")
-                doc.rect(dx + 110, y - 4, 230 - (i * 37) % 90, 9, "#D9D1C2", 4)
-
-    # ---- sign-in form with its policy checklist
-    ox = 0 if framework else 150          # centre the pair when there is no policy document
-    win = Box(380 - ox, 120, 640, 690)
-    body = window(doc, win, url="portal.agency.example/sign-in", lock=True, surface="#F6F3EC", chrome="#ECE6DA")
-    card = Box(body.x + 50, body.y + 36, body.w - 100, 300)
-    doc.text("Sign in", card.x, card.y + 40, 38, p.on_surface, "display")
-    user = "admin" if default_pw else "j.doe@agency.example"
-    _field(doc, card.x, card.y + 92, card.w, "USERNAME", user)
+    rx, ry, rr = 1060.0, 150.0, 80.0
+    # keys hang from the bottom of the ring
+    _brass_key(doc, rx - 30, ry + rr - 8, 24, 1.3, p.danger)
     if default_pw:
-        _field(doc, card.x, card.y + 182, card.w, "PASSWORD", "admin", col=p.danger)
+        # the second factor is missing: an empty hook on the ring, a danger tag on the key
+        doc.path(f"M{f(rx + 40)} {f(ry + rr - 12)}c18 30 46 40 54 80", stroke="#7E8790", sw=8, dash="4 14")
+        cred = "admin:admin" if "admin:admin" in t else "blank password" if "blank password" in t else "default"
+        tx, ty = 1150.0, 470.0
+        doc.path(f"M{f(rx + 4)} {f(ry + rr)}L{f(tx)} {f(ty)}", stroke="#5B5348", sw=3)
+        tw = T.measure(cred, 40, "mono_bold") + 70
+        with doc.g(f"rotate(-6 {f(tx)} {f(ty)})"):
+            doc.rect(tx + 6, ty - 34 + 10, tw, 76, "#000", 10, opacity=0.18, extra=f' filter="{doc.blur(6)}"')
+            doc.rect(tx, ty - 34, tw, 76, p.danger, 10)
+            doc.circle(tx + 24, ty + 4, 9, p.bg0)
+            doc.text(cred, tx + 46, ty + 18, 40, "#FFFFFF", "mono_bold")
     else:
-        _field(doc, card.x, card.y + 182, card.w, "PASSWORD", "", dots=14, active=True)
-    btn = Box(card.r - 150, card.y + 252, 150, 50)
-    doc.rect(btn.x, btn.y, btn.w, btn.h, p.accent, 8)
-    doc.text("Continue", btn.cx, btn.y + 32, 19, "#FFFFFF", "ui_bold", anchor="middle")
+        _token(doc, rx + 36, ry + rr - 6, -24, 1.3, p.accent)
+    _ring(doc, rx, ry, rr)
+    if reset:     # tokens / second factors rotated or reset
+        r2 = rr + 62
+        for a0, a1 in ((150, 300), (-30, 120)):
+            x0, y0 = rx + r2 * math.cos(math.radians(a0)), ry + r2 * math.sin(math.radians(a0))
+            x1, y1 = rx + r2 * math.cos(math.radians(a1)), ry + r2 * math.sin(math.radians(a1))
+            doc.path(f"M{f(x0)} {f(y0)}A{f(r2)} {f(r2)} 0 0 1 {f(x1)} {f(y1)}", stroke=p.bg0, sw=20)
+            doc.path(f"M{f(x0)} {f(y0)}A{f(r2)} {f(r2)} 0 0 1 {f(x1)} {f(y1)}", stroke=p.accent, sw=10)
+            ang = math.radians(a1 + 90)
+            doc.poly([(x1 + 30 * math.cos(ang), y1 + 30 * math.sin(ang)),
+                      (x1 + 22 * math.cos(ang + 2.3), y1 + 22 * math.sin(ang + 2.3)),
+                      (x1 + 22 * math.cos(ang - 2.3), y1 + 22 * math.sin(ang - 2.3))], p.accent)
 
-    # checklist
-    cy0 = card.y + 336
-    doc.rect(card.x - 18, cy0 - 14, card.w + 36, 278, "#FFFFFF", 10, stroke=p.line, sw=1.2)
-    doc.text("PASSWORD POLICY", card.x, cy0 + 22, 15, p.muted, "ui_bold", tracking=2.5)
-    if default_pw:
-        checks = [("default credentials changed", False), ("strong password", False),
-                  ("second factor required", False)]
-    else:
-        checks = [("minimum length", True), ("not on breached-password list", True),
-                  ("MFA: privileged accounts", True), ("MFA: standard accounts", True)]
-        if "privileged" not in t:
-            checks[2:] = [("second factor required", True)]
-    for i, (lab, ok) in enumerate(checks):
-        ry = cy0 + 66 + i * 50
-        col = p.safe if ok else p.danger
-        doc.circle(card.x + 14, ry - 7, 14, col, opacity=0.14)
-        icon(doc, "check" if ok else "cross", card.x + 14, ry - 7, 18, col, 2.8)
-        doc.text(T.fit(lab, 21, card.w - 60, "ui"), card.x + 44, ry, 21, p.on_surface, "ui")
-
-    # ---- the second factor on a phone
-    px, py, pw, ph = 1140 - ox, 150, 300, 620
-    sx, sy, sw, sh = phone(doc, px, py, pw, ph, body="#1B1D22", screen="#F4F6F9")
-    doc.text("Sign-in request", sx + sw / 2, sy + 120, 24, p.on_surface, "ui_bold", anchor="middle")
-    doc.circle(sx + sw / 2, sy + 210, 46, p.accent if not default_pw else "#D7DCE3", opacity=0.14 if not default_pw
-               else 1)
-    icon(doc, "key" if not default_pw else "cross", sx + sw / 2, sy + 210, 54,
-         p.accent if not default_pw else p.danger, 2.6)
-    doc.text("portal.agency.example", sx + sw / 2, sy + 296, 16, p.muted, "mono", anchor="middle")
-    if default_pw:
-        doc.text("no prompt sent", sx + sw / 2, sy + 340, 20, p.danger, "ui_bold", anchor="middle")
-    else:
-        doc.text("Is this you?", sx + sw / 2, sy + 340, 20, p.on_surface, "ui", anchor="middle")
-    bw = sw - 56
-    doc.rect(sx + 28, sy + sh - 190, bw, 54, "#FFFFFF", 27, stroke=p.line, sw=1.4)
-    doc.text("Deny", sx + sw / 2, sy + sh - 155, 20, p.on_surface, "ui_bold", anchor="middle")
-    approve = Box(sx + 28, sy + sh - 120, bw, 54)
-    doc.rect(approve.x, approve.y, approve.w, approve.h, p.accent if not default_pw else "#C9CFD8", 27)
-    doc.text("Approve", approve.cx, approve.y + 35, 20, "#FFFFFF", "ui_bold", anchor="middle")
-    # push from the form to the phone
-    arrow(doc, [(btn.r + 16, btn.cy), (1085 - ox, btn.cy), (1085 - ox, sy + 210), (px - 18, sy + 210)],
-          p.accent if not default_pw else p.muted, sw=3, head=14, dash="" if not default_pw else "8 8")
-    doc.focus = Box(330 - ox, 100, 1180, 664)
+    # headline label: what the policy / story is
+    lx = 140
+    if name:
+        size = fit_size(name, 150, 560, "display")
+        doc.text(name, lx, 480, size, p.ink, "display")
+    if factor:
+        doc.text(f"password + {factor}" if not default_pw else "no second factor", lx + 4,
+                 480 + (84 if name else 0), 44, p.danger if default_pw else p.accent, "ui_bold")
     vignette(doc, 0.3)
+    doc.focus = Box(80, 50, 1420, 799)

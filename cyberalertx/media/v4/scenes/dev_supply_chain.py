@@ -1,138 +1,136 @@
-"""Developer-tool supply chain: a publishing key leaks from a supplier, the key
-is used to push an extension update through the marketplace, and every
-editor that auto-updates installs the trojanised build.
+"""Developer-tool supply chain: a stolen access key opens a marketplace to a
+trojanised extension.
 
-Left: the leaked access key, then the marketplace release it authorises.
-Right (hero): a generic code editor that has just updated the extension, with
-the file the update added open. Product names appear only as plain text and
-only when the headline names them; no logos, generic editor chrome."""
+What the sources state (s:69560c1110e62b): an access key Cursor had issued
+to Fireworks was exposed when Fireworks was breached; attackers used the
+stolen credentials to push a malicious Claude Code extension through
+Cursor's extension marketplace; Cursor confirmed a breach. They do not
+describe the extension's code, how it ran, the key's scope or any update
+mechanism, so the extension's contents are drawn redacted and nothing else
+is claimed.
+
+One subject for the feed: the marketplace listing of the extension, large,
+with its contents struck out, and the stolen key itself (a physical key with
+the holder's tag) turned in the listing's publishing lock. Product names are
+plain text and only those the headline names; no logos, no editor UI."""
 from __future__ import annotations
 
 import random
 
 from ..brief import EditorialBrief
 from .. import type as T
-from ..kit import Box, Doc, arrow, background, icon, pill, vignette, window
+from ..kit import Box, Doc, background, f, vignette
 from . import scene
+from ._editorial import fit_size
 
 _ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
 
 
-def _key_card(doc: Doc, b: Box, holder: str, key: str) -> None:
-    """The leaked access key as a credential card (rotated a little)."""
-    p = doc.pal
-    with doc.g(transform=f"rotate(-4 {b.cx:.1f} {b.cy:.1f})"):
-        doc.shadow(b.x, b.y, b.w, b.h, 16, 0.9)
-        doc.rect(b.x, b.y, b.w, b.h, doc.lin([(0, "#26324A", 1), (1, "#141B2B", 1)], 0, 0, 1, 1), 16,
-                 stroke="#3A4865", sw=1.4)
-        doc.rect(b.x, b.y + 58, b.w, 4, p.danger, opacity=0.9)
-        icon(doc, "key", b.x + 40, b.y + 32, 30, p.ink, 2.2)
-        doc.text("ACCESS KEY", b.x + 68, b.y + 39, 17, p.ink, "ui_bold", tracking=1.8)
-        doc.text(key, b.x + 26, b.y + 112, 22, p.ink, "mono_bold")
-        # Only what the sources state: who the key was issued to. Its scope is
-        # not published.
-        if holder:
-            doc.text(f"issued to: {holder}", b.x + 26, b.y + 160, 18, p.muted, "mono")
-        pill(doc, b.r - 20, b.y + 16, "leaked", fg="#FFFFFF", bg=p.danger, size=14, font="ui_bold", anchor="end")
+def _key(doc: Doc, x: float, y: float, s: float, ang: float, holder: str, danger: str) -> None:
+    """A physical key, bow at (x, y), pointing along `ang` degrees; `s` = bow
+    radius. A paper tag on the bow names the holder (as the sources do)."""
+    steel = doc.lin([(0, "#F2F4F7", 1), (0.45, "#AEB6C2", 1), (0.55, "#8A93A1", 1), (1, "#D9DEE5", 1)], 0, 0, 0, 1)
+    L = s * 4.4
+    with doc.g(transform=f"rotate({f(ang)} {f(x)} {f(y)})"):
+        # cast shadow
+        with doc.g(transform="translate(18 26)", opacity=0.5):
+            doc.circle(x, y, s, "#000")
+            doc.rect(x + s * 0.8, y - s * 0.2, L - s * 0.8, s * 0.4, "#000", s * 0.08)
+            doc.add(f'<rect x="{f(x)}" y="{f(y - s)}" width="{f(L)}" height="{f(2 * s)}" fill="none" '
+                    f'filter="{doc.blur(12)}"/>')
+        # shaft and bit (teeth along the lower edge, near the tip)
+        sy, sh = y - s * 0.19, s * 0.38
+        doc.rect(x + s * 0.7, sy, L - s * 0.7, sh, steel, s * 0.05)
+        doc.rect(x + s * 0.7, sy + sh * 0.42, L - s * 0.9, sh * 0.14, "#6B7482", opacity=0.6)
+        tx = x + L - s * 1.7
+        teeth = [0.5, 0.95, 0.65, 1.0, 0.55]
+        d = f"M{f(tx)} {f(sy + sh)}"
+        for i, t in enumerate(teeth):
+            d += f"L{f(tx + i * s * 0.3 + s * 0.06)} {f(sy + sh + s * 0.42 * t)}H{f(tx + i * s * 0.3 + s * 0.22)}" \
+                 f"L{f(tx + (i + 1) * s * 0.3)} {f(sy + sh)}"
+        doc.path(d + "Z", fill=steel)
+        doc.poly([(x + L, sy), (x + L + s * 0.22, sy + sh * 0.5), (x + L, sy + sh)], "#C3C9D2")
+        # collar
+        doc.rect(x + s * 0.78, y - s * 0.32, s * 0.22, s * 0.64, "#C3C9D2", s * 0.04, stroke="#6B7482", sw=2)
+        # the bow: a ring
+        ring = doc.lin([(0, "#FFFFFF", 1), (0.5, "#A6AEBA", 1), (1, "#5F6876", 1)], 0, 0, 1, 1)
+        doc.add(f'<path d="M{f(x - s)} {f(y)}a{f(s)} {f(s)} 0 1 0 {f(2 * s)} 0a{f(s)} {f(s)} 0 1 0 {f(-2 * s)} 0Z'
+                f'M{f(x - s * 0.42)} {f(y)}a{f(s * 0.42)} {f(s * 0.42)} 0 1 1 {f(s * 0.84)} 0'
+                f'a{f(s * 0.42)} {f(s * 0.42)} 0 1 1 {f(-s * 0.84)} 0Z" fill="{ring}" fill-rule="evenodd" '
+                f'stroke="#4E5664" stroke-width="2"/>')
+        doc.path(f"M{f(x - s * 0.8)} {f(y - s * 0.3)}A{f(s * 0.86)} {f(s * 0.86)} 0 0 1 {f(x + s * 0.2)} "
+                 f"{f(y - s * 0.84)}", stroke="#FFFFFF", sw=s * 0.08, opacity=0.7)
+    # the holder's tag hangs from the bow (not rotated: it hangs by gravity)
+    if holder:
+        tx, ty = x - s * 0.55, y + s * 0.25
+        tw, th = max(T.measure(holder, 48, "ui_bold") + 70, 300), 150
+        bx, by = max(70.0, tx - tw * 0.4), ty + s * 1.25
+        doc.path(f"M{f(tx)} {f(ty)}C{f(tx - 10)} {f(ty + 60)} {f(bx + 40)} {f(by - 40)} {f(bx + 34)} {f(by + 26)}",
+                 stroke="#D9CBA8", sw=3)
+        with doc.g(transform=f"rotate(-6 {f(bx)} {f(by)})"):
+            doc.shadow(bx, by, tw, th, 10, 0.6)
+            doc.path(f"M{f(bx + 30)} {f(by)}H{f(bx + tw)}V{f(by + th)}H{f(bx + 30)}L{f(bx)} {f(by + th - 30)}"
+                     f"V{f(by + 30)}Z", fill="#F1E8D2")
+            doc.circle(bx + 34, by + 26, 8, "#0B111C")
+            doc.text("ISSUED TO", bx + 60, by + 52, 22, "#6E6656", "ui_bold", tracking=3)
+            doc.text(holder, bx + 58, by + 112, 48, "#14161B", "ui_bold")
+            doc.rect(bx + 30, by + th - 14, tw - 30, 14, danger, opacity=0.9)
 
 
 @scene("dev_supply_chain")
 def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
-    background(doc, light=(0.6, 0.15))
+    background(doc, light=(0.62, 0.3))
     ents = list(brief.entities)
     text = brief.text or ""
     holder = next((e for e in ents if f"{e.lower()} ai" in text or f"key we had issued to {e.lower()}" in text),
                   ents[0] if len(ents) > 1 else "")
-    ext = "Claude Code" if "Claude" in ents else "AI Assistant"
+    ext = "Claude Code" if "Claude" in ents else "Extension"
     market = next((e for e in ents if e not in (holder, "Claude")), "")
     attack = brief.status in _ATTACK
-    # masked placeholder: the key's real format is not published
-    key = "••••••••" + "".join(rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
+    trojan = "trojaniz" in text or "троян" in text
 
-    # ---- 1. the leaked key
-    kb = Box(52, 112, 400, 206)
-    _key_card(doc, kb, holder, key)
+    # ---- the listing (hero): a large card, contents struck out
+    card = Box(640, 120, 900, 660)
+    doc.add(f'<ellipse cx="{f(card.cx)}" cy="{f(card.cy)}" rx="620" ry="460" fill="{p.danger}" opacity="0.10" '
+            f'filter="{doc.blur(90)}"/>')
+    doc.shadow(card.x, card.y, card.w, card.h, 28, 1.5)
+    doc.rect(card.x, card.y, card.w, card.h, doc.lin([(0, "#1E2A42", 1), (1, "#111827", 1)], 0, 0, 0.4, 1), 28,
+             stroke="#33425F", sw=2)
+    doc.text((market.upper() + " MARKETPLACE") if market else "EXTENSION MARKETPLACE", card.x + 64, card.y + 78, 24,
+             "#8C9AB5", "ui_bold", tracking=4)
+    # extension icon: a generic terminal glyph, not a logo
+    ix, iy, isz = card.x + 64, card.y + 118, 150
+    doc.rect(ix, iy, isz, isz, doc.lin([(0, "#2C3B5C", 1), (1, "#1B263D", 1)], 0, 0, 1, 1), 32)
+    doc.path(f"M{f(ix + 40)} {f(iy + 52)}L{f(ix + 74)} {f(iy + 78)}L{f(ix + 40)} {f(iy + 104)}"
+             f"M{f(ix + 86)} {f(iy + 106)}H{f(ix + 116)}", stroke="#E8EDF5", sw=11)
+    size = fit_size(ext, 120, card.r - (ix + isz + 40) - 50)
+    doc.text(ext, ix + isz + 40, iy + 60 + T.cap_height(size, "display") / 2, size, "#FFFFFF", "display",
+             tracking=-size * 0.015)
+    doc.text("extension", ix + isz + 44, iy + 150, 30, "#8C9AB5", "ui")
+    # the verdict the sources give, as one strong band
+    vy = card.y + 330
+    verdict = "TROJANIZED" if trojan else ("MALICIOUS VERSION" if attack else "REPORTED")
+    doc.rect(card.x, vy, card.w, 116, p.danger if attack or trojan else p.warn)
+    vs = fit_size(verdict, 84, card.w - 128)
+    doc.text(verdict, card.x + 64, vy + 58 + T.cap_height(vs, "display") / 2, vs, "#0A0F1A", "display",
+             tracking=vs * 0.02)
+    # contents: redacted on purpose (the sources describe no code)
+    cy = vy + 150
+    with doc.g(clip=doc.clip_rect(card.x + 64, cy, card.w - 128, 120, 10)):
+        doc.rect(card.x + 64, cy, card.w - 128, 120, "#1A1220")
+        stripes = "".join(f"M{f(card.x + 64 + i * 26)} {f(cy + 120)}l120 -120" for i in range(-6, int(card.w / 26)))
+        doc.path(stripes, stroke=p.danger, sw=9, opacity=0.25, cap="butt")
+    for i, w in enumerate((0.62, 0.44, 0.7)):
+        doc.rect(card.x + 92, cy + 24 + i * 30, (card.w - 184) * w, 14, "#3A2232", 5)
+    doc.text("contents not described in the reports", card.x + 64, cy + 158, 22, "#C9A0A8", "mono")
 
-    # ---- 2. the release it authorises
-    mb = Box(52, 452, 400, 250)
-    doc.shadow(mb.x, mb.y, mb.w, mb.h, 14, 0.8)
-    doc.rect(mb.x, mb.y, mb.w, mb.h, "#151E2F", 14, stroke=p.line, sw=1.4)
-    doc.text("EXTENSION MARKETPLACE" if not market else f"{market.upper()} MARKETPLACE", mb.x + 24, mb.y + 38, 14,
-             p.muted, "ui_bold", tracking=1.6)
-    doc.rect(mb.x + 24, mb.y + 62, 64, 64, "#24304A", 12)
-    icon(doc, "terminal", mb.x + 56, mb.y + 94, 32, p.ink, 2)
-    doc.text(ext, mb.x + 106, mb.y + 88, 24, p.ink, "display")
-    doc.text("update published", mb.x + 106, mb.y + 116, 17, p.danger, "mono_bold")
-    doc.line((mb.x + 24, mb.y + 150), (mb.r - 24, mb.y + 150), p.line, 1)
-    doc.text("auth:", mb.x + 24, mb.y + 186, 16, p.muted, "mono")
-    doc.text(key, mb.x + 84, mb.y + 186, 16, p.ink, "mono")
-    icon(doc, "check", mb.r - 40, mb.y + 180, 20, p.safe, 2.6)
-    arrow(doc, [(kb.cx - 40, kb.b + 18), (kb.cx - 40, mb.y - 14)], p.danger, sw=4, head=16)
-
-    # ---- 3. the editor that updated (hero)
-    ew = Box(584, 84, 980, 720)
-    body = window(doc, ew, title="code editor", surface="#0F1624", chrome="#18213A")
-    # activity bar
-    doc.rect(body.x, body.y, 56, body.h, "#0B111D")
-    for i, ic in enumerate(("file", "eye", "link", "chip")):
-        icon(doc, ic, body.x + 28, body.y + 32 + i * 54, 22, p.ink if i == 3 else p.muted, 1.8)
-    doc.rect(body.x, body.y + 32 + 3 * 54 - 22, 3, 44, p.ink)
-    # extensions panel
-    side = Box(body.x + 56, body.y, 260, body.h)
-    doc.rect(side.x, side.y, side.w, side.h, "#121A2A")
-    doc.text("EXTENSIONS", side.x + 20, side.y + 34, 13, p.muted, "ui_bold", tracking=1.6)
-    rows = [(ext, "updated just now", True), ("Python Tools", "1.4.0", False), ("Git History", "3.2.1", False),
-            ("Formatter", "0.9.7", False)]
-    for i, (n, sub, hot) in enumerate(rows):
-        ry = side.y + 58 + i * 74
-        if hot:
-            doc.rect(side.x + 8, ry - 6, side.w - 16, 66, p.danger, 8, opacity=0.14)
-            doc.rect(side.x + 8, ry - 6, 3, 66, p.danger)
-        doc.rect(side.x + 20, ry + 4, 40, 40, "#24304A", 8)
-        icon(doc, "terminal" if hot else "file", side.x + 40, ry + 24, 20, p.ink if hot else p.muted, 1.8)
-        doc.text(n, side.x + 74, ry + 20, 17, p.ink, "ui_bold")
-        doc.text(sub, side.x + 74, ry + 44, 14, p.danger if hot else p.muted, "mono")
-
-    # editor area: the update itself. The sources say a malicious version was
-    # published through the marketplace with the leaked key; they do not
-    # describe its code or how it ran, so the contents are shown redacted.
-    ed = Box(side.r, body.y, body.r - side.r, body.h)
-    doc.rect(ed.x, ed.y, ed.w, 42, "#121A2A")
-    doc.text(f"{ext}: extension details", ed.x + 24, ed.y + 27, 15, p.ink, "ui_bold")
-    x0, y0 = ed.x + 40, ed.y + 96
-    doc.rect(x0, y0, 76, 76, "#24304A", 16)
-    icon(doc, "terminal", x0 + 38, y0 + 38, 40, p.ink, 2.2)
-    doc.text(ext, x0 + 100, y0 + 36, 34, p.ink, "display")
-    doc.text("official listing", x0 + 102, y0 + 66, 16, p.muted, "ui")
-    pill(doc, ed.r - 32, y0 + 14, "new version", fg="#FFFFFF", bg=p.danger, size=14, font="ui_bold", anchor="end")
-    rows2 = [("enabled by", "the stolen access key", p.danger),
-             ("channel", "the official marketplace listing", p.ink),
-             ("status", "malicious version" if attack else "reported", p.danger if attack else p.warn)]
-    for i, (k, v, col) in enumerate(rows2):
-        ry = y0 + 132 + i * 44
-        doc.line((x0, ry - 28), (ed.r - 32, ry - 28), p.line, 1)
-        doc.text(k, x0, ry, 16, p.muted, "mono")
-        doc.text(v, x0 + 190, ry, 17, col, "mono_bold")
-    # contents: redacted on purpose
-    cb = Box(x0, y0 + 278, ed.r - 32 - x0, 270)
-    doc.rect(cb.x, cb.y, cb.w, cb.h, "#0A0F1A", 10, stroke=p.danger, sw=1.6)
-    doc.text("PACKAGE CONTENTS", cb.x + 24, cb.y + 34, 13, p.muted, "ui_bold", tracking=1.6)
-    with doc.g(clip=doc.clip_rect(cb.x + 24, cb.y + 54, cb.w - 48, 136, 6)):
-        doc.rect(cb.x + 24, cb.y + 54, cb.w - 48, 136, "#1A1220")
-        stripes = "".join(f"M{cb.x + 24 + i * 22:.0f} {cb.y + 190:.0f}l136 -136" for i in range(-6, int(cb.w / 22) + 2))
-        doc.path(stripes, stroke=p.danger, sw=7, opacity=0.22)
-    for i, w in enumerate((0.62, 0.48, 0.7, 0.4)):
-        doc.rect(cb.x + 48, cb.y + 76 + i * 28, (cb.w - 96) * w, 12, "#2A1B2C", 4)
-    doc.text("not described in the reports", cb.x + 24, cb.y + 226, 18, p.danger, "mono_bold")
-    doc.text("the sources give no code or execution details", cb.x + 24, cb.y + 252, 14, p.muted, "ui")
-    # status bar
-    doc.rect(ew.x + 1, ew.b - 34, ew.w - 2, 33, "#1A2540")
-    doc.text(f"{ext} updated", ew.x + 20, ew.b - 12, 14, p.ink, "ui")
-
-    # marketplace -> editor
-    arrow(doc, [(mb.r + 12, mb.y + 100), (ew.x - 12, mb.y + 100)], p.danger, sw=4, head=16)
-    doc.text("update", (mb.r + ew.x) / 2, mb.y + 84, 15, p.ink, "mono", anchor="middle")
+    # ---- the stolen key, turned in the listing's publishing lock
+    lx, ly = card.x, card.y + 250
+    doc.rect(lx - 34, ly - 50, 68, 100, "#0B111C", 14, stroke="#33425F", sw=2)
+    doc.circle(lx, ly - 8, 12, "#000")
+    doc.rect(lx - 5, ly - 8, 10, 30, "#000", 3)
+    _key(doc, 200, 470, 98, -12.8, holder, p.danger)
 
     vignette(doc, 0.45)
-    doc.focus = Box(40, 100, 1180, 664)
+    doc.focus = Box(90, 90, 1470, 827)

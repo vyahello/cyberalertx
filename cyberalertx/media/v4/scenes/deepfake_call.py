@@ -1,18 +1,40 @@
-"""Deepfake video calls: a meeting window in which the active speaker's face
-is a synthetic mesh being assembled in real time (half rendered skin, half
-wireframe), while beside the call a transfer is being approved.
+"""Deepfake video calls: a real person and the synthetic copy that speaks for
+them on a call.
 
-No hooded figure, no real conferencing interface: a generic meeting window,
-placeholder names, a masked wallet address. The money figure appears only
-when the sources state it."""
+What the sources state (s:31008e64145065 and alike): the FBI says North
+Korean actors stole over $400 million in crypto through a social-engineering
+scheme that used faked (deepfake) video calls. They do not describe the
+victims, the meeting, the wallet or the transfer, so none of that is drawn:
+no meeting title, no participant names, no wallet address, no approval
+dialog. The money figure appears only from `brief.facts`, with "+" only when
+the text says "over / more than".
+
+Three compositions (ALTERNATIVES), none of them a drawn cartoon face:
+
+* "a" duplicate: two strong profiles face each other across the edge of a
+  call screen; the real one is lit flesh-and-shadow, the one inside the call
+  is the same silhouette rebuilt as a sliced, displaced synthetic mesh.
+* "b" mask: one call tile fills the frame; the participant is a person in
+  shadow wearing a smooth porcelain mask whose edge lifts off to show the
+  mesh underneath.
+* "c" device: over the shoulder of a viewer (dark silhouette, lit by the
+  screen) to a laptop on a call whose caller is visibly being synthesised.
+
+"b" is the registered scene: at 176 px it is one white form on a dark call
+tile (the strongest value contrast of the three), a mask reads as "someone
+else's face" without any caption, the call controls say "video call", and
+the money figure sits inside the feed crop. "a" is the close runner-up; its
+sliced copy gets busy at feed size.
+"""
 from __future__ import annotations
 
 import math
 import random
 import re
+from typing import Callable
 
 from ..brief import EditorialBrief
-from ..kit import Box, Doc, f, icon, pill
+from ..kit import Box, Doc, f
 from . import scene
 
 Pt = tuple[float, float]
@@ -20,8 +42,59 @@ Pt = tuple[float, float]
 
 # ---------------------------------------------------------------- geometry
 
+def _mix(c1: str, c2: str, t: float) -> str:
+    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(a[i] + (b[i] - a[i]) * max(0.0, min(1.0, t))):02X}" for i in range(3))
+
+
+def _smooth(pts: list[Pt], closed: bool = True, k: float = 1 / 6) -> str:
+    """Catmull-Rom spline through `pts` as cubic Beziers."""
+    n = len(pts)
+    d = f"M{f(pts[0][0])} {f(pts[0][1])}"
+    last = n if closed else n - 1
+    for i in range(last):
+        p0 = pts[(i - 1) % n] if closed or i > 0 else pts[0]
+        p1, p2 = pts[i], pts[(i + 1) % n]
+        p3 = pts[(i + 2) % n] if closed or i + 2 < n else p2
+        c1 = (p1[0] + (p2[0] - p0[0]) * k, p1[1] + (p2[1] - p0[1]) * k)
+        c2 = (p2[0] - (p3[0] - p1[0]) * k, p2[1] - (p3[1] - p1[1]) * k)
+        d += f"C{f(c1[0])} {f(c1[1])} {f(c2[0])} {f(c2[1])} {f(p2[0])} {f(p2[1])}"
+    return d + ("Z" if closed else "")
+
+
+# A head-and-shoulders profile facing right; unit = crown-to-chin height.
+_PROFILE: list[Pt] = [
+    (-0.10, 1.95), (-0.02, 1.42), (0.14, 1.16), (0.12, 0.98), (0.03, 0.80), (0.00, 0.55), (0.07, 0.27),
+    (0.27, 0.06), (0.52, 0.00), (0.72, 0.08), (0.81, 0.22), (0.835, 0.36), (0.83, 0.43), (0.815, 0.465),
+    (0.86, 0.545), (0.92, 0.615), (0.935, 0.645), (0.915, 0.672), (0.865, 0.685), (0.868, 0.72), (0.895, 0.75),
+    (0.872, 0.775), (0.888, 0.805), (0.858, 0.845), (0.872, 0.905), (0.85, 0.965), (0.78, 0.995), (0.67, 1.01),
+    (0.60, 1.06), (0.61, 1.20), (0.70, 1.34), (1.02, 1.47), (1.22, 1.62), (1.30, 1.95),
+]
+# The ear, the jaw line and the eye socket (shading only).
+_EAR: list[Pt] = [(0.36, 0.44), (0.42, 0.40), (0.47, 0.45), (0.47, 0.56), (0.43, 0.64), (0.37, 0.65), (0.35, 0.56)]
+_JAW: list[Pt] = [(0.36, 0.70), (0.42, 0.86), (0.55, 0.96), (0.70, 1.0)]
+
+
+def _place(pts: list[Pt], x: float, y: float, s: float, flip: bool = False) -> list[Pt]:
+    return [(x + (-px if flip else px) * s, y + py * s) for px, py in pts]
+
+
+def _inside(pt: Pt, poly: list[Pt]) -> bool:
+    x, y = pt
+    c = False
+    j = len(poly) - 1
+    for i in range(len(poly)):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-9) + xi:
+            c = not c
+        j = i
+    return c
+
+
 def _delaunay(pts: list[Pt]) -> list[tuple[int, int, int]]:
-    """Bowyer-Watson triangulation (about 70 points: cheap)."""
+    """Bowyer-Watson triangulation (a few dozen points: cheap)."""
     big = 1e5
     allp = list(pts) + [(-big, -big), (big, -big), (0.0, big)]
     n = len(pts)
@@ -52,288 +125,299 @@ def _delaunay(pts: list[Pt]) -> list[tuple[int, int, int]]:
     return [t for t in tris if max(t) < n]
 
 
-def _face_points(rng: random.Random) -> list[Pt]:
-    """Facial landmarks on a unit face (x right, y down, centre ~ nose bridge)."""
-    pts: list[Pt] = []
-    # outline: an egg, narrower toward the chin
-    for k in range(24):
-        a = -math.pi / 2 + k * 2 * math.pi / 24
-        y = 0.64 * math.sin(a)
-        x = 0.45 * math.cos(a) * (1 - 0.30 * max(y, 0) / 0.64)
-        pts.append((x, y))
-    for s in (-1, 1):
-        for k in range(6):                                  # eye
-            a = k * math.pi / 3
-            pts.append((s * 0.18 + 0.085 * math.cos(a), -0.07 + 0.035 * math.sin(a)))
-        for k in range(4):                                  # brow
-            pts.append((s * (0.08 + k * 0.065), -0.19 - 0.03 * math.sin(math.pi * k / 3)))
-        pts += [(s * 0.06, 0.17), (s * 0.30, 0.09), (s * 0.26, 0.27), (s * 0.16, -0.40), (s * 0.32, -0.33),
-                (s * 0.12, 0.47), (s * 0.20, 0.38), (s * 0.34, -0.12)]
-    pts += [(0, -0.07), (0, 0.04), (0, 0.13), (0, 0.20), (0, -0.46), (0, -0.30), (0, 0.55)]
-    for k in range(8):                                      # mouth
-        a = k * math.pi / 4
-        pts.append((0.13 * math.cos(a), 0.32 + 0.035 * math.sin(a)))
-    return [(x + rng.uniform(-0.006, 0.006), y + rng.uniform(-0.006, 0.006)) for x, y in pts]
+def _mesh(outline: list[Pt], rng: random.Random, n: int = 46) -> tuple[list[Pt], list[tuple[int, int, int]]]:
+    """Landmark-like points: the outline plus jittered interior points."""
+    xs = [p[0] for p in outline]
+    ys = [p[1] for p in outline]
+    pts = list(outline)
+    tries = 0
+    while len(pts) < len(outline) + n and tries < 2000:
+        tries += 1
+        q = (rng.uniform(min(xs), max(xs)), rng.uniform(min(ys), max(ys)))
+        if _inside(q, outline) and all((q[0] - a) ** 2 + (q[1] - b) ** 2 > 1600 for a, b in pts):
+            pts.append(q)
+    return pts, _delaunay(pts)
 
 
-def _mix(c1: str, c2: str, t: float) -> str:
-    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
-    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(f"{round(a[i] + (b[i] - a[i]) * max(0.0, min(1.0, t))):02X}" for i in range(3))
+def _money(brief: EditorialBrief) -> str:
+    money = brief.facts.get("money")
+    if not money:
+        return ""
+    digits = re.sub(r"[^\d.]", "", str(money))
+    over = re.search(r"(more than|over|понад|більше)\s+\$?\s?" + re.escape(digits[:3]), brief.text or "")
+    return f"{money}+" if over else str(money)
 
 
-# ---------------------------------------------------------------- people
-
-def _room(doc: Doc, b: Box, base: str, rng: random.Random) -> None:
-    """A soft, out-of-focus home-office background."""
-    doc.rect(b.x, b.y, b.w, b.h, doc.lin([(0, _mix(base, "#FFFFFF", 0.12), 1), (1, _mix(base, "#000000", 0.35), 1)]))
-    blobs = []
-    for _ in range(5):
-        x, y = b.x + rng.uniform(0, b.w), b.y + rng.uniform(0, b.h * 0.6)
-        blobs.append(f'<rect x="{f(x)}" y="{f(y)}" width="{f(b.w * rng.uniform(0.08, 0.2))}" '
-                     f'height="{f(b.h * rng.uniform(0.15, 0.4))}" '
-                     f'fill="{_mix(base, "#FFFFFF", rng.uniform(0.15, 0.35))}" '
-                     f'opacity="0.5"/>')
-    doc.add(f'<g clip-path="{doc.clip_rect(b.x, b.y, b.w, b.h)}"><g filter="{doc.blur(max(6, b.w / 40))}">'
-            f'{"".join(blobs)}</g></g>')
+def _figure_block(doc: Doc, brief: EditorialBrief, x: float, y: float, size: float, color: str,
+                  sub_color: str, anchor: str = "start") -> None:
+    """The stated amount and what it was (crypto), nothing else."""
+    label = _money(brief)
+    if not label:
+        return
+    doc.text(label, x, y, size, color, "display", anchor=anchor, tracking=-size * 0.02)
+    crypto = re.search(r"crypto|bitcoin|ether|крипт", brief.text or "")
+    doc.text("in crypto stolen" if crypto else "stolen", x + (4 if anchor == "start" else 0), y + size * 0.42,
+             size * 0.26, sub_color, "ui_bold", anchor=anchor, tracking=size * 0.012)
 
 
-def _person(doc: Doc, cx: float, top: float, s: float, skin: str, hair: str, shirt: str, clip: str,
-            style: int) -> None:
-    """Head-and-shoulders, flat editorial shading. `s` = head width."""
-    hw, hh = s / 2, s * 0.64
-    hy = top + hh
-    with doc.g(clip=clip):
-        # shoulders
-        sy = hy + hh * 0.95
-        doc.path(f"M{f(cx - s * 1.25)} {f(sy + s * 1.4)}C{f(cx - s * 1.2)} {f(sy + s * 0.2)} {f(cx - s * 0.7)} "
-                 f"{f(sy)} {f(cx)} {f(sy - s * 0.04)}C{f(cx + s * 0.7)} {f(sy)} {f(cx + s * 1.2)} {f(sy + s * 0.2)} "
-                 f"{f(cx + s * 1.25)} {f(sy + s * 1.4)}Z", fill=shirt)
-        # collar opening + neck
-        doc.rect(cx - hw * 0.42, hy + hh * 0.55, hw * 0.84, hh * 0.55, _mix(skin, "#000000", 0.18), hw * 0.3)
-        doc.path(f"M{f(cx - s * 0.26)} {f(sy - 2)}L{f(cx)} {f(sy + s * 0.32)}L{f(cx + s * 0.26)} {f(sy - 2)}Z",
-                 fill=_mix(skin, "#000000", 0.12))
-        # head
-        face = doc.lin([(0, _mix(skin, "#FFFFFF", 0.12), 1), (1, _mix(skin, "#000000", 0.15), 1)], 0, 0, 1, 0)
-        doc.add(f'<ellipse cx="{f(cx)}" cy="{f(hy)}" rx="{f(hw * 0.9)}" ry="{f(hh)}" '
-                f'fill="{face}"/>')
-        doc.add(f'<ellipse cx="{f(cx - hw * 0.88)}" cy="{f(hy + hh * 0.08)}" rx="{f(hw * 0.12)}" ry="{f(hh * 0.18)}" '
-                f'fill="{_mix(skin, "#000000", 0.1)}"/>')
-        doc.add(f'<ellipse cx="{f(cx + hw * 0.88)}" cy="{f(hy + hh * 0.08)}" rx="{f(hw * 0.12)}" ry="{f(hh * 0.18)}" '
-                f'fill="{_mix(skin, "#000000", 0.18)}"/>')
-        # hair
-        if style == 0:
-            doc.path(f"M{f(cx - hw * 0.95)} {f(hy - hh * 0.05)}C{f(cx - hw)} {f(top - hh * 0.25)} {f(cx + hw)} "
-                     f"{f(top - hh * 0.25)} {f(cx + hw * 0.95)} {f(hy - hh * 0.05)}C{f(cx + hw * 0.7)} "
-                     f"{f(top + hh * 0.2)} {f(cx - hw * 0.5)} {f(top + hh * 0.35)} {f(cx - hw * 0.95)} "
-                     f"{f(hy - hh * 0.05)}Z", fill=hair)
-        elif style == 1:
-            doc.path(f"M{f(cx - hw * 1.05)} {f(hy + hh * 0.9)}C{f(cx - hw * 1.3)} {f(top - hh * 0.3)} "
-                     f"{f(cx + hw * 1.3)} {f(top - hh * 0.3)} {f(cx + hw * 1.05)} {f(hy + hh * 0.9)}"
-                     f"C{f(cx + hw * 0.8)} {f(hy)} {f(cx + hw * 0.6)} {f(top + hh * 0.3)} {f(cx)} {f(top + hh * 0.25)}"
-                     f"C{f(cx - hw * 0.6)} {f(top + hh * 0.3)} {f(cx - hw * 0.8)} {f(hy)} {f(cx - hw * 1.05)} "
-                     f"{f(hy + hh * 0.9)}Z", fill=hair)
+def _call_controls(doc: Doc, cx: float, y: float, r: float, end: str) -> None:
+    """Generic call controls: microphone, camera, hang up."""
+    for k, (name, col) in enumerate((("mic", "#FFFFFF"), ("cam", "#FFFFFF"), ("end", end))):
+        x = cx + (k - 1) * r * 2.7
+        if name == "end":
+            doc.circle(x, y, r, end)
+            doc.path(f"M{f(x - r * 0.48)} {f(y + r * 0.1)}Q{f(x)} {f(y - r * 0.42)} {f(x + r * 0.48)} {f(y + r * 0.1)}",
+                     stroke="#FFFFFF", sw=r * 0.2)
+            continue
+        doc.circle(x, y, r, "#FFFFFF", opacity=0.14)
+        if name == "mic":
+            doc.rect(x - r * 0.17, y - r * 0.5, r * 0.34, r * 0.62, col, r * 0.17)
+            doc.path(f"M{f(x - r * 0.34)} {f(y - r * 0.02)}Q{f(x - r * 0.34)} {f(y + r * 0.36)} {f(x)} {f(y + r * 0.36)}"
+                     f"Q{f(x + r * 0.34)} {f(y + r * 0.36)} {f(x + r * 0.34)} {f(y - r * 0.02)}M{f(x)} {f(y + r * 0.36)}"
+                     f"V{f(y + r * 0.55)}", stroke=col, sw=r * 0.09)
         else:
-            doc.path(f"M{f(cx - hw * 0.92)} {f(hy - hh * 0.2)}C{f(cx - hw * 0.9)} {f(top - hh * 0.1)} "
-                     f"{f(cx + hw * 0.9)} {f(top - hh * 0.1)} {f(cx + hw * 0.92)} {f(hy - hh * 0.2)}"
-                     f"C{f(cx + hw * 0.5)} {f(top + hh * 0.12)} {f(cx - hw * 0.5)} {f(top + hh * 0.12)} "
-                     f"{f(cx - hw * 0.92)} {f(hy - hh * 0.2)}Z", fill=hair)
-        # features, kept minimal
-        ink = _mix(skin, "#000000", 0.55)
-        for sx in (-1, 1):
-            doc.add(f'<ellipse cx="{f(cx + sx * hw * 0.36)}" cy="{f(hy - hh * 0.02)}" rx="{f(hw * 0.07)}" '
-                    f'ry="{f(hh * 0.045)}" fill="{ink}"/>')
-            doc.path(f"M{f(cx + sx * hw * 0.22)} {f(hy - hh * 0.2)}Q{f(cx + sx * hw * 0.36)} {f(hy - hh * 0.27)} "
-                     f"{f(cx + sx * hw * 0.52)} {f(hy - hh * 0.19)}", stroke=_mix(hair, skin, 0.2),
-                     sw=max(2, s * 0.025))
-        doc.path(f"M{f(cx - hw * 0.02)} {f(hy + hh * 0.04)}L{f(cx - hw * 0.1)} {f(hy + hh * 0.3)}L{f(cx + hw * 0.06)} "
-                 f"{f(hy + hh * 0.32)}", stroke=_mix(skin, "#000000", 0.25), sw=max(1.5, s * 0.018))
-        doc.path(f"M{f(cx - hw * 0.25)} {f(hy + hh * 0.5)}Q{f(cx)} {f(hy + hh * 0.6)} {f(cx + hw * 0.25)} "
-                 f"{f(hy + hh * 0.5)}", stroke=_mix(skin, "#000000", 0.4), sw=max(2, s * 0.022))
+            doc.rect(x - r * 0.5, y - r * 0.3, r * 0.68, r * 0.6, col, r * 0.1)
+            doc.poly([(x + r * 0.22, y - r * 0.08), (x + r * 0.5, y - r * 0.28), (x + r * 0.5, y + r * 0.28),
+                      (x + r * 0.22, y + r * 0.08)], col)
 
 
-def _synthetic(doc: Doc, cx: float, cy: float, s: float, rng: random.Random, reveal: float, skin: str,
-               line: str, clip: str) -> list[Pt]:
-    """The synthetic face: a landmark mesh, rendered skin left of `reveal`
-    (fraction across the face), bare wireframe right of it."""
-    pts = [(cx + x * s, cy + y * s) for x, y in _face_points(rng)]
-    tris = _delaunay(pts)
-    rx = cx + (reveal - 0.5) * s * 0.9
-    fills, wires = [], []
-    for t in tris:
-        (ax, ay), (bx, by), (qx, qy) = pts[t[0]], pts[t[1]], pts[t[2]]
-        gx, gy = (ax + bx + qx) / 3, (ay + by + qy) / 3
-        d = f"M{f(ax)} {f(ay)}L{f(bx)} {f(by)}L{f(qx)} {f(qy)}Z"
-        if gx < rx:
-            # light from the upper left; features darker
-            shade = 0.5 + 0.35 * (gx - cx) / s + 0.25 * (gy - cy) / s + rng.uniform(-0.06, 0.06)
-            fills.append(f'<path d="{d}" fill="{_mix(_mix(skin, "#FFFFFF", 0.18), _mix(skin, "#000000", 0.4), shade)}" '
-                         f'stroke="{_mix(skin, "#000000", 0.1)}" stroke-width="0.6"/>')
-        wires.append(d)
-    def U(x: float, y: float) -> Pt:
-        return (cx + x * s, cy + y * s)
+# ---------------------------------------------------------------- the two heads
 
-    def poly(ps: list[Pt], z: str = "Z") -> str:
-        return "M" + "L".join(f"{f(x)} {f(y)}" for x, y in ps) + z
-
-    left = doc.clip_rect(cx - s, cy - s, rx - (cx - s), 2 * s)
-    right = doc.clip_rect(rx, cy - s, cx + s - rx, 2 * s)
-    eyes = [[U(sx * 0.18 + 0.085 * math.cos(k * math.pi / 3), -0.07 + 0.035 * math.sin(k * math.pi / 3))
-             for k in range(6)] for sx in (-1, 1)]
-    brows = [[U(sx * (0.08 + k * 0.065), -0.19 - 0.03 * math.sin(math.pi * k / 3)) for k in range(4)]
-             for sx in (-1, 1)]
-    lips = [U(0.13 * math.cos(k * math.pi / 4), 0.32 + 0.035 * math.sin(k * math.pi / 4)) for k in range(8)]
+def _real_head(doc: Doc, pts: list[Pt], body: str, rim: str, shift: tuple[float, float], s: float) -> None:
+    """A dark silhouette with a rim of light along its leading edge."""
+    d = _smooth(pts)
+    clip = doc.clip_path(d)
+    facing_right = pts[15][0] > pts[0][0]
+    lit = doc.lin([(0, rim, 0.0), (0.55, rim, 0.7), (0.8, rim, 1.0)], 0 if facing_right else 1, 0,
+                  1 if facing_right else 0, 0)
     with doc.g(clip=clip):
-        # hair on the rendered half: the synthesis paints a person over the mesh
-        with doc.g(clip=left):
-            doc.add("".join(fills))
-            hx0, hy0 = U(-0.47, -0.05)
-            doc.path(f"M{f(hx0)} {f(hy0)}C{f(cx - s * 0.52)} {f(cy - s * 0.62)} {f(cx - s * 0.1)} {f(cy - s * 0.8)} "
-                     f"{f(cx + s * 0.3)} {f(cy - s * 0.66)}L{f(cx + s * 0.2)} {f(cy - s * 0.44)}C{f(cx - s * 0.05)} "
-                     f"{f(cy - s * 0.5)} {f(cx - s * 0.36)} {f(cy - s * 0.4)} {f(cx - s * 0.42)} {f(cy - s * 0.02)}Z",
-                     fill="#2B1F1A")
-            for e in eyes:
-                ex = sum(x for x, _ in e) / 6
-                ey = sum(y for _, y in e) / 6
-                doc.path(poly(e), fill="#F2ECE6", stroke="#3A2620", sw=2)
-                doc.circle(ex, ey, s * 0.026, "#4A3426")
-                doc.circle(ex - s * 0.008, ey - s * 0.008, s * 0.007, "#FFFFFF")
-            for b in brows:
-                doc.path(poly(b, ""), stroke="#2B1F1A", sw=s * 0.022)
-            doc.path(poly(lips), fill="#A85E5A", stroke="#7A3E3A", sw=1.5)
-            doc.path(f"M{f(U(-0.06, 0.17)[0])} {f(U(-0.06, 0.17)[1])}Q{f(cx)} {f(cy + s * 0.215)} "
-                     f"{f(U(0.06, 0.17)[0])} {f(U(0.06, 0.17)[1])}", stroke="#7A4A3A", sw=2.5)
-        with doc.g(clip=right):
-            doc.path("".join(wires), stroke=line, sw=1.4, opacity=0.95)
-            for e in eyes:
-                doc.path(poly(e), stroke="#FFFFFF", sw=2.2)
-            for b in brows:
-                doc.path(poly(b, ""), stroke="#FFFFFF", sw=2.2)
-            doc.path(poly(lips), stroke="#FFFFFF", sw=2.2)
-            doc.path(poly([U(0, -0.07), U(0, 0.04), U(0, 0.13), U(0.06, 0.17), U(0, 0.20)], ""), stroke="#FFFFFF",
-                     sw=2.2)
-        # the edge where synthesis is happening
-        doc.rect(rx - 2, cy - s * 0.78, 4, s * 1.56, line, opacity=0.9)
-        doc.rect(rx - 30, cy - s * 0.78, 60, s * 1.56, line, opacity=0.18, extra=f' filter="{doc.blur(10)}"')
-        for x, y in pts:
-            if x >= rx - 2:
-                doc.circle(x, y, 3.2, line)
-            else:
-                doc.circle(x, y, 1.8, "#FFFFFF", opacity=0.5)
+        doc.path(d, fill=lit)
+        with doc.g(transform=f"translate({f(shift[0])} {f(shift[1])})"):
+            doc.path(d, fill=body)
+        # a broad soft fill light on the face plane
+        fx = max(p[0] for p in pts[10:28]) if shift[0] < 0 else min(p[0] for p in pts[10:28])
+        doc.add(f'<ellipse cx="{f(fx - shift[0] * 9)}" cy="{f(pts[14][1])}" rx="{f(s * 0.32)}" ry="{f(s * 0.5)}" '
+                f'fill="{rim}" opacity="0.16" filter="{doc.blur(round(s * 0.08))}"/>')
+
+
+def _synthetic_head(doc: Doc, pts: list[Pt], rng: random.Random, fill_a: str, fill_b: str, line: str,
+                    bands: int, amp: float, top: float, bottom: float, bright: float = 1.0) -> None:
+    """The same silhouette rebuilt as a synthetic mesh, cut into horizontal
+    bands and displaced: the copy that is not quite holding together."""
+    d = _smooth(pts)
+    mesh_pts, tris = _mesh(pts, rng)
+    wires = "".join(f"M{f(mesh_pts[a][0])} {f(mesh_pts[a][1])}L{f(mesh_pts[b][0])} {f(mesh_pts[b][1])}"
+                    f"L{f(mesh_pts[c][0])} {f(mesh_pts[c][1])}Z" for a, b, c in tris)
+    xs = [p[0] for p in pts]
+    face_left = pts[15][0] < pts[0][0]
+    grad = doc.lin([(0, fill_a, 1), (1, fill_b, 1)], 0 if face_left else 1, 0, 1 if face_left else 0, 1)
+    h = (bottom - top) / bands
+    for i in range(bands):
+        y0 = top + i * h
+        off = 0.0 if rng.random() < 0.45 else rng.uniform(-amp, amp)
+        if i in (bands // 3, bands // 3 + 1):
+            off = amp * 1.25 * (1 if i % 2 else -1)
+        with doc.g(clip=doc.clip_rect(min(xs) - amp * 2, y0, max(xs) - min(xs) + amp * 4, h + 0.5)):
+            with doc.g(transform=f"translate({f(off)} 0)"):
+                doc.path(d, fill=grad, opacity=0.92 * bright)
+                with doc.g(clip=doc.clip_path(d)):
+                    doc.path(wires, stroke=line, sw=1.3, opacity=0.75)
+                    for k, (x, y) in enumerate(mesh_pts):
+                        if y0 - 4 < y < y0 + h + 4 and k % 2 == 0:
+                            doc.circle(x, y, 2.6, "#FFFFFF", opacity=0.8)
+                doc.path(d, stroke=line, sw=2.5, opacity=0.9)
+    # scan lines across the copy
+    sl = "".join(f"M{f(min(xs) - 40)} {f(top + k * 7)}H{f(max(xs) + 40)}" for k in range(int((bottom - top) / 7)))
+    with doc.g(clip=doc.clip_path(d)):
+        doc.path(sl, stroke="#000000", sw=2, opacity=0.18)
+
+
+# ---------------------------------------------------------------- A: duplicate
+
+def _comp_duplicate(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
+    p = doc.pal
+    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#1A1230", 1), (1, "#07050E", 1)], 0, 0, 0.4, 1))
+    # the call screen: right two thirds, a cool synthetic light
+    scr = Box(742, 70, 820, 760)
+    doc.shadow(scr.x, scr.y, scr.w, scr.h, 26, 1.4)
+    doc.rect(scr.x - 14, scr.y - 14, scr.w + 28, scr.h + 28, "#04030A", 36, stroke="#2B2246", sw=2)
+    doc.rect(scr.x, scr.y, scr.w, scr.h, doc.lin([(0, "#2A1D52", 1), (1, "#120C26", 1)], 0, 0, 0.6, 1), 24)
+    with doc.g(clip=doc.clip_rect(scr.x, scr.y, scr.w, scr.h, 24)):
+        doc.add(f'<ellipse cx="{f(scr.x + scr.w * 0.62)}" cy="{f(scr.y + scr.h * 0.42)}" rx="420" ry="380" '
+                f'fill="{p.accent}" opacity="0.20" filter="{doc.blur(90)}"/>')
+        # a soft out-of-focus room behind the caller
+        for i in range(5):
+            bx = scr.x + 420 + i * 92 + rng.uniform(-20, 20)
+            doc.rect(bx, scr.y + 90 + rng.uniform(0, 60), 58, rng.uniform(180, 330), "#FFFFFF", 6, opacity=0.04)
+        s = 520
+        copy = _place(_PROFILE, scr.x + 590, 190, s, flip=True)
+        _synthetic_head(doc, copy, rng, "#D9C2FF", "#4A2386", p.danger, 22, 24, 190, 900)
+        # call chrome: only what any call has
+        doc.rect(scr.x, scr.b - 120, scr.w, 120, doc.lin([(0, "#000", 0), (1, "#000", 0.65)]))
+        _call_controls(doc, scr.x + scr.w * 0.62, scr.b - 62, 30, p.danger)
+        doc.circle(scr.x + 46, scr.y + 46, 9, p.danger)
+        doc.rect(scr.x + 66, scr.y + 38, 92, 16, "#FFFFFF", 8, opacity=0.35)
+    doc.rect(scr.x, scr.y, scr.w, scr.h, "none", 24, stroke=p.danger, sw=3, opacity=0.9)
+    # the real person: in front of the screen, warm key light from the right
+    s = 600
+    real = _place(_PROFILE, 150, 110, s)
+    doc.add(f'<ellipse cx="560" cy="460" rx="320" ry="420" fill="#FFB38A" opacity="0.07" filter="{doc.blur(80)}"/>')
+    _real_head(doc, real, "#0C0913", "#F2B48E", (-8, 1), s)
+    # the gap between them: where the identity is copied
+    doc.path("M716 120V800", stroke=p.danger, sw=2, dash="4 10", opacity=0.5)
+    _figure_block(doc, brief, 64, 720, 132, "#FFFFFF", "#D8CCF5")
+    doc.focus = Box(30, 40, 1540, 866)
+
+
+# ---------------------------------------------------------------- B: mask
+
+def _mask_outline(cx: float, cy: float, s: float) -> list[Pt]:
+    """A smooth porcelain face mask (front view), s = height."""
+    w = s * 0.74
+    pts: list[Pt] = []
+    for k in range(40):
+        a = -math.pi / 2 + k * 2 * math.pi / 40
+        y = math.sin(a)
+        taper = 1 - 0.28 * max(y, 0) ** 1.6
+        x = math.cos(a) * taper * (1 + 0.04 * (1 - abs(y)))
+        pts.append((cx + x * w / 2, cy + y * s / 2))
     return pts
 
 
-# ---------------------------------------------------------------- scene
+def _mask(doc: Doc, cx: float, cy: float, s: float, rng: random.Random, accent: str, danger: str,
+          lift: float = 0.0) -> None:
+    out = _mask_outline(cx, cy, s)
+    d = _smooth(out)
+    w = s * 0.74
+    # porcelain: lit from the upper left
+    doc.add(f'<path d="{d}" fill="#000" opacity="0.45" transform="translate(14 22)" filter="{doc.blur(14)}"/>')
+    porcelain = doc.rad([(0, "#FFFFFF", 1), (0.55, "#E6E0F2", 1), (1, "#A99FC4", 1)], 0.38, 0.32, 0.8)
+    doc.path(d, fill=porcelain)
+    with doc.g(clip=doc.clip_path(d)):
+        # the sculpted planes: brow, cheek hollows, nose ridge, chin
+        doc.add(f'<ellipse cx="{f(cx + w * 0.3)}" cy="{f(cy + s * 0.12)}" rx="{f(w * 0.28)}" ry="{f(s * 0.32)}" '
+                f'fill="#4A3C78" opacity="0.30" filter="{doc.blur(round(s * 0.05))}"/>')
+        doc.add(f'<ellipse cx="{f(cx - w * 0.3)}" cy="{f(cy + s * 0.16)}" rx="{f(w * 0.16)}" ry="{f(s * 0.2)}" '
+                f'fill="#4A3C78" opacity="0.14" filter="{doc.blur(round(s * 0.05))}"/>')
+        doc.path(f"M{f(cx - w * 0.04)} {f(cy - s * 0.12)}C{f(cx - w * 0.05)} {f(cy + s * 0.02)} {f(cx - w * 0.1)} "
+                 f"{f(cy + s * 0.12)} {f(cx - w * 0.08)} {f(cy + s * 0.16)}L{f(cx + w * 0.06)} {f(cy + s * 0.17)}"
+                 f"C{f(cx + w * 0.07)} {f(cy + s * 0.08)} {f(cx + w * 0.05)} {f(cy)} {f(cx + w * 0.05)} "
+                 f"{f(cy - s * 0.12)}Z", fill="#3A2E62", opacity=0.22, extra=f' filter="{doc.blur(6)}"')
+        doc.add(f'<ellipse cx="{f(cx - w * 0.05)}" cy="{f(cy + s * 0.02)}" rx="{f(w * 0.035)}" '
+                f'ry="{f(s * 0.12)}" fill="#FFFFFF" opacity="0.7" filter="{doc.blur(round(s * 0.012))}"/>')
+        # brow ridge highlight
+        for sx in (-1, 1):
+            doc.path(f"M{f(cx + sx * w * 0.08)} {f(cy - s * 0.16)}Q{f(cx + sx * w * 0.24)} {f(cy - s * 0.22)} "
+                     f"{f(cx + sx * w * 0.38)} {f(cy - s * 0.15)}", stroke="#FFFFFF", sw=s * 0.018, opacity=0.6,
+                     extra=f' filter="{doc.blur(4)}"')
+    # eye openings: almond cut-outs into darkness
+    for sx in (-1, 1):
+        ex, ey = cx + sx * w * 0.22, cy - s * 0.075
+        ew, eh = w * 0.15, s * 0.036
+        doc.path(f"M{f(ex - ew)} {f(ey)}Q{f(ex)} {f(ey - eh * 1.9)} {f(ex + ew)} {f(ey + eh * 0.15 * sx)}"
+                 f"Q{f(ex)} {f(ey + eh * 1.5)} {f(ex - ew)} {f(ey)}Z", fill="#07050D")
+        doc.path(f"M{f(ex - ew)} {f(ey)}Q{f(ex)} {f(ey - eh * 1.9)} {f(ex + ew)} {f(ey + eh * 0.15 * sx)}",
+                 stroke="#6B5C93", sw=2, opacity=0.6)
+    # closed lips, sculpted rather than drawn
+    my = cy + s * 0.27
+    doc.path(f"M{f(cx - w * 0.15)} {f(my)}Q{f(cx - w * 0.05)} {f(my - s * 0.03)} {f(cx)} {f(my - s * 0.012)}"
+             f"Q{f(cx + w * 0.05)} {f(my - s * 0.03)} {f(cx + w * 0.15)} {f(my)}Q{f(cx)} {f(my + s * 0.05)} "
+             f"{f(cx - w * 0.15)} {f(my)}Z", fill="#7A6AA6", opacity=0.35, extra=f' filter="{doc.blur(3)}"')
+    doc.path(f"M{f(cx - w * 0.13)} {f(my)}Q{f(cx)} {f(my + s * 0.01)} {f(cx + w * 0.13)} {f(my)}",
+             stroke="#4A3C78", sw=2, opacity=0.6)
+    doc.path(d, stroke="#FFFFFF", sw=2, opacity=0.5)
+    if lift:
+        # the right edge lifts: the mesh under it shows
+        rim = [q for q in out if q[0] > cx + w * 0.18]
+        doc.path(_smooth(rim, closed=False), stroke=danger, sw=3)
+
+
+def _comp_mask(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
+    p = doc.pal
+    doc.rect(0, 0, 1600, 900, "#07050E")
+    tile = Box(40, 40, 1520, 820)
+    doc.rect(tile.x, tile.y, tile.w, tile.h, doc.lin([(0, "#2B1E50", 1), (1, "#0E0A1C", 1)], 0, 0, 0.8, 1), 28)
+    with doc.g(clip=doc.clip_rect(tile.x, tile.y, tile.w, tile.h, 28)):
+        doc.add(f'<ellipse cx="900" cy="380" rx="520" ry="420" fill="{p.accent}" opacity="0.16" '
+                f'filter="{doc.blur(100)}"/>')
+        for i in range(4):
+            doc.rect(1090 + i * 110, 120 + rng.uniform(0, 50), 70, rng.uniform(220, 360), "#FFFFFF", 6, opacity=0.035)
+        # the person behind the mask: shoulders and head in shadow
+        cx, cy, s = 900, 400, 470
+        doc.path(f"M{f(cx - 430)} 900C{f(cx - 420)} 700 {f(cx - 260)} 640 {f(cx - 90)} 620L{f(cx - 70)} 560"
+                 f"H{f(cx + 70)}L{f(cx + 90)} 620C{f(cx + 260)} 640 {f(cx + 420)} 700 {f(cx + 430)} 900Z",
+                 fill="#06040C")
+        head = _mask_outline(cx + 6, cy - 10, s * 1.1)
+        doc.path(_smooth(head), fill="#06040C")
+        # mesh peeking out where the mask lifts away (right side)
+        mesh_pts, tris = _mesh(_mask_outline(cx + 6, cy - 10, s * 1.04), rng, 30)
+        wires = "".join(f"M{f(mesh_pts[a][0])} {f(mesh_pts[a][1])}L{f(mesh_pts[b][0])} {f(mesh_pts[b][1])}"
+                        f"L{f(mesh_pts[c][0])} {f(mesh_pts[c][1])}Z" for a, b, c in tris)
+        with doc.g(clip=doc.clip_rect(cx + 60, 0, 600, 900)):
+            doc.path(wires, stroke=p.danger, sw=1.6, opacity=0.9)
+        with doc.g(transform=f"rotate(-7 {f(cx - 120)} {f(cy)}) translate(-34 4)"):
+            _mask(doc, cx, cy, s, rng, p.accent, p.danger, lift=1.0)
+        # call chrome
+        doc.rect(tile.x, tile.b - 150, tile.w, 150, doc.lin([(0, "#000", 0), (1, "#000", 0.7)]))
+        _call_controls(doc, cx, tile.b - 74, 34, p.danger)
+        doc.rect(tile.x + 34, tile.b - 92, 250, 44, "#000000", 10, opacity=0.5)
+        doc.rect(tile.x + 56, tile.b - 76, 150, 12, "#FFFFFF", 6, opacity=0.5)
+        # self view: an ordinary person, small, in the corner
+        sv = Box(tile.r - 300, tile.y + 30, 260, 160)
+        doc.rect(sv.x, sv.y, sv.w, sv.h, "#2C3A4A", 14, stroke="#FFFFFF", sw=1.5, opacity=0.95)
+        with doc.g(clip=doc.clip_rect(sv.x, sv.y, sv.w, sv.h, 14)):
+            me = _place(_PROFILE, sv.x + 70, sv.y + 34, 104)
+            _real_head(doc, me, "#121822", "#E9B48F", (-4, 1), 104)
+    _figure_block(doc, brief, 110, 200, 124, "#FFFFFF", "#D8CCF5")
+    doc.focus = Box(90, 100, 1300, 731)
+
+
+# ---------------------------------------------------------------- C: device
+
+def _comp_device(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
+    p = doc.pal
+    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#140E24", 1), (1, "#050309", 1)], 0, 0, 0.3, 1))
+    # the laptop, three-quarter front, screen glowing
+    lx, ly, lw, lh = 600, 90, 860, 540
+    doc.add(f'<ellipse cx="{f(lx + lw / 2)}" cy="{f(ly + lh / 2)}" rx="640" ry="420" fill="{p.accent}" '
+            f'opacity="0.14" filter="{doc.blur(90)}"/>')
+    doc.rect(lx - 18, ly - 18, lw + 36, lh + 36, "#16141C", 26, stroke="#3A3550", sw=2)
+    scr = Box(lx, ly, lw, lh)
+    doc.rect(scr.x, scr.y, scr.w, scr.h, doc.lin([(0, "#2C2050", 1), (1, "#120C26", 1)], 0, 0, 0.6, 1), 8)
+    with doc.g(clip=doc.clip_rect(scr.x, scr.y, scr.w, scr.h, 8)):
+        for i in range(4):
+            doc.rect(scr.x + 520 + i * 90, scr.y + 60 + rng.uniform(0, 40), 56, rng.uniform(180, 300), "#FFFFFF", 6,
+                     opacity=0.04)
+        s = 400
+        caller = _place(_PROFILE, scr.x + 560, scr.y + 70, s, flip=True)
+        _synthetic_head(doc, caller, rng, "#C9A6FF", "#5B2D9E", p.danger, 24, 20, scr.y + 70, scr.b)
+        doc.rect(scr.x, scr.b - 90, scr.w, 90, doc.lin([(0, "#000", 0), (1, "#000", 0.6)]))
+        _call_controls(doc, scr.cx, scr.b - 46, 22, p.danger)
+    by = ly + lh + 18
+    doc.path(f"M{f(lx - 18)} {f(by)}H{f(lx + lw + 18)}L{f(lx + lw + 150)} {f(by + 120)}H{f(lx - 150)}Z",
+             fill=doc.lin([(0, "#2A2638", 1), (1, "#14121C", 1)]))
+    doc.path(f"M{f(lx - 150)} {f(by + 120)}H{f(lx + lw + 150)}V{f(by + 134)}H{f(lx - 150)}Z", fill="#0A0910")
+    for r in range(4):
+        t0, t1 = 0.12 + r * 0.17, 0.12 + r * 0.17 + 0.13
+        y0, y1 = by + 120 * t0, by + 120 * t1
+        doc.path(f"M{f(lx + 40 - 130 * t0)} {f(y0)}H{f(lx + lw - 40 + 130 * t0)}L{f(lx + lw - 40 + 130 * t1)} "
+                 f"{f(y1)}H{f(lx + 40 - 130 * t1)}Z", fill="#0E0C15", opacity=0.8)
+    doc.add(f'<ellipse cx="{f(lx + lw / 2)}" cy="{f(by + 8)}" rx="{f(lw * 0.5)}" ry="30" fill="{p.accent}" '
+            f'opacity="0.18" filter="{doc.blur(20)}"/>')
+    # the viewer: close to camera, in profile, lit only by the call
+    s = 700
+    viewer = _place(_PROFILE, -250, 150, s)
+    _real_head(doc, viewer, "#050309", "#B69CFF", (-9, 1), s)
+    _figure_block(doc, brief, 1460, 840, 92, "#FFFFFF", "#D8CCF5", anchor="end")
+    doc.focus = Box(100, 60, 1440, 810)
+
+
+ALTERNATIVES: dict[str, Callable[[Doc, EditorialBrief, random.Random], None]] = {
+    "a": _comp_duplicate, "b": _comp_mask, "c": _comp_device}
+
 
 @scene("deepfake_call")
 def deepfake_call(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
-    p = doc.pal
-    text = brief.text or ""
-    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#191232", 1), (1, "#0B0816", 1)], 0, 0, 0.5, 1))
-    doc.rect(0, 0, 1600, 900, doc.rad([(0, "#7A5CFF", 0.20), (1, "#7A5CFF", 0)], 0.33, 0.45, 0.6))
+    _comp_mask(doc, brief, rng)
 
-    # ---- the meeting window
-    win = Box(60, 86, 1010, 730)
-    doc.shadow(win.x, win.y, win.w, win.h, 16, 1.2)
-    doc.rect(win.x, win.y, win.w, win.h, "#0F0C1C", 16, stroke="#2E2650", sw=1.2)
-    doc.rect(win.x, win.y, win.w, 46, "#17122A", 16)
-    doc.rect(win.x, win.y + 30, win.w, 16, "#17122A")
-    for i, c in enumerate(("#FF5F57", "#FEBC2E", "#28C840")):
-        doc.circle(win.x + 24 + i * 18, win.y + 23, 5.5, c, opacity=0.85)
-    doc.text("Weekly sync - partners", win.x + win.w / 2, win.y + 29, 16, p.muted, "ui", anchor="middle")
-    doc.circle(win.r - 120, win.y + 23, 5, p.danger)
-    doc.text("REC  00:41:12", win.r - 108, win.y + 29, 14, p.muted, "mono")
 
-    # active speaker: the synthetic participant (hero)
-    main = Box(win.x + 18, win.y + 64, 700, 560)
-    clip_main = doc.clip_rect(main.x, main.y, main.w, main.h, 10)
-    with doc.g(clip=clip_main):
-        _room(doc, main, "#3B3358", rng)
-        # suit shoulders under the mesh head
-        s = 300
-        cx, cy = main.cx + 10, main.y + 250
-        sy = cy + s * 0.55
-        doc.path(f"M{f(cx - s * 1.15)} {f(main.b + 10)}C{f(cx - s * 1.1)} {f(sy + s * 0.3)} {f(cx - s * 0.6)} "
-                 f"{f(sy + s * 0.08)} {f(cx)} {f(sy + s * 0.05)}C{f(cx + s * 0.6)} {f(sy + s * 0.08)} "
-                 f"{f(cx + s * 1.1)} {f(sy + s * 0.3)} {f(cx + s * 1.15)} {f(main.b + 10)}Z", fill="#1E2233")
-        doc.rect(cx - s * 0.14, cy + s * 0.4, s * 0.28, s * 0.3, "#B98E76", s * 0.08)
-        doc.path(f"M{f(cx - s * 0.17)} {f(sy + s * 0.06)}L{f(cx)} {f(sy + s * 0.26)}L{f(cx + s * 0.17)} "
-                 f"{f(sy + s * 0.06)}Z", fill="#D9DCE6")
-        doc.path(f"M{f(cx - s * 0.035)} {f(sy + s * 0.15)}L{f(cx)} {f(sy + s * 0.3)}L{f(cx + s * 0.035)} "
-                 f"{f(sy + s * 0.15)}Z", fill="#5B2A3A")
-        pts = _synthetic(doc, cx, cy, s, rng, 0.52, "#D6A98C", p.danger, clip_main)
-    doc.rect(main.x, main.y, main.w, main.h, "none", 10, stroke=p.danger, sw=3)
-    # tracking brackets around the face
-    fx0, fx1 = min(x for x, _ in pts) - 26, max(x for x, _ in pts) + 26
-    fy0, fy1 = min(y for _, y in pts) - 26, max(y for _, y in pts) + 26
-    for (bx, by, dx, dy) in ((fx0, fy0, 1, 1), (fx1, fy0, -1, 1), (fx0, fy1, 1, -1), (fx1, fy1, -1, -1)):
-        doc.path(f"M{f(bx)} {f(by + dy * 26)}V{f(by)}H{f(bx + dx * 26)}", stroke="#FFFFFF", sw=2.5, opacity=0.8,
-                 cap="square", join="miter")
-    # name plate (placeholder) + speaking indicator
-    doc.rect(main.x + 16, main.b - 50, 230, 34, "#000000", 6, opacity=0.55)
-    for k, hgt in enumerate((8, 14, 10)):
-        doc.rect(main.x + 30 + k * 7, main.b - 33 - hgt / 2, 4, hgt, "#5EE6A8", 2)
-    doc.text("Investor (partner fund)", main.x + 60, main.b - 27, 16, "#FFFFFF", "ui")
-
-    # the rest of the meeting: ordinary participants
-    side = [Box(main.r + 14, main.y + i * 190, win.r - main.r - 32, 178) for i in range(3)]
-    looks = [("#E0B394", "#3B2A20", "#3F5B7A", 0), ("#8D5E45", "#1C1410", "#7A4E5E", 2),
-             ("#F0C8AE", "#A8763E", "#4F6B55", 1)]
-    names = ("you", "Ops lead", "Finance")
-    for i, (tile, (skin, hair, shirt, st)) in enumerate(zip(side, looks)):
-        cl = doc.clip_rect(tile.x, tile.y, tile.w, tile.h, 8)
-        with doc.g(clip=cl):
-            _room(doc, tile, ("#2C3A4A", "#3A3328", "#2E3B33")[i], rng)
-        _person(doc, tile.cx, tile.y + 30, 74, skin, hair, shirt, cl, st)
-        doc.rect(tile.x, tile.y, tile.w, tile.h, "none", 8, stroke="#2E2650", sw=1.2)
-        doc.rect(tile.x + 10, tile.b - 34, 14 + 9 * len(names[i]), 24, "#000000", 5, opacity=0.5)
-        doc.text(names[i], tile.x + 18, tile.b - 17, 14, "#FFFFFF", "ui")
-
-    # control bar
-    by = win.b - 66
-    for k, (ic, col) in enumerate((("phone", "#2A2442"), ("monitor", "#2A2442"), ("user", "#2A2442"))):
-        doc.circle(win.x + 400 + k * 70, by + 28, 24, col)
-        icon(doc, ic, win.x + 400 + k * 70, by + 28, 24, "#CFC8EA", 2)
-    doc.rect(win.x + 600, by + 6, 104, 44, p.danger, 22)
-    doc.text("Leave", win.x + 652, by + 34, 17, "#FFFFFF", "ui_bold", anchor="middle")
-
-    # callout on the mesh
-    lx, ly = main.x + 470, main.y + 150
-    doc.line((lx, ly), (main.x + 560, main.y + 92), "#FFFFFF", 1.5, opacity=0.8)
-    pill(doc, main.x + 470, main.y + 74, "synthetic face", fg="#FFFFFF", bg=p.danger, size=16, font="ui_bold")
-    doc.circle(lx, ly, 5, "#FFFFFF")
-
-    doc.focus = Box(main.x + 60, main.y + 40, 600, 338)
-
-    # ---- the transfer being approved, beside the call
-    tb = Box(1110, 230, 440, 380)
-    doc.shadow(tb.x, tb.y, tb.w, tb.h, 14, 1.0)
-    doc.rect(tb.x, tb.y, tb.w, tb.h, "#F6F3FF", 14)
-    doc.text("Confirm transaction", tb.x + 32, tb.y + 56, 26, "#17122A", "display")
-    doc.text("wallet signature request", tb.x + 32, tb.y + 86, 16, "#6E6690", "ui")
-    rows = (("from", "treasury hot wallet"), ("to", "0x7d3a...c41e"), ("network", "mainnet"))
-    for k, (a, b) in enumerate(rows):
-        yy = tb.y + 132 + k * 44
-        doc.line((tb.x + 32, yy + 16), (tb.r - 32, yy + 16), "#DDD6F2", 1)
-        doc.text(a, tb.x + 32, yy, 16, "#6E6690", "ui")
-        doc.text(b, tb.r - 32, yy, 17, "#17122A", "mono", anchor="end")
-    # buttons, with the pointer about to approve
-    doc.rect(tb.x + 32, tb.b - 92, 170, 54, "#FFFFFF", 10, stroke="#CFC6EA", sw=1.5)
-    doc.text("Reject", tb.x + 117, tb.b - 58, 19, "#17122A", "ui_bold", anchor="middle")
-    doc.rect(tb.r - 202, tb.b - 92, 170, 54, "#6D4CFF", 10)
-    doc.text("Approve", tb.r - 117, tb.b - 58, 19, "#FFFFFF", "ui_bold", anchor="middle")
-    px, py = tb.r - 92, tb.b - 54
-    doc.path(f"M{f(px)} {f(py)}l0 34l9-8l7 15l7-3l-7-15l12-1z", fill="#FFFFFF", stroke="#17122A", sw=2)
-    # the call drives the approval
-    chip = pill(doc, tb.x, tb.y - 52, "asked for on the call", fg="#FFFFFF", bg="#2A2442", size=15, font="ui",
-                pad=14, stroke="#4A3F78")
-    _ = chip
-
-    money = brief.facts.get("money")
-    if money:
-        plus = re.search(r"(more than|over|понад|більше)\s+\$?\s?" + re.escape(str(money).strip("$MB")[:3]), text)
-        label = f"{money}+" if plus else str(money)
-        doc.text(label, tb.x + 2, tb.b + 100, 76, "#FFFFFF", "display")
-        stolen = re.search(r"\bstole|stolen|theft|викра", text)
-        doc.text("in crypto stolen via faked calls" if stolen else "in crypto", tb.x + 6, tb.b + 136, 19, p.muted,
-                 "ui")

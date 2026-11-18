@@ -1,150 +1,222 @@
-"""An AI-driven security tool run against a real target: the tool's console
-shows its own plan — reconnaissance and intrusion steps it works through on
-its own — and the company's cloud tenant on the right shows which resource
-each step reaches. The step running now (privilege escalation) is the focal
-point (shown as requested, not as obtained). When the sources say a stolen cloud access key opened the way, the key
-appears as the entry point. No robots, no glowing brains."""
+"""An AI security-testing tool used against real targets (ARTEX).
+
+What the sources state, and nothing more: the tool's name (plain text), that it
+is an AI penetration-testing framework built to help companies test their own
+defences, and what it was used against — per story:
+  * an FBI warning that attackers use it to break into corporate networks;
+  * a company's cloud breach tied to a stolen cloud access key and the tool.
+No attack stages, no console, no capabilities the sources do not state, no
+logos; the company name only when the headline names it.
+
+Alternatives:
+  a  the reticle: the tool as a large sighting ring, swung away from a faded
+     practice target onto the real one (the breached cloud, or the corporate
+     network the warning names);
+  b  the U-turn: the defender's shield with the tool's arrow leaving it and
+     turning back out toward the real target; the name set large.
+"""
 from __future__ import annotations
 
+import math
 import random
 import re
+from typing import Callable
 
 from .. import type as T
 from ..brief import EditorialBrief
-from ..kit import Box, Doc, arrow, background, icon, pill, vignette, window
+from ..kit import H, W, Box, Doc, f, icon
 from . import scene
 
+_BG0, _BG1 = "#0C0A16", "#1A1430"
 
-def _status_glyph(doc: Doc, x: float, y: float, state: str, col: str, muted: str) -> None:
-    if state == "done":
-        doc.circle(x, y, 13, col, opacity=0.18)
-        icon(doc, "check", x, y, 18, col, 2.6)
-    elif state == "run":
-        doc.circle(x, y, 12, "none", muted, 3, 0.4)
-        doc.path(f"M{x} {y - 12}A12 12 0 0 1 {x + 12} {y}", stroke=col, sw=3.5)
+
+def _facts(brief: EditorialBrief) -> dict[str, str]:
+    """What the story states: tool name, who warns, the target, the entry."""
+    t = brief.text or ""
+    head = t[:200]
+    tool = "ARTEX" if "artex" in t else "AI TOOL"
+    cloud = bool(re.search(r"cloud (environment|breach)|breach of its cloud|хмар", t))
+    key = bool(re.search(r"(stolen|leaked|compromised) cloud (access )?key|cloud access key", t))
+    company = ""
+    for e in brief.entities:
+        if e.lower() in head and e.upper() != tool and e not in ("AI-powered", "FBI") and \
+                T.supported(e, "ui_bold") == e and re.fullmatch(r"[A-Z][A-Za-z]+", e):
+            company = e
+            break
+    warner = "FBI" if re.search(r"\bfbi\b|фбр", head) else ""
+    if cloud:
+        target = "cloud"
+    elif re.search(r"corporate network|корпоративн\w* мереж", t):
+        target = "network"
     else:
-        doc.circle(x, y, 11, "none", muted, 2, 0.7)
+        target = "network"
+    return {"tool": tool, "target": target, "key": "1" if key else "", "company": company, "warner": warner}
 
 
-def _bucket(doc: Doc, cx: float, cy: float, w: float, col: str) -> None:
-    h = w * 0.8
-    doc.path(f"M{cx - w / 2} {cy - h / 2}L{cx - w * 0.38} {cy + h / 2}A{w * 0.38} {w * 0.1} 0 0 0 "
-             f"{cx + w * 0.38} {cy + h / 2}L{cx + w / 2} {cy - h / 2}Z", fill=doc.lin([(0, "#3B2E66", 1),
-                                                                                       (1, "#251C40", 1)], 0, 0, 1, 0),
-             stroke=col, sw=1.6)
-    doc.add(f'<ellipse cx="{cx}" cy="{cy - h / 2}" rx="{w / 2}" ry="{w * 0.13}" fill="#4A3B80" stroke="{col}" '
-            f'stroke-width="1.6"/>')
+def _stage(doc: Doc, light: tuple[float, float]) -> None:
+    doc.rect(0, 0, W, H, doc.lin([(0, _BG1, 1), (1, _BG0, 1)], 0, 0, 0.3, 1))
+    doc.rect(0, 0, W, H, doc.rad([(0, "#B69CFF", 0.16), (0.5, "#B69CFF", 0.04), (1, "#B69CFF", 0)], light[0],
+                                 light[1], 0.55))
+
+
+def _cloud(doc: Doc, cx: float, cy: float, s: float, fill: str, stroke: str) -> None:
+    """A solid cloud silhouette (three lobes on a flat base)."""
+    d = (f"M{f(cx - 230 * s)} {f(cy + 90 * s)}"
+         f"A{f(90 * s)} {f(90 * s)} 0 0 1 {f(cx - 170 * s)} {f(cy - 40 * s)}"
+         f"A{f(130 * s)} {f(130 * s)} 0 0 1 {f(cx + 60 * s)} {f(cy - 90 * s)}"
+         f"A{f(110 * s)} {f(110 * s)} 0 0 1 {f(cx + 200 * s)} {f(cy - 10 * s)}"
+         f"A{f(100 * s)} {f(100 * s)} 0 0 1 {f(cx + 230 * s)} {f(cy + 90 * s)}Z")
+    doc.path(d, fill="#000000", opacity=0.45, extra=f' transform="translate(10 24)" filter="{doc.blur(18)}"')
+    doc.path(d, fill=fill, stroke=stroke, sw=4)
+
+
+def _keyhole_key(doc: Doc, cx: float, cy: float, s: float, col: str) -> None:
+    """A key inserted into the cloud from the left: the stolen access key."""
+    doc.circle(cx, cy - 18 * s, 26 * s, "#0C0A16")
+    doc.path(f"M{f(cx - 14 * s)} {f(cy - 6 * s)}L{f(cx - 22 * s)} {f(cy + 50 * s)}H{f(cx + 22 * s)}"
+             f"L{f(cx + 14 * s)} {f(cy - 6 * s)}Z", fill="#0C0A16")
+    # key: bow outside on the left, blade into the keyhole
+    by = cy + 6 * s
+    doc.rect(cx - 210 * s, by - 9 * s, 200 * s, 18 * s, col, 6 * s)
+    doc.rect(cx - 120 * s, by + 6 * s, 16 * s, 22 * s, col, 3 * s)
+    doc.rect(cx - 90 * s, by + 6 * s, 14 * s, 16 * s, col, 3 * s)
+    doc.circle(cx - 250 * s, by, 52 * s, col)
+    doc.circle(cx - 250 * s, by, 22 * s, "#1A1430")
+    doc.rect(cx - 200 * s, by - 7 * s, 180 * s, 4 * s, "#FFFFFF", 2 * s, opacity=0.35)
+
+
+def _towers(doc: Doc, cx: float, base: float, s: float, fill: str, edge: str) -> None:
+    """Corporate buildings: three office towers with a lit window grid."""
+    specs = ((-190, 300, 150), (-20, 420, 170), (160, 250, 140))
+    for dx, h, w in specs:
+        x = cx + dx * s
+        doc.rect(x - w * s / 2 + 12, base - h * s + 26, w * s, h * s, "#000", 4, opacity=0.4,
+                 extra=f' filter="{doc.blur(14)}"')
+        doc.rect(x - w * s / 2, base - h * s, w * s, h * s, fill, 4, stroke=edge, sw=3)
+        cols, rows = 4, int(h / 34)
+        win = []
+        for r in range(rows):
+            for c in range(cols):
+                wx = x - w * s / 2 + 16 * s + c * (w * s - 32 * s) / cols
+                wy = base - h * s + 22 * s + r * 34 * s
+                win.append(f'<rect x="{f(wx)}" y="{f(wy)}" width="{f((w * s - 32 * s) / cols - 8 * s)}" '
+                           f'height="{f(16 * s)}" rx="2"/>')
+        doc.add(f'<g fill="#B69CFF" opacity="0.28">{"".join(win)}</g>')
+    doc.rect(cx - 330 * s, base, 660 * s, 6, edge, 3, opacity=0.6)
+
+
+def _target(doc: Doc, info: dict[str, str], cx: float, cy: float, s: float, red: str) -> None:
+    if info["target"] == "cloud":
+        _cloud(doc, cx, cy, s, "#2A2148", "#8E86A8")
+        if info["key"]:
+            _keyhole_key(doc, cx + 40 * s, cy + 10 * s, s, "#F2C14E")
+        if info["company"]:
+            doc.text(info["company"].upper(), cx + 20 * s, cy + 150 * s, 40, "#EEEAFB", "ui_bold", anchor="middle",
+                     tracking=5)
+        # breach mark: a crack through the cloud's base
+        doc.path(f"M{f(cx + 150 * s)} {f(cy - 40 * s)}l{f(-26 * s)} {f(40 * s)}l{f(30 * s)} {f(18 * s)}"
+                 f"l{f(-22 * s)} {f(60 * s)}", stroke=red, sw=7)
+    else:
+        _towers(doc, cx, cy + 190 * s, s, "#251C40", "#8E86A8")
+
+
+def _reticle(doc: Doc, cx: float, cy: float, r: float, col: str, label: str) -> None:
+    doc.circle(cx, cy, r, "none", col, 7)
+    ticks = []
+    for k in range(72):
+        a = math.radians(k * 5)
+        l1 = r + (22 if k % 6 == 0 else 10)
+        ticks.append(f"M{f(cx + math.cos(a) * (r + 4))} {f(cy + math.sin(a) * (r + 4))}"
+                     f"L{f(cx + math.cos(a) * l1)} {f(cy + math.sin(a) * l1)}")
+    doc.path("".join(ticks), stroke=col, sw=2.5, opacity=0.8)
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        doc.line((cx + dx * (r - 34), cy + dy * (r - 34)), (cx + dx * (r + 64), cy + dy * (r + 64)), col, 7)
+    # name plate on the ring
+    w = T.measure(label, 88, "display", 5) + 60
+    doc.rect(cx - w / 2 + 6, cy - r - 52 + 12, w, 112, "#000", 10, opacity=0.4, extra=f' filter="{doc.blur(10)}"')
+    doc.rect(cx - w / 2, cy - r - 52, w, 112, col, 10)
+    doc.text(label, cx, cy - r + 4 + T.cap_height(88, "display") / 2, 88, "#120E22", "display", anchor="middle",
+             tracking=5)
+
+
+def _practice(doc: Doc, cx: float, cy: float, r: float) -> None:
+    """The practice target the tool was built for: concentric rings, faded."""
+    with doc.g(opacity=0.35):
+        for k, c in enumerate(("#EEEAFB", "#1B1530", "#EEEAFB", "#1B1530", "#EEEAFB")):
+            doc.circle(cx, cy, r * (1 - k * 0.19), c, stroke="#8E86A8", sw=1.5)
+    doc.text("PENTEST", cx, cy + r + 50, 26, "#8E86A8", "ui_bold", anchor="middle", tracking=5)
+
+
+def _kicker(doc: Doc, info: dict[str, str], x: float, y: float, red: str) -> None:
+    doc.rect(x, y - 40, 56, 7, red)
+    s = (info["warner"] + " WARNING") if info["warner"] else ("CLOUD BREACH" if info["target"] == "cloud"
+                                                             else "AI PENTEST TOOL")
+    doc.text(s, x, y, 28, "#C9C1E6", "ui_bold", tracking=4)
+
+
+def _comp_reticle(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
+    p = doc.pal
+    info = _facts(brief)
+    red = p.danger
+    _stage(doc, (0.68, 0.45))
+    # faded practice target, upper left, and the swing of the sight away from it
+    _practice(doc, 220, 620, 90)
+    doc.path("M330 560Q520 420 760 470", stroke=p.accent, sw=3, dash="14 12", opacity=0.6)
+    tc = (1070.0, 500.0)
+    _target(doc, info, tc[0], tc[1], 1.0, red)
+    _reticle(doc, tc[0], tc[1], 250, red, info["tool"])
+    _kicker(doc, info, 80, 110, red)
+    doc.text("AI pentest tool", 80, 170, 40, "#EEEAFB", "ui_bold")
+    lines = (("linked to the", "cloud breach") if info["target"] == "cloud"
+             else ("used to break into", "corporate networks"))
+    doc.text(lines[0], 80, 222, 40, "#8E86A8", "ui")
+    doc.text(lines[1], 80, 274, 40, "#8E86A8", "ui")
+    doc.focus = Box(560, 150, 1040, 585)
+    _ = rng
+
+
+def _shield(doc: Doc, cx: float, cy: float, s: float, fill: str, edge: str) -> None:
+    d = (f"M{f(cx)} {f(cy - 200 * s)}L{f(cx + 165 * s)} {f(cy - 140 * s)}V{f(cy + 10 * s)}"
+         f"C{f(cx + 165 * s)} {f(cy + 120 * s)} {f(cx + 80 * s)} {f(cy + 190 * s)} {f(cx)} {f(cy + 230 * s)}"
+         f"C{f(cx - 80 * s)} {f(cy + 190 * s)} {f(cx - 165 * s)} {f(cy + 120 * s)} {f(cx - 165 * s)} {f(cy + 10 * s)}"
+         f"V{f(cy - 140 * s)}Z")
+    doc.path(d, fill="#000", opacity=0.45, extra=f' transform="translate(10 22)" filter="{doc.blur(16)}"')
+    doc.path(d, fill=fill, stroke=edge, sw=6)
+    doc.path(f"M{f(cx)} {f(cy - 200 * s)}V{f(cy + 230 * s)}", stroke="#FFFFFF", sw=2, opacity=0.12)
+
+
+def _comp_uturn(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
+    p = doc.pal
+    info = _facts(brief)
+    red = p.danger
+    _stage(doc, (0.3, 0.55))
+    sc = (380.0, 600.0)
+    tc = (1210.0, 470.0)
+    _shield(doc, sc[0], sc[1], 0.9, doc.lin([(0, "#3B2E66", 1), (1, "#221A3E", 1)], 0, 0, 1, 1), p.accent)
+    icon(doc, "check", sc[0], sc[1] - 10, 120, p.accent, 3, 0.5)
+    # the arrow: born inside the shield, it turns and leaves toward the target
+    end = (tc[0] - 300, tc[1] + 30)
+    d = (f"M{f(sc[0] + 40)} {f(sc[1] + 90)}C{f(sc[0] + 240)} {f(sc[1] + 300)} {f(end[0] - 260)} {f(end[1] + 260)} "
+         f"{f(end[0] - 80)} {f(end[1] + 20)}")
+    doc.path(d, stroke="#000", sw=34, opacity=0.35, extra=f' filter="{doc.blur(10)}"')
+    doc.path(d, stroke=red, sw=26, cap="butt")
+    tip = (end[0] + 10, end[1] - 50)
+    ang = math.atan2(tip[1] - (end[1] + 20), tip[0] - (end[0] - 80))
+    hd = 92
+    doc.poly([tip, (tip[0] - hd * math.cos(ang - 0.5), tip[1] - hd * math.sin(ang - 0.5)),
+              (tip[0] - hd * math.cos(ang + 0.5), tip[1] - hd * math.sin(ang + 0.5))], red)
+    _target(doc, info, tc[0], tc[1], 0.72, red)
+    doc.text(info["tool"], 80, 190, 150, "#EEEAFB", "display", tracking=6)
+    _kicker(doc, info, 84, 290, red)
+    doc.text("AI pentest tool", 84, 340, 36, "#8E86A8", "ui")
+    doc.focus = Box(50, 40, 1500, 844)
+    _ = rng
+
+
+ALTERNATIVES: dict[str, Callable[[Doc, EditorialBrief, random.Random], None]] = {
+    "a": _comp_reticle, "b": _comp_uturn}
 
 
 @scene("ai_offensive_tool")
 def ai_offensive_tool(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
-    p = doc.pal
-    background(doc, light=(0.35, 0.15))
-    t = brief.text
-    tool = "artex" if "artex" in t else "agent"
-    stolen_key = bool(re.search(r"(stolen|leaked|compromised) (cloud )?(access )?key|access key", t))
-
-    # ---- identity: a security-testing tool, pointed at a real target
-    if tool == "artex":
-        doc.text("ARTEX", 64, 82, 46, p.ink, "display")
-        nx = 64 + T.measure("ARTEX", 46, "display") + 28
-        b = pill(doc, nx, 50, "security-testing tool", fg=p.muted, bg="#00000000", size=15, stroke=p.line)
-        arrow(doc, [(b.r + 12, 68), (b.r + 62, 68)], p.danger, sw=2.5, head=11)
-        pill(doc, b.r + 74, 50, "run against a real target", fg="#FFFFFF", bg=p.danger, size=15)
-    # ---- the tool's console (left)
-    win = Box(64, 110, 790, 680)
-    body = window(doc, win, title=f"{tool} - autonomous run", surface="#120E22", chrome="#1D1636")
-    x0 = body.x + 40
-    doc.text("target", x0, body.y + 54, 18, p.muted, "mono")
-    doc.text("tenant: company.example", x0 + 110, body.y + 54, 18, p.ink, "mono_bold")
-    doc.text("mode", x0, body.y + 84, 18, p.muted, "mono")
-    doc.text("autonomous", x0 + 110, body.y + 84, 18, p.accent, "mono_bold")
-    doc.line((x0, body.y + 112), (body.r - 40, body.y + 112), p.line, 1.5)
-    doc.text("PLAN", x0, body.y + 150, 16, p.muted, "ui_bold", tracking=3)
-    steps = [
-        ("recon", "enumerate users and apps", "done"),
-        ("access", "sign in with cloud access key" if stolen_key else "obtain initial access", "done"),
-        ("discover", "list storage and compute", "done"),
-        ("escalate", "request privileged role", "run"),
-        ("lateral", "reach connected systems", "todo"),
-    ]
-    if re.search(r"breach|зламал|викрал", t) and re.search(r"cloud|хмар", t):
-        # The cloud-breach report: the run got as far as the data.
-        steps[3] = ("escalate", "request privileged role", "done")
-        steps[4] = ("collect", "copy data out of storage", "run")
-    rows_y: list[float] = []
-    for i, (k, desc, state) in enumerate(steps):
-        y = body.y + 200 + i * 78
-        rows_y.append(y)
-        if state == "run":
-            doc.rect(body.x + 16, y - 36, body.w - 32, 66, p.danger, 8, opacity=0.13)
-            doc.rect(body.x + 16, y - 36, 5, 66, p.danger)
-        col = p.danger if state == "run" else (p.accent if state == "done" else p.muted)
-        _status_glyph(doc, x0 + 14, y - 3, state, col, p.muted)
-        doc.text(f"{i + 1:02d}", x0 + 46, y + 4, 18, p.muted, "mono")
-        doc.text(k, x0 + 92, y + 4, 24, p.ink if state != "todo" else p.muted, "mono_bold")
-        doc.text(T.fit(desc, 19, body.w - 330, "mono"), x0 + 260, y + 3, 19,
-                 p.ink if state == "run" else p.muted, "mono")
-    yb = rows_y[-1] + 70
-    doc.text("> next step chosen by model", x0, yb, 17, p.muted, "mono")
-    doc.rect(x0 + T.measure("> next step chosen by model ", 17, "mono"), yb - 15, 10, 19, p.accent, opacity=0.8)
-
-    # ---- the cloud tenant (right)
-    tb = Box(960, 120, 580, 660)
-    doc.rect(tb.x, tb.y, tb.w, tb.h, "#1A1430", 26, opacity=0.6)
-    doc.rect(tb.x, tb.y, tb.w, tb.h, "none", 26, stroke=p.ink, sw=2, opacity=0.5,
-             extra=' stroke-dasharray="10 9"')
-    icon(doc, "globe", tb.x + 40, tb.y + 42, 26, p.ink, 2)
-    doc.text("cloud tenant", tb.x + 66, tb.y + 50, 22, p.ink, "ui_bold")
-    doc.text("company.example", tb.r - 30, tb.y + 50, 18, p.muted, "mono", anchor="end")
-
-    # identity directory
-    idb = Box(tb.x + 36, tb.y + 96, 240, 168)
-    doc.rect(idb.x, idb.y, idb.w, idb.h, "#221A3E", 12, stroke=p.line, sw=1.5)
-    doc.text("identity", idb.x + 18, idb.y + 32, 16, p.muted, "ui_bold", tracking=1.5)
-    for i in range(3):
-        icon(doc, "user", idb.x + 32, idb.y + 62 + i * 34, 22, p.ink, 1.8)
-        doc.rect(idb.x + 54, idb.y + 56 + i * 34, 110 + (i * 37) % 60, 9, "#4A3B80", 4)
-    # storage
-    stb = Box(tb.x + 304, tb.y + 96, 240, 168)
-    doc.rect(stb.x, stb.y, stb.w, stb.h, "#221A3E", 12, stroke=p.line, sw=1.5)
-    doc.text("storage", stb.x + 18, stb.y + 32, 16, p.muted, "ui_bold", tracking=1.5)
-    for i in range(3):
-        _bucket(doc, stb.x + 52 + i * 68, stb.y + 106, 50, p.muted)
-    # compute
-    cpb = Box(tb.x + 36, tb.y + 296, 508, 150)
-    doc.rect(cpb.x, cpb.y, cpb.w, cpb.h, "#221A3E", 12, stroke=p.line, sw=1.5)
-    doc.text("compute", cpb.x + 18, cpb.y + 32, 16, p.muted, "ui_bold", tracking=1.5)
-    for i in range(4):
-        vx = cpb.x + 22 + i * 120
-        doc.rect(vx, cpb.y + 54, 104, 70, "#2D2350", 8, stroke=p.line, sw=1.2)
-        doc.rect(vx + 12, cpb.y + 68, 60, 8, "#5B4C99", 4)
-        doc.rect(vx + 12, cpb.y + 84, 40, 6, "#46397A", 3)
-        doc.circle(vx + 88, cpb.y + 108, 5, "#5EE6A8")
-    # admin role (focal)
-    adb = Box(tb.x + 36, tb.y + 480, 508, 140)
-    doc.shadow(adb.x, adb.y, adb.w, adb.h, 12, 0.5)
-    doc.rect(adb.x, adb.y, adb.w, adb.h, "#2A1631", 12, stroke=p.danger, sw=3)
-    collect = steps[4][0] == "collect"
-    icon(doc, "download" if collect else "key", adb.x + 58, adb.cy, 52, p.danger, 2.6)
-    doc.text("data copied out" if collect else "privileged role", adb.x + 110, adb.y + 64, 30, p.ink, "display")
-    doc.text("target of step 05" if collect else "target of step 04", adb.x + 112, adb.y + 100, 18, p.muted, "mono")
-    pill(doc, adb.r - 24, adb.y + 22, "in progress", fg="#FFFFFF", bg=p.danger, size=15, anchor="end")
-
-    # ---- step -> resource links
-    ex = win.r + 10
-    arrow(doc, [(ex, rows_y[0] - 4), (920, rows_y[0] - 4), (idb.x - 10, idb.y + 60)], p.accent, sw=2.5, head=12,
-          opacity=0.7)
-    arrow(doc, [(ex, rows_y[2] - 4), (930, rows_y[2] - 4), (cpb.x - 10, cpb.y + 70)], p.accent, sw=2.5, head=12,
-          opacity=0.7)
-    hot = rows_y[4] if collect else rows_y[3]
-    arrow(doc, [(ex, hot - 4), (910, hot - 4), (910, adb.cy), (adb.x - 12, adb.cy)], p.danger, sw=4.5,
-          head=18)
-    if stolen_key:
-        kx, ky = 900, rows_y[1] - 4
-        doc.line((ex, ky), (kx - 34, ky), p.accent, 2.5, 0.7)
-        doc.rect(kx - 34, ky - 22, 68, 44, "#2A1F4A", 10, stroke=p.accent, sw=2)
-        icon(doc, "key", kx, ky, 28, p.accent, 2.2)
-        arrow(doc, [(kx + 34, ky), (tb.x - 8, ky)], p.accent, sw=2.5, head=12, opacity=0.7)
-    doc.focus = Box(60, 90, 1490, 838)
-    vignette(doc, 0.5)
+    _comp_reticle(doc, brief, rng)
