@@ -834,3 +834,22 @@ def test_attribution_alone_is_not_a_fact_and_actions_beat_soft_facts() -> None:
     c["short_summary"] = "BleepingComputer reports that CVE-2026-4242 in Widget 7.2 is the entry point."
     post = render_post(p, locale="en", url=f"{BASE}/en/threat/{it.fingerprint}")
     assert "CVE-2026-4242 in Widget 7.2 is the entry point." in post.text and "BleepingComputer reports" not in post.text
+
+
+def test_story_test_post_is_exactly_what_scheduling_would_send() -> None:
+    """`test-post --story` (genuine content) uses the scheduler's formatter, the
+    story's canonical illustration and its alt text; no illustration, no post."""
+    from cyberalertx.threads.destination import IMAGE_VARIANT
+    from cyberalertx.threads.format import threads_length
+    from cyberalertx.tools.threads import story_post
+    it = item(1)
+    p = payload(it)
+    p["media"] = {"illustration": {"asset_id": "ab" * 8, "alt": {"en": "An alt", "ua": "Альт"}}}
+    out = story_post(p, "en", BASE)
+    ref = render_post(p, locale="en", url=f"{BASE}/en/threat/{it.fingerprint}")
+    assert out["text"] == ref.text and out["length"] == threads_length(ref.text) <= 500
+    assert out["image"] == f"{BASE}/media/{'ab' * 8}/{IMAGE_VARIANT}" and out["alt"] == "An alt"
+    assert story_post(p, "ua", BASE)["alt"] == "Альт"
+    p["media"] = {}
+    with pytest.raises(ValueError):
+        story_post(p, "en", BASE)

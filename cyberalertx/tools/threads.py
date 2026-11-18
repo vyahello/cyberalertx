@@ -254,25 +254,77 @@ TEST_TEXT = {
 }
 
 
+def story_post(payload: dict[str, Any], locale: str, base: str) -> dict[str, Any]:
+    """Exactly what scheduled publishing would post for this story on this
+    account: the Threads formatter's text, the story's canonical illustration
+    (Threads variant) and its alt text. Pure; raises ValueError when the story
+    cannot be posted (no text, no illustration)."""
+    from ..publish.format import deep_link
+    from ..threads.destination import IMAGE_VARIANT
+    from ..threads.format import render_post, threads_length
+
+    url = deep_link(base, locale, str(payload["id"]))
+    post = render_post(payload, locale=locale, url=url)
+    ill = (payload.get("media") or {}).get("illustration") or {}
+    if not ill.get("asset_id"):
+        raise ValueError("the story has no canonical illustration yet")
+    return {"text": post.text, "length": threads_length(post.text), "url": url,
+            "image": f"{base}/media/{ill['asset_id']}/{IMAGE_VARIANT}",
+            "alt": str((ill.get("alt") or {}).get(locale) or ""), "topic_tag": post.topic_tag,
+            "dropped": list(post.dropped)}
+
+
+def _story_payload(story: str, locale: str) -> dict[str, Any]:
+    from ..api.app import _PostService
+    from ..publish.orchestrator import EditionSource
+
+    source = EditionSource(_PostService())
+    items = [i for i in source.items() if i.fingerprint == story or getattr(i, "story_key", "") == story]
+    for item in sorted(items, key=lambda i: i.published_at, reverse=True):
+        payload = source.payload(item, locale)
+        if payload:
+            return payload
+    raise ValueError(f"no {locale} edition for {story}")
+
+
 def cmd_test_post(args: argparse.Namespace, *, client: Any = None) -> int:
-    """One clearly marked test post with a canonical illustration. Requires --confirm."""
+    """One clearly marked test post with a canonical illustration. Requires --confirm.
+
+    With --story, the post is that story exactly as scheduled publishing would
+    send it (genuine CyberAlertX content). The story predates the account's
+    `publishing_since`, so the scheduler can never post it a second time.
+    --preview prints what would be posted and touches nothing."""
     from ..publish.config import build_telegram_settings
     from ..threads.client import ThreadsClient, ThreadsError
     from ..threads.credentials import DEFAULT_USERNAMES, check_token
     from ..threads.destination import IMAGE_VARIANT, http_image_check
 
-    if not args.confirm:
-        print("Refusing: add --confirm to publish ONE test post.", file=sys.stderr)
-        return 2
     ts, accounts = _stores()
     slot = args.slot
+    base = build_telegram_settings().public_base_url.rstrip("/")
+    story: dict[str, Any] = {}
+    if args.story:
+        try:
+            story = story_post(_story_payload(args.story, ts.accounts[slot]), ts.accounts[slot], base)
+        except (ValueError, KeyError) as exc:
+            print(f"cannot post {args.story}: {exc}", file=sys.stderr)
+            return 2
+    if args.preview:
+        if story:
+            http_image_check(story["image"])                  # the public image must already serve
+        print(json.dumps({"account": slot, "mode": "story" if story else "test text", "preview": story or {
+            "text": TEST_TEXT[ts.accounts[slot]].format(url=f"{base}/{ts.accounts[slot]}")}},
+            ensure_ascii=False, indent=2))
+        return 0
+    if not args.confirm:
+        print("Refusing: add --confirm to publish ONE test post (or --preview to see it).", file=sys.stderr)
+        return 2
     if slot not in ts.accounts or not accounts.has_token(slot):
         print(f"no token for {slot}", file=sys.stderr)
         return 2
     acc = accounts.get(slot)
     expected = ts.usernames.get(slot) or DEFAULT_USERNAMES.get(slot, "")
-    base = build_telegram_settings().public_base_url.rstrip("/")
-    image = f"{base}/media/{args.asset}/{IMAGE_VARIANT}" if args.asset else ""
+    image = story["image"] if story else (f"{base}/media/{args.asset}/{IMAGE_VARIANT}" if args.asset else "")
     api = client or ThreadsClient()
     try:
         c = check_token(slot, accounts.token(slot), expected, api)
@@ -281,9 +333,10 @@ def cmd_test_post(args: argparse.Namespace, *, client: Any = None) -> int:
             return 1
         if image:
             http_image_check(image)
-        text = TEST_TEXT[ts.accounts[slot]].format(url=f"{base}/{ts.accounts[slot]}")
+        text = story["text"] if story else TEST_TEXT[ts.accounts[slot]].format(url=f"{base}/{ts.accounts[slot]}")
+        alt = story["alt"] if story else (args.alt or "")
         token = accounts.token(slot)
-        cid = api.create_container(acc.threads_user_id, token, text=text, image_url=image, alt_text=args.alt or "")
+        cid = api.create_container(acc.threads_user_id, token, text=text, image_url=image, alt_text=alt)
         import time
         for _ in range(10):
             status, err = api.container_status(cid, token)
@@ -326,6 +379,9 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("slot", choices=["en", "ua"])
     t.add_argument("--asset", default="", help="canonical illustration asset id (16 hex) to attach")
     t.add_argument("--alt", default="", help="alt text for the image")
+    t.add_argument("--story", default="", help="post this story (story key or article fingerprint) exactly as "
+                                               "scheduled publishing would")
+    t.add_argument("--preview", action="store_true", help="print what would be posted; publish nothing")
     t.add_argument("--confirm", action="store_true")
     t.set_defaults(fn=cmd_test_post)
     args = ap.parse_args(argv)

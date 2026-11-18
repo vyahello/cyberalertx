@@ -158,7 +158,22 @@ venv/bin/python -m cyberalertx.tools.threads test-post ua --asset <16-hex asset 
 ```
 
 Each `test-post` publishes **one** post that says it is a test, with a
-canonical illustration, and prints the permalink. After both are checked
+canonical illustration, and prints the permalink.
+
+To test with genuine content instead, `--story <story key or article
+fingerprint>` posts that story exactly as scheduled publishing would. That
+means the Threads formatter's text, the story's own canonical illustration
+(Threads variant) and its alt text. `--preview` prints the post and checks
+that the image serves publicly, and publishes nothing:
+
+```bash
+venv/bin/python -m cyberalertx.tools.threads test-post en --story <story> --preview
+venv/bin/python -m cyberalertx.tools.threads test-post en --story <story> --confirm
+```
+
+A story posted this way predates the account's `publishing_since` (fixed on
+the first enabled run), so scheduled publishing can never post it a second
+time. The post counts towards the account's daily limit. After both are checked
 on Threads, set `THREADS_ENABLED=1` (an operator edit of .env). Emergency
 stop: set `THREADS_ENABLED=0`. Telegram and the website are unaffected
 either way.

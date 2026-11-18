@@ -13,6 +13,7 @@ marked as such at the top.
 | [operations/OPERATIONS.md](operations/OPERATIONS.md) | Release layout, build / switch / rollback, backups, consistency model, publishing hold, recovery |
 | [media/VISUAL_SYSTEM_V4.md](media/VISUAL_SYSTEM_V4.md) | Editorial visual system V4: brief, scene library, verified photo library, authoring rules |
 | [media/V4_ACTIVATION_PLAN.md](media/V4_ACTIVATION_PLAN.md) | V4 canary on new stories: verified facts, commands, go/no-go criteria, rollback |
+| [media/V41_BACKFILL_PLAN.md](media/V41_BACKFILL_PLAN.md) | V4.1 archive backfill: scope, batches, verification, exact restore |
 | [media/VISUAL_REVIEW_V41.md](media/VISUAL_REVIEW_V41.md) | V4 → V4.1 review of 46 stories: evidence-first rewrite, scores, hard-gate failures |
 | [media/VISUAL_REVIEW_V4.md](media/VISUAL_REVIEW_V4.md) | V3 → V4 review of 32 stories: scores, flagged images, limitations |
 | [media/VISUAL_REVIEW_V3.md](media/VISUAL_REVIEW_V3.md) | Illustration renderer v3: subject selection, new scenes, 32-story review |
