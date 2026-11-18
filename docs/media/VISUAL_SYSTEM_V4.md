@@ -144,6 +144,38 @@ scene.
   from 28. It is a designed cover built from the story's own identifiers, not
   a blank form.
 
+### Routing additions (V4.1.1, 18 Nov 2026)
+
+* **Headline first.** `EditorialBrief.headline` carries the published
+  headline (it is not part of the inputs hash). The fallback takes its lead
+  word from the headline's main clause, then the full headline, never from
+  the article body. A canary image led with "AI" because the body mentioned
+  an AI calling tool; the headline is about a police action.
+* **Actors.** `SceneSpec.actor`: the headline must name this actor.
+  `police_takedown` needs a law-enforcement body in the headline:
+  * English: police, FBI, Europol, Interpol, prosecutors, DOJ;
+  * Ukrainian: Нацполіція, кіберполіція, ФБР, правоохоронці, СБУ,
+    прокуратура;
+  * an operation name such as "Operation Endgame".
+
+  It also needs an action: exposed, arrested, detained, charged, dismantled,
+  seized, taken down; викрили, затримали, заарештували, ліквідували,
+  вилучили. "Exposed" alone (a vulnerability) or an operation name alone (a
+  research campaign) never routes there.
+* **Police scene variants.** Seizure or takedown of named infrastructure keeps
+  the taped rack. Exposure or arrest without a stated seizure draws:
+  * the group's tool of contact (a phone taking an "IT SUPPORT" call, when
+    the sources say so) under tape carrying the headline's own action word;
+  * tags with the actors in English, the reported figure, and secondary
+    context such as an AI calling platform.
+* **Named entities.** Names from our published headline count only when the
+  source text contains them. Site counts are a fact
+  ("178 sites"). `third_party_script` labels the named sites and shows the
+  count. When the source says the sites served malware to visitors, it also
+  draws the visitors receiving the payload.
+* **Cloud credentials** route to `cloud_breach`. `compromised_sites` draws a
+  single site when the headline names one.
+
 ## Scenes
 
 There are 37 scene modules: the 35 catalogue scenes, `hpc_drawn`

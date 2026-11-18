@@ -373,3 +373,67 @@ def test_a_year_in_a_film_title_is_not_a_governance_story() -> None:
 def test_a_phishing_story_about_passwords_is_not_password_policy() -> None:
     b = B.build(story("Шахраї полюють на паролі: як зловмисники використовують збій Microsoft 365 для фішингу"))
     assert b.scene in ("credential_phish", "session_theft")
+
+
+# ------------------------------------------------------------------ law enforcement and headline-first subjects
+
+UA_FRAUD = ("Нацполіція та ФБР викрили хакерів, які під виглядом фахівців ІТ-підтримки виманили понад $40,5 млн",
+            "Кіберполіція спільно з ФБР викрили угруповання, яке за допомогою ШІ-платформи для дзвінків і "
+            "програм-вимагачів викрадало дані.")
+
+
+@pytest.mark.parametrize("title,body", [
+    UA_FRAUD,
+    ("Кіберполіція затримала хакерів, які атакували банки", ""),
+    ("Правоохоронці заарештували адміністратора ботнету", ""),
+    ("Police arrest suspected admin of ransomware gang", ""),
+    ("FBI busts crypto fraud ring that stole $10 million", ""),
+    ("Europol and FBI dismantle phishing-as-a-service platform", ""),
+])
+def test_law_enforcement_headlines_route_to_the_police_scene(title: str, body: str) -> None:
+    assert B.build(story(title, body)).scene == "police_takedown"
+
+
+@pytest.mark.parametrize("title,body", [
+    ("Critical flaw exposed 10,000 servers to remote takeover", "The vulnerability exposed admin panels."),
+    ("Researchers uncover new Android banking trojan", ""),
+    ("Operation ShadowCloud: cloud service-based backdoors targeting government networks", ""),
+    # the body mentions police, the headline is about a vulnerability: the headline decides
+    ("Apache patches critical RCE flaw", "Police in several countries urged admins to update after arrests."),
+])
+def test_exposed_and_operation_names_alone_are_not_police_actions(title: str, body: str) -> None:
+    assert B.build(story(title, body)).scene != "police_takedown"
+
+
+def test_exposure_story_keeps_the_ai_fact_as_secondary_context() -> None:
+    from cyberalertx.media.v4.scenes.police_takedown import _action, _actors, _ai_calls, _seizure
+    b = B.build(story(*UA_FRAUD))
+    assert _action(b) == "EXPOSED" and _actors(b) == ["National Police", "FBI"] and not _seizure(b)
+    assert _ai_calls(b)                                   # sourced: "ШІ-платформи для дзвінків"
+    alt = B.alt_text(b)["en"]
+    assert "exposed" in alt and "FBI" in alt
+    svg = render(b)
+    sanitize_svg(svg.encode())
+
+
+def test_a_body_word_never_becomes_the_fallback_subject() -> None:
+    from cyberalertx.media.v4.scenes.dossier import _subject
+    b = replace(B.build(story("Хакери атакували мережу міської лікарні",
+                              "Зловмисники використали ШІ для генерації листів.")), scene="dossier")
+    lead, _ = _subject(b)
+    assert lead != "AI"                                    # AI is only in the body
+    b2 = replace(B.build(story("Штучний інтелект змінює кібербезпеку", "")), scene="dossier")
+    assert _subject(b2)[0] == "AI"                         # in the headline: it is the subject
+
+
+def test_names_from_our_headline_count_only_when_the_source_contains_them() -> None:
+    body = ("At least 178 top web destinations served malware exploits against visitors, injected into sites "
+            "like the BBC, CNN, Equifax, Ledger and Zoom via Optimizely.")
+    b = B.build(story("Attackers Used Optimizely to A/B Test Malware on Top Websites", body,
+                      post="BBC, CNN and Zoom among 178 sites that served malware via Optimizely"))
+    assert b.scene == "third_party_script"
+    assert {"BBC", "CNN", "Zoom"} <= set(b.entities) and b.facts.get("sites") == "178"
+    # a name only in our headline, not in the source, is never drawn
+    b2 = B.build(story("Attackers Used Optimizely to A/B Test Malware on Top Websites", body,
+                       post="Acme and BBC among sites that served malware via Optimizely"))
+    assert "Acme" not in b2.entities

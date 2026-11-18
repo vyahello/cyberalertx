@@ -22,6 +22,31 @@ Paths use the runbook placeholders: `$APP_HOME` (checkout with `.env` and
 Illustrations of stories outside the window (about 160 in the index) are not
 touched.
 
+### Why the count moves (152 → 153 → 145 → 146)
+
+The eligible set is computed at run time from the rolling store of the newest
+200 articles. A story leaves it when all its articles have aged out, and
+enters it when it gets its first published AI brief.
+
+| When | Eligible | Change |
+|---|---|---|
+| 18 Nov, 08:30 dry run | 152 | |
+| 09:01 hourly run | 153 | +1: `s:c28488d1995440` |
+| 15:40 backfill plan | 145 | −10 aged out, +2 new (below) |
+| 16:00 hourly run | 146 | +1: `s:04b949e06cb43f` (the V4.1 canary image) |
+
+* **Aged out (all their articles left the window):** `s:4afcb47f404ff0`,
+  `s:b315ff6301a22e`, `s:49b25506e347f5`, `s:98a1d904a20248`,
+  `s:9f9ebdee0aa795`, `s:38dcb287c0e010`, `s:3ab224d3322fc9`,
+  `s:0a5ac73f29712c`, `s:9a9d16c53ee54f`, `s:b5153bea9b0092`. Their
+  illustrations stay in the index and on disk, and their URLs keep working.
+  They are just no longer backfill candidates.
+* **New between 09:01 and 15:40:** `s:29ea3d56ef9122`, `s:dd8c35efb8a8bd`.
+
+The backfill therefore covers whatever is eligible when it runs. Each batch
+reports its own list, and `illustration_inventory.py compare` shows exactly
+which stories changed.
+
 ## What is preserved
 
 * **Every old file.** The store is content-addressed and nothing is deleted.

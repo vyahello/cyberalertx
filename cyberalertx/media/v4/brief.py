@@ -44,14 +44,17 @@ class SceneSpec:
     requires: str = ""
     #: The scene never applies when this matches: another scene owns that subject.
     excludes: str = ""
+    #: The headline must name this actor (e.g. a law-enforcement body); keeps
+    #: an action word like "exposed" from routing a vulnerability story here.
+    actor: str = ""
 
 
 def _s(id: str, pats: list[tuple[str, float]], palette: str, subject: str, action: str, environment: str,
        mechanism: str, alt_en: str, alt_ua: str, *, supporting: tuple[str, ...] = (),
-       exclude: tuple[str, ...] = (), requires: str = "", excludes: str = "") -> SceneSpec:
+       exclude: tuple[str, ...] = (), requires: str = "", excludes: str = "", actor: str = "") -> SceneSpec:
     return SceneSpec(id, tuple(pats), palette, subject, action, environment, mechanism, supporting,
                      ("generic cubes", "glowing orbs", "hooded hackers", "brand logos") + exclude, alt_en, alt_ua,
-                     requires, excludes)
+                     requires, excludes, actor)
 
 
 # Order matters only for ties: more specific scenes first.
@@ -134,16 +137,18 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "a court docket", "legal proceedings (no technical detail)",
        "Illustration: the court case's outcome with its key figure, as reported.",
        "Ілюстрація: рішення в судовій справі з ключовою цифрою, як повідомляється."),
-    _s("police_takedown", [(r"\btake[sn]? down\b|takedown of|dismantl\w*|\bseiz\w*|Operation Endgame|Europol|"
-                            r"ліквідува\w*|вилучи\w* сервер", 8), (r"servers?|infrastructure|domains?|інфраструктур", 2)],
-       "steel", "criminal infrastructure taken offline by law enforcement",
-       "police seize or dismantle the servers and domains behind a malware operation",
-       "a seized server and its domains", "law-enforcement action (what was seized, only as reported)",
-       "Illustration: a darkened server rack taped off as seized, with evidence tags naming what was taken "
-       "down.",
-       "Ілюстрація: вимкнена серверна стійка, обгороджена стрічкою «вилучено», з бирками того, що "
-       "ліквідовано.",
-       requires=r"police|law enforcement|Europol|FBI|Endgame|поліці|правоохорон|operation"),
+    _s("police_takedown", [(r"\btake[sn]? down\b|takedown of|dismantl\w*|\bseiz\w*|\bbust(?:ed|s)?\b|\barrest\w*|"
+                            r"\bdetain\w*|\bcharg(?:ed|es)\b|\braid\w*|\bexpos(?:ed|es)\b|\buncover\w*|"
+                            r"викри\w*|затрима\w*|заарешту\w*|ліквідува\w*|вилучи\w*|повідомили про підозру|обшук\w*", 10),
+                           (r"servers?|infrastructure|domains?|group|gang|network|інфраструктур|угрупован", 2)],
+       "steel", "a law-enforcement action against a criminal group or its infrastructure",
+       "police expose, arrest or take down the group, as the headline states",
+       "the group's seized or exposed operation", "law-enforcement action (only what the sources state)",
+       "Illustration: a law-enforcement action, with evidence tags naming what the story reports.",
+       "Ілюстрація: дія правоохоронців з бирками-доказами того, про що повідомляє новина.",
+       actor=r"\bpolice\b|\bFBI\b|Europol|Interpol|law enforcement|\bDOJ\b|Justice Department|prosecutors?|"
+             r"\bNCA\b|Operation \w+|поліці\w*|Нацполіц\w*|кіберполіц\w*|ФБР|правоохорон\w*|СБУ|прокурату\w*|"
+             r"Європол"),
     _s("crypto_theft", [(r"stole .{0,40}crypto|crypto(currency)? (heist|theft)|stolen from (Binance|Bybit|Coinbase|"
                          r"an? (crypto )?exchange)|вкрадені з|викрав .{0,40}крипто|drain(ed|er)", 7),
                         (r"\$\s?\d|\d+[,.]?\d* ?(million|млн)", 2)], "midnight",
@@ -246,7 +251,7 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "a government network and a public cloud service", "C2 over a legitimate cloud API",
        "Illustration: a government building with a side door open to an ordinary cloud service.",
        "Ілюстрація: урядова будівля з відчиненими бічними дверима до звичайного хмарного сервісу."),
-    _s("cloud_breach", [(r"cloud (provider|breach|tenant|storage|account)|хмарн\w* (провайдер|сервіс)|"
+    _s("cloud_breach", [(r"cloud (provider|breach|tenant|storage|account|credentials|keys)|хмарн\w* (провайдер|сервіс)|"
                          r"\bS3\b|bucket|Azure|\bAWS\b|Snowflake", 6)], "glacier",
        "data held by a third-party cloud provider", "records are taken from the provider's environment",
        "a cloud tenant", "third-party / cloud provider compromise",
@@ -324,6 +329,7 @@ _FACT_PATTERNS: tuple[tuple[str, str], ...] = (
                                     r"людей|осіб|клієнтів|водіїв)"),
     ("records", _NUM + _UNIT + _GAP + r"(?:records|(?<!облікових )записів)"),
     ("videos", _NUM + r"\s*(?:[^\W\d]+\s+){0,3}(?:videos?|відео)"),
+    ("sites", _NUM + r"\s*(?:[^\W\d]+\s+){0,2}(?:web ?sites|sites|web destinations|сайт\w*)"),
     # not a CVSS score ("CVSS 10.0 flaw" is one flaw rated 10.0)
     ("flaws", r"(?<!cvss )(?<!cvss: )(?<!score of )" + _NUM + r"\s*(?:\w+\s){0,2}(?:flaws|vulnerabilities|bugs|"
               r"вразливост\w*)"),
@@ -367,7 +373,7 @@ def extract_facts(title: str, excerpt: str, post: str) -> dict[str, Any]:
                 unit = (m.group(2) or "") if m.re.groups >= 2 else ""
                 facts[key] = _clean_num(m.group(1)) + _scale(unit)
                 prefix = text[max(0, m.start() - 22):m.start()].lower()
-                if re.search(r"(more than|over|понад|більше)\s*$", prefix):
+                if re.search(r"(more than|over|at least|понад|більше|щонайменше)\s*$", prefix):
                     facts[key + "_plus"] = True
                 elif re.search(r"(nearly|almost|майже|близько)\s*$", prefix):
                     facts[key + "_approx"] = True
@@ -453,11 +459,14 @@ class EditorialBrief:
     category: str = ""
     seed: str = ""
     text: str = ""                     # lower-cased source text scenes may test for variants (not hashed)
+    #: The headline as published. Scenes take their subject from it first; the
+    #: article body may refine a scene but never chooses its subject (not hashed).
+    headline: str = ""
     alternatives: tuple[tuple[str, float], ...] = ()
 
     def hashable(self) -> dict[str, Any]:
         d = asdict(self)
-        for k in ("text", "evidence", "reason", "alternatives", "subject", "action", "target", "environment",
+        for k in ("text", "headline", "evidence", "reason", "alternatives", "subject", "action", "target", "environment",
                   "mechanism", "impact", "supporting", "exclude"):
             d.pop(k, None)
         return {**d, "renderer": RENDERER_VERSION}
@@ -486,8 +495,11 @@ def score_scenes(texts: dict[str, str]) -> list[tuple[float, SceneSpec, list[str
     for spec in CATALOGUE:
         if spec.requires and not re.search(spec.requires, joined, re.I):
             continue
-        # Exclusions read the headline only: that is where the subject is decided.
-        if spec.excludes and re.search(spec.excludes, f"{texts.get('main', '')} {texts.get('title', '')}", re.I):
+        # Exclusions and actors read the headline only: that is where the subject is decided.
+        head = f"{texts.get('main', '')} {texts.get('title', '')}"
+        if spec.excludes and re.search(spec.excludes, head, re.I):
+            continue
+        if spec.actor and not re.search(spec.actor, head, re.I):
             continue
         # The first pattern names the scene's subject; the others only add
         # weight. "Linux" alone must not make a story a kernel crash.
@@ -535,7 +547,15 @@ def build(story: Any) -> EditorialBrief:
     facts = extract_facts(title, excerpt, post)
     # Entities are drawn in the image, so they come from the headline and the
     # source text only: rewording our own post must not change the picture.
-    entities = tuple(extract_entities(title, excerpt))
+    names = extract_entities(title, excerpt)
+    # Our published headline may name what the source's own headline does not
+    # ("BBC, CNN and Zoom among 178 sites..."): such names count only when the
+    # source text itself contains them, so rewording a post cannot add one.
+    post_title = post.split(". ")[0]
+    for e in extract_entities(post_title, excerpt):
+        if e not in names and re.search(r"(?<!\w)" + re.escape(e) + r"(?!\w)", excerpt):
+            names.append(e)
+    entities = tuple(names[:6])
     reason = (f"'{spec.id}' scored highest ({ranked[0][0]:.0f}) on " + ", ".join(why[:4])
               if spec is not FALLBACK and ranked else "fallback: " + "; ".join(why[:3]))
     if lib is not None:
@@ -553,7 +573,7 @@ def build(story: Any) -> EditorialBrief:
         entities=entities, impact=impact, supporting=spec.supporting, exclude=spec.exclude, confidence=conf,
         evidence=tuple(why[:6]), reason=reason, status=status, facts=facts,
         library_id=lib.id if lib else "", category=category, seed=f"{story.key}:{RENDERER_VERSION}",
-        text=" ".join(texts.values()).lower(),
+        text=" ".join(texts.values()).lower(), headline=title,
         alternatives=tuple((s.id, round(sc, 1)) for sc, s, _ in ranked[1:4]))
 
 

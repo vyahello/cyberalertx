@@ -71,13 +71,22 @@ def _subject(brief: EditorialBrief) -> tuple[str, list[str]]:
     ids = ascii_ids(brief.text, 2)
     if ids:
         return ids[0], ids[1:]
-    main = headline_main(brief.text)
-    head = brief.text[: len(main) + 1 + 260]
-    for pat, word in _TOPICS:
-        m = re.search(pat, main) or re.search(pat, head)
-        if m:
-            return word.format(*m.groups()), []
+    # Headline first: the main clause, then the whole headline. A word that
+    # appears only in the article body never becomes the subject (an AI tool
+    # mentioned in passing must not turn a police story into an "AI" cover).
+    headline = (brief.headline or "").lower()
+    main = headline_main(brief.text) if not headline else headline_main_of(headline)
+    for scope in (main, headline or main):
+        for pat, word in _TOPICS:
+            m = re.search(pat, scope)
+            if m:
+                return word.format(*m.groups()), []
     return "", []
+
+
+def headline_main_of(headline: str) -> str:
+    from ..brief import main_clause
+    return main_clause(headline).lower()
 
 
 def _figure(brief: EditorialBrief) -> tuple[str, str]:

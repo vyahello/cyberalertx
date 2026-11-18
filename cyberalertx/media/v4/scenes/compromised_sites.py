@@ -11,6 +11,7 @@ plain text and only those the headline names (brief.entities)."""
 from __future__ import annotations
 
 import random
+import re
 
 from .. import type as T
 from ..brief import EditorialBrief
@@ -95,6 +96,19 @@ def _facade(doc: Doc, sl: _Slab, *, name: str, red: str, tainted: bool, rng: ran
         sl.quad(doc, 0, 0, 1, 1, "#0A1020", opacity=1 - dim)
 
 
+def _single(brief: EditorialBrief) -> bool:
+    """One site in the headline (no plural, no count): never draw a row of them."""
+    head = (brief.headline or (brief.text or "")[:200]).lower()
+    return re.search(r"\bsites\b|websites|сайти|сайтів|dozens|десятк|\b\d+\s", head) is None
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
+    if not _single(brief):
+        return None
+    return ("Illustration: a compromised website carrying an injected element.",
+            "Ілюстрація: зламаний вебсайт із вбудованим стороннім елементом.")
+
+
 @scene("compromised_sites")
 def compromised_sites(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
@@ -121,6 +135,8 @@ def compromised_sites(doc: Doc, brief: EditorialBrief, rng: random.Random) -> No
         w = hgt * 0.5
         slabs.append(_Slab(x, w, t0 + (vy - t0) * k, b0 + (vy - b0) * k, vx, vy))
         x += w + hgt * 0.07
+    if _single(brief):
+        slabs = slabs[:1]                        # the headline names one site: draw one
     for i in reversed(range(len(slabs))):
         _facade(doc, slabs[i], name=names[i] if i < len(names) else "", red=red, tainted=attack, rng=rng,
                 dim=max(0.3, 1 - i * 0.1))

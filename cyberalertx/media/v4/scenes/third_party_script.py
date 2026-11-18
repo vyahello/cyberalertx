@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import random
+import re
 
 from .. import type as T
 from ..brief import EditorialBrief
@@ -118,5 +119,29 @@ def third_party_script(doc: Doc, brief: EditorialBrief, rng: random.Random) -> N
 
     _file(doc, cx, cy - 40, 330, 410, red, p.ink, vendor, tainted)
 
+    # Named sites (only names the sources give) on the three nearest pages,
+    # the reported count, and visitors receiving the payload when stated.
+    named = [e for e in brief.entities if e != vendor and T.supported(e, "ui_bold") == e][:3]
+    near = sorted(sites, reverse=True)[:3]
+    for (depth, sx, sy, w), name in zip(sorted(near, key=lambda t: t[1]), named):
+        # the name sits on its own page, centred, so it cannot touch a neighbour
+        tw = T.measure(name, 32, "ui_bold") + 28
+        doc.rect(sx - tw / 2, sy - 30, tw, 48, "#0B101B", 8, opacity=0.94)
+        doc.text(name, sx, sy + 5, 32, "#FFFFFF", "ui_bold", anchor="middle")
+    count = str(brief.facts.get("sites") or "")
+    if count:
+        label = count + ("+" if brief.facts.get("sites_plus") else "")
+        doc.text(label, 70, 150, 120, "#FFFFFF", "display")
+        doc.text("sites", 74, 200, 40, "#C9D3E3", "ui")
+    visitors = tainted and re.search(r"visitors|відвідувач", brief.text or "") is not None
+    if visitors:
+        # the payload reaching the people who load the near pages
+        for k, (depth, sx, sy, w) in enumerate(sorted(near, key=lambda t: t[1])):
+            vx, vy = sx, sy + w * 0.34 + 70
+            doc.line((sx, sy + w * 0.34 + 8), (vx, vy - 34), red, 3, 0.9)
+            doc.circle(vx, vy - 12, 14, "#C9D3E3")
+            doc.path(f"M{f(vx - 24)} {f(vy + 26)}Q{f(vx)} {f(vy - 4)} {f(vx + 24)} {f(vy + 26)}Z", fill="#C9D3E3")
+            doc.circle(vx + 20, vy - 24, 9, red)
+
     doc.rect(0, 0, W, H, doc.rad([(0.62, "#000", 0), (1, "#000", 0.45)], 0.5, 0.5, 0.75))
-    doc.focus = Box(170, 40, 1260, 709)
+    doc.focus = Box(60, 40, 1480, 833) if visitors else Box(170, 40, 1260, 709)
