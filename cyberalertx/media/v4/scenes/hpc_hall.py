@@ -106,3 +106,21 @@ ALTERNATIVES: dict[str, Callable[[Doc, EditorialBrief, random.Random], None]] = 
 @scene("hpc_hall")
 def hpc_hall(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     _spread(doc, brief, rng)
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
+    """The drawn hall (no library photo) is annotated only with what the
+    sources state; say exactly that. Library photos keep their own alt text."""
+    from ._hpc import stated
+    if brief.library_id:
+        return None
+    what = stated(brief)
+    if what == "accounts":
+        return None
+    if what == "offline":
+        return ("Illustration: a drawn supercomputer machine hall, marked 'OFFLINE' after a security breach.",
+                "Ілюстрація: намальована зала суперкомп'ютера з написом «OFFLINE» після порушення безпеки.")
+    if what == "breach":
+        return ("Illustration: a drawn supercomputer machine hall, marked 'BREACH'.",
+                "Ілюстрація: намальована зала суперкомп'ютера з написом «BREACH».")
+    return ("Illustration: a drawn supercomputer machine hall.", "Ілюстрація: намальована зала суперкомп'ютера.")

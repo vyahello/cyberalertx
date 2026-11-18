@@ -176,6 +176,56 @@ scene.
 * **Cloud credentials** route to `cloud_breach`. `compromised_sites` draws a
   single site when the headline names one.
 
+### Label and alt-text integrity (V4.1.2, 18 Nov 2026, O54)
+
+Canary 2 stopped on a breach image that printed `IT` as the sender: the
+headline said "IT provider hack". The fix is in the extraction and the
+checks, not in the art.
+
+* **Generic terms are never names.** `brief.GENERIC_TERMS` lists technology,
+  role and place abbreviations: IT, AI, RCE, CPU, API, MSP, SaaS, UK, EU and
+  others. `brief.DEMONYMS` lists nationalities. Alone, neither ever becomes
+  an entity.
+
+  "IT" and "AI" may end a company name. They join the name directly before
+  them only when the source writes that exact compound: "Wellington IT",
+  "Scale AI", "Fireworks AI". Other generic terms never join a name, so the
+  extractor produces no "Roller RCE" or "Turin CPU".
+* **Whole words only.** Scenes test whether a name occurs with
+  `brief.mentions(name, text)`. The earlier substring test found "it" inside
+  "with".
+* **Roles come from the sources.** The breach scene stamps the supplier
+  context ("IT PROVIDER HACK", "SUPPLIER BREACH"), using the sources' own
+  event word. It names the supplier only when the sources call that entity
+  the supplier.
+
+  A name the sources show notifying, saying or warning is the sender, never
+  the supplier. Adjacent name parts are joined: "Baker Tilly", not "Tilly".
+* **Counts of organisations are facts.** "40 Irish credit unions" gives
+  `orgs` and `orgs_noun`.
+
+  Money keeps the sources' qualifier and a decimal point. "понад $40,5 млн"
+  becomes `money` $40.5M with `money_plus` set. The police tag reads
+  `OVER $40.5M` (O52).
+* **Alt text describes what is drawn.**
+  * `Doc.labels` records every string an image sets as type.
+  * `v4/consistency.check` reports a number, a quoted Latin-script label or a
+    name in the alt text that no label shows, and a claimed figure when no
+    number is drawn.
+  * Scenes with variants (breach, police, crypto theft, the drawn
+    supercomputer hall) build their alt text from the same plan as the
+    drawing.
+* **Where the check runs.**
+  * Tests cover every scene across facts, entities and statuses.
+  * `ops/media/alt_audit.py` runs it on the live eligible set: it is
+    read-only and exits 1 on a mismatch. It also lists every drawn label
+    that is a bare generic word ("AI" as a topic, "GPU" on a graphics card),
+    for review by eye.
+  * The renderer logs any mismatch at run time.
+* **Alt text and image are written together.** When a story's inputs are
+  unchanged, the engine replaces its stored alt text only if the current
+  code draws the stored image byte for byte.
+
 ## Scenes
 
 There are 37 scene modules: the 35 catalogue scenes, `hpc_drawn`

@@ -12,7 +12,7 @@ import math
 import random
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, W, H, f
 from . import scene
 
@@ -100,7 +100,7 @@ def kernel_dos(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
 
     # the flaw's name, and what it affects when the sources list it
     head = text[:160]
-    name = next((e for e in brief.entities if e.lower() in head and T.supported(e, "display") == e), "")
+    name = next((e for e in brief.entities if mentions(e, head) and T.supported(e, "display") == e), "")
     cves = brief.facts.get("cves") or []
     label = (str(cves[0]) if cves else "") or name
     if label:

@@ -23,7 +23,7 @@ import re
 from typing import Callable
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import H, W, Box, Doc, f, icon
 from . import scene
 
@@ -39,7 +39,7 @@ def _facts(brief: EditorialBrief) -> dict[str, str]:
     key = bool(re.search(r"(stolen|leaked|compromised) cloud (access )?key|cloud access key", t))
     company = ""
     for e in brief.entities:
-        if e.lower() in head and e.upper() != tool and e not in ("AI-powered", "FBI") and \
+        if mentions(e, head) and e.upper() != tool and e not in ("AI-powered", "FBI") and \
                 T.supported(e, "ui_bold") == e and re.fullmatch(r"[A-Z][A-Za-z]+", e):
             company = e
             break

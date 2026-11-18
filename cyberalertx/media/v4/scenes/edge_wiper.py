@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, W, H, f
 from . import scene
 
@@ -107,8 +107,8 @@ def edge_wiper(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     attacked = brief.status in _ATTACK
     wiper = attacked and any(k in text for k in ("wiper", "wipe", "вайпер"))
     esxi = "esxi" in text
-    vendor = next((v for v in _VENDORS if v.lower() in text[:160]), "")
-    exploit = next((e for e in _EXPLOITS if e.lower() in text), "")
+    vendor = next((v for v in _VENDORS if mentions(v, text[:160])), "")
+    exploit = next((e for e in _EXPLOITS if mentions(e, text)), "")
 
     doc.rect(0, 0, W, H, doc.lin([(0, "#1C1211", 1), (1, "#080505", 1)]))
     doc.rect(0, 0, W, H, doc.rad([(0, "#FF7A45", 0.14), (1, "#FF7A45", 0)], 0.35, 0.45, 0.55))

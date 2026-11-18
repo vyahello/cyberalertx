@@ -16,7 +16,7 @@ from __future__ import annotations
 import random
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, W, H, f
 from . import scene
 
@@ -27,10 +27,10 @@ _PRODUCTS = ("N-central", "ScreenConnect", "SimpleHelp", "Kaseya", "ConnectWise"
 def _product(brief: EditorialBrief) -> str:
     text = brief.text or ""
     for name in _PRODUCTS:
-        if name.lower() in text and any(e.lower() == name.lower() for e in brief.entities):
+        if mentions(name, text) and any(e.lower() == name.lower() for e in brief.entities):
             return name
     for name in _PRODUCTS:
-        if name.lower() in text[:200]:
+        if mentions(name, text[:200]):
             return name
     return ""
 

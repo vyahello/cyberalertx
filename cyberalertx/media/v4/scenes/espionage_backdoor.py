@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, W, H, f
 from . import scene
 
@@ -130,7 +130,7 @@ def espionage_backdoor(doc: Doc, brief: EditorialBrief, rng: random.Random) -> N
 
     # the operation name, when the headline gives one
     head = text[:120]
-    name = next((e for e in brief.entities if e.lower() in head and T.supported(e, "display") == e
+    name = next((e for e in brief.entities if mentions(e, head) and T.supported(e, "display") == e
                  and any(ch.isupper() for ch in e[1:])), "")
     if name:
         doc.text(name, 150, 140, 72, p.ink, "display", opacity=0.92)

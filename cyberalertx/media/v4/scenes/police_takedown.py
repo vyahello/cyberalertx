@@ -326,6 +326,39 @@ def _seizure(brief: EditorialBrief) -> bool:
     return _action(brief) in ("SEIZED", "TAKEN DOWN") or bool(_seized_names(brief))
 
 
+def _support(brief: EditorialBrief) -> bool:
+    return re.search(r"it[- ]support|tech(?:nical)? support|іт-підтрим|техпідтрим|служб\w* підтрим",
+                     brief.text) is not None
+
+
+def _money_tag(brief: EditorialBrief) -> tuple[str, str]:
+    """(figure as drawn, caption) or ("", "")."""
+    fig = str(brief.facts.get("money") or "")
+    if not fig:
+        return "", ""
+    if brief.facts.get("money_plus"):
+        fig = f"OVER {fig}"                   # the sources' own qualifier ("over $40.5M", "понад")
+    elif brief.facts.get("money_approx"):
+        fig = f"NEARLY {fig}"
+    lost = re.search(r"виманил|stole|stolen|викрал|lost|збит|defraud", brief.text) is not None
+    return fig, ("reported losses" if lost else "reported")
+
+
+def _exposed_tags(brief: EditorialBrief) -> list[list[tuple[str, float, str]]]:
+    """The evidence tags `_comp_exposed` draws (at most three), in order."""
+    tags: list[list[tuple[str, float, str]]] = []
+    actors = _actors(brief)
+    if actors:
+        line = " + ".join(actors)
+        tags.append([(line, fit_size(line, 58, 430, "ui_bold"), "ui_bold")])
+    fig, cap = _money_tag(brief)
+    if fig:
+        tags.append([(fig, fit_size(fig, 96, 440), "display"), (cap, 30, "ui")])     # text runs x+86..x+526
+    if _ai_calls(brief):
+        tags.append([("AI calling platform", 44, "ui_bold")])
+    return tags[:3]
+
+
 def _comp_exposed(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     """Exposure or arrest without a stated seizure: the group's tool of contact
     (a phone taking a call that poses as IT support, when the sources say so)
@@ -340,8 +373,7 @@ def _comp_exposed(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     doc.rect(px + 18, py + 18, pw - 36, ph - 36, doc.lin([(0, "#1D2A3A", 1), (1, "#0D131C", 1)]), 40)
     doc.rect(px + pw / 2 - 52, py + 34, 104, 20, "#0A0D12", 10)
     cx = px + pw / 2
-    support = re.search(r"it[- ]support|tech(?:nical)? support|іт-підтрим|техпідтрим|служб\w* підтрим",
-                        brief.text) is not None
+    support = _support(brief)
     doc.text("incoming call", cx, py + 140, 24, "#9FB0C4", "ui", anchor="middle")
     doc.circle(cx, py + 260, 76, "#2E4057")
     doc.circle(cx, py + 238, 28, "#9FB0C4")
@@ -353,17 +385,7 @@ def _comp_exposed(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     word = _action(brief)
     _tape(doc, -40, 300, 1640, 520, word=word, phase=0.2)
     _tape(doc, -40, 770, 1000, 610, hgt=60, word=word, phase=0.6)
-    tags: list[list[tuple[str, float, str]]] = []
-    actors = _actors(brief)
-    if actors:
-        line = " + ".join(actors)
-        tags.append([(line, fit_size(line, 58, 430, "ui_bold"), "ui_bold")])
-    fig = str(brief.facts.get("money") or "")
-    if fig:
-        lost = re.search(r"виманил|stole|stolen|викрал|lost|збит|defraud", brief.text) is not None
-        tags.append([(fig, 96, "display"), ("reported losses" if lost else "reported", 30, "ui")])
-    if _ai_calls(brief):
-        tags.append([("AI calling platform", 44, "ui_bold")])
+    tags = _exposed_tags(brief)
     y = 110.0
     for i, t in enumerate(tags[:3]):
         h_ = 190.0 if len(t) > 1 else 110.0
@@ -390,11 +412,29 @@ def police_takedown(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None
 
 
 def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
+    """Describes the exposure composition exactly as drawn (the seizure
+    composition keeps the catalogue text)."""
     if _seizure(brief):
         return None
     word = _action(brief).lower()
-    who = " and ".join(_actors(brief)) or "law enforcement"
-    return (f"Illustration: a phone under police tape marked '{word}', with evidence tags naming {who} and the "
-            "reported figures.",
-            f"Ілюстрація: телефон під поліцейською стрічкою з написом '{word}' і бирками з учасниками та "
-            "заявленими цифрами.")
+    call_en = "an incoming call from 'IT support'" if _support(brief) else "an incoming call"
+    call_ua = "вхідним дзвінком «IT support»" if _support(brief) else "вхідним дзвінком"
+    parts_en: list[str] = []
+    parts_ua: list[str] = []
+    actors = _actors(brief)
+    if actors:
+        parts_en.append(" and ".join(actors))
+        parts_ua.append(" і ".join(actors))
+    fig, cap = _money_tag(brief)
+    if fig:
+        parts_en.append(f"'{fig} {cap}'")
+        parts_ua.append(f"«{fig} {cap}»")
+    if _ai_calls(brief):
+        parts_en.append("'AI calling platform'")
+        parts_ua.append("«AI calling platform»")
+    en = f"Illustration: a phone showing {call_en}, under police tape marked '{word}'"
+    ua = f"Ілюстрація: телефон із {call_ua} під поліцейською стрічкою з написом «{word}»"
+    if parts_en:
+        en += ", with evidence tags: " + "; ".join(parts_en)
+        ua += ", бирки з написами: " + "; ".join(parts_ua)
+    return en + ".", ua + "."

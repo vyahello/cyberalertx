@@ -33,6 +33,7 @@ def _amount(brief: EditorialBrief) -> str:
 def _glyph_clip(doc: Doc, s: str, x: float, y: float, size: float) -> tuple[str, str, float]:
     """(clip url, path svg, width) for the run `s` set at (x, y)."""
     svg, w = T.text_path(s, x, y, size, font="display", fill="#000")
+    doc.labels.append(T.supported(s, "display").strip())      # drawn as a clip: still visible text
     cid = doc._def(f"glyphclip{s}{x}{y}{size}", f'<clipPath id="{{id}}">{svg}</clipPath>')
     return f"url(#{cid})", svg, w
 
@@ -172,3 +173,11 @@ ALTERNATIVES: dict[str, Callable[[Doc, EditorialBrief, random.Random], None]] = 
 def crypto_theft(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     _comp_drain(doc, brief, rng)
 
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
+    """Without a stated amount the scene drains the word 'crypto', not a figure."""
+    if _amount(brief):
+        return None
+    return ("Illustration: the word 'crypto' set in large hollow letters that are draining empty, marked 'STOLEN'.",
+            "Ілюстрація: слово «crypto» великими порожніми літерами, що витікають, з написом «STOLEN».")

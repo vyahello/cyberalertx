@@ -19,9 +19,12 @@ file byte for byte (content-addressed: same storage key, still on disk).
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 V3 = "cax-svg-3"
 V4 = "cax-editorial-4"
@@ -66,7 +69,15 @@ def plan_for(story: Any, renderer: str | None = None) -> Plan:
 
 def render(plan: Plan) -> bytes:
     if plan.renderer == V4:
-        from .v4.render import render as render_v4
-        return render_v4(plan.brief).encode("utf-8")
+        from .v4.consistency import check_brief
+        from .v4.render import render_doc
+        doc = render_doc(plan.brief)
+        problems = check_brief(plan.brief, doc.labels)
+        if problems:
+            # Tests and `ops/media/alt_audit.py` are the gate; at run time a
+            # mismatch is reported, never silently published.
+            logger.warning("media: alt text of %s does not match its image: %s",
+                           getattr(plan.brief, "story_key", "?"), "; ".join(problems))
+        return doc.svg().encode("utf-8")
     from .svg_art import render_svg
     return render_svg(plan.brief).encode("utf-8")

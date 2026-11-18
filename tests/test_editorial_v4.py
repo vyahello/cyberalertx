@@ -447,3 +447,155 @@ def test_script_scene_alt_text_names_what_is_drawn() -> None:
     b = replace(b, status="compromise")
     en = B.alt_text(b)["en"]
     assert "178 websites" in en and "BBC" in en and "visitors" in en and "Optimizely" in en
+
+
+# ------------------------------------------------------------------ O54: entity labels and alt-text integrity
+
+CREDIT_UNIONS = ("Data breach impacts 40 Irish credit unions in reported IT provider hack",
+                 "A cyberattack on IT provider Wellington IT exposed sensitive data belonging to members of 50 "
+                 "credit unions, most of them in Ireland.")
+CREDIT_UNIONS_POST = "Irish credit union members' data exposed after attack on supplier Wellington IT"
+
+
+@pytest.mark.parametrize("title,context,never", [
+    ("Data breach impacts 40 Irish credit unions in reported IT provider hack", "", {"IT", "Irish"}),
+    ("Scammers used an AI platform for calls to pose as bank staff", "", {"AI"}),
+    ("Fraudsters Used AI Platform for Calls to Drain Accounts", "fraudsters used an ai platform for calls", {"AI"}),
+    ("Apache warns of Roller RCE vulnerability exploited in attacks", "", {"RCE", "Roller RCE"}),
+    ("Google patches AMD Turin CPU flaw in cloud VMs", "", {"CPU", "Turin CPU"}),
+    ("Chinese hackers breach Japanese retailer's security software vendor", "", {"Chinese", "Japanese"}),
+])
+def test_generic_tokens_never_become_entities(title: str, context: str, never: set[str]) -> None:
+    got = set(B.extract_entities(title, context))
+    assert not (got & never), got
+
+
+@pytest.mark.parametrize("title,context,name", [
+    ("Irish credit union members' data exposed after attack on supplier Wellington IT",
+     "a cyberattack on IT provider Wellington IT exposed data", "Wellington IT"),
+    ("Scale AI exposes contractor data", "Scale AI said the files were public", "Scale AI"),
+    ("Cursor extension key issued to Fireworks AI was stolen", "the key we had issued to Fireworks AI", "Fireworks AI"),
+    ("IT-Harvest report tracks 3,000 security vendors", "", "IT-Harvest"),
+])
+def test_genuine_names_that_contain_generic_words_stay_whole(title: str, context: str, name: str) -> None:
+    assert name in B.extract_entities(title, context)
+
+
+def test_a_generic_suffix_joins_a_name_only_when_the_source_writes_the_compound() -> None:
+    # "Acme AI" never appears in the source: "AI" stays a common noun
+    assert B.extract_entities("Acme AI assistant leaks chats", "acme's assistant leaked chats") == ["Acme"]
+
+
+def test_names_only_in_the_article_body_are_never_entities() -> None:
+    b = B.build(story("Data breach at third-party provider hits clinic patients",
+                      "Microsoft and Wellington IT were not involved, the clinic said."))
+    assert "Microsoft" not in b.entities and "Wellington IT" not in b.entities
+
+
+def test_mentions_is_a_whole_word_test() -> None:
+    assert B.mentions("IT", "it provider hack") and not B.mentions("IT", "with credit unions")
+    assert not B.mentions("Roller", "high rollers lose") and B.mentions("Baker Tilly", "baker tilly notifies")
+
+
+def _credit_union_brief() -> B.EditorialBrief:
+    return replace(B.build(story(*CREDIT_UNIONS, post=CREDIT_UNIONS_POST)), status="compromise")
+
+
+def test_credit_union_breach_shows_the_count_and_the_supplier_never_an_it_sender() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    from cyberalertx.media.v4.scenes.breach_notice import _plan
+    b = _credit_union_brief()
+    assert b.scene == "breach_notice"
+    assert b.facts["orgs"] == "40" and b.facts["orgs_noun"] == "Irish credit unions"
+    assert b.entities == ("Wellington IT",)
+    pl = _plan(b)
+    assert (pl.figure, pl.noun, pl.sender) == ("40", "Irish credit unions", "")
+    assert pl.stamp == ("IT PROVIDER HACK", "Wellington IT")
+    labels = render_doc(b).labels
+    assert "IT" not in labels and "40" in labels and "Irish credit unions" in labels
+    alt = B.alt_text(b)
+    assert "40 Irish credit unions" in alt["en"] and "Wellington IT" in alt["en"] and "Wellington IT" in alt["ua"]
+    assert "number of people" not in alt["en"]
+
+
+def test_an_unnamed_supplier_is_stamped_without_a_name() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    from cyberalertx.media.v4.scenes.breach_notice import _plan
+    b = replace(B.build(story("Baker Tilly notifies clients of data breach at third-party provider",
+                              "Baker Tilly Advisory Group is notifying clients that a breach at a third-party "
+                              "provider compromised personal information.")), status="compromise")
+    pl = _plan(b)
+    assert pl.sender == "Baker Tilly"                    # the notifier, joined, never "Tilly" or "Baker"
+    assert pl.stamp == ("SUPPLIER BREACH", "")           # the source's own word; no invented supplier name
+    labels = render_doc(b).labels
+    assert "Baker" not in labels and "Tilly" not in labels and "Baker Tilly" in labels
+    assert "supplier's name" not in B.alt_text(b)["en"]
+
+
+def test_a_breach_with_no_supplier_and_no_name_draws_no_orphan_caption() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = replace(B.build(story("Data breach exposes customer information", "")), scene="breach_notice",
+                palette=B.SPECS["breach_notice"].palette, status="compromise", entities=())
+    doc = render_doc(b)
+    assert doc.labels == []
+    assert "number" not in B.alt_text(b)["en"]
+
+
+def test_money_keeps_the_sources_qualifier_and_decimal_point() -> None:
+    f = B.extract_facts("Нацполіція та ФБР викрили хакерів, які виманили понад $40,5 млн", "", "")
+    assert f["money"] == "$40.5M" and f["money_plus"]
+    assert B.extract_facts("Firm lost $1,500 in the scam", "", "")["money"] == "$1,500"
+
+
+def test_police_tag_reads_over_and_alt_names_only_drawn_tags() -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story(*UA_FRAUD))
+    doc = render_doc(b)
+    assert any(x.startswith("OVER $") for x in doc.labels)
+    alt = B.alt_text(b)
+    assert "OVER $" in alt["en"] and "reported figures" not in alt["en"]
+    assert check_brief(b, doc.labels) == []
+
+
+@pytest.mark.parametrize("alt,labels,problem", [
+    ({"en": "Illustration: an envelope and the number of people affected."}, ["customer data"],
+     "claims a figure"),
+    ({"en": "Illustration: an envelope marked '150,000 drivers'."}, ["drivers"], "number '150,000'"),
+    ({"en": "Illustration: an envelope addressed from IT."}, ["IT"], ""),            # generic: not a name
+    ({"en": "Illustration: an envelope addressed from Acme."}, ["customer data"], "name 'Acme'"),
+    ({"ua": "Ілюстрація: конверт з написом «Wellington IT»."}, ["40"], "quoted label 'Wellington IT'"),
+    ({"en": "Illustration: an envelope marked '40 Irish credit unions'."}, ["40", "Irish credit unions"], ""),
+    ({"en": "Photograph: the machine hall. Photo: Barsaka2, Wikimedia Commons (CC0)."}, [], ""),
+])
+def test_alt_consistency_check(alt: dict[str, str], labels: list[str], problem: str) -> None:
+    from cyberalertx.media.v4.consistency import check
+    got = check(alt, labels)
+    assert (any(problem in p for p in got) if problem else got == []), got
+
+
+@pytest.mark.parametrize("scene", [s.id for s in B.CATALOGUE] + ["dossier", "hpc_drawn"])
+def test_every_scene_alt_text_matches_what_it_draws(scene: str) -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    for facts in ({}, {"cves": ["CVE-2026-1111"], "money": "$25M", "people": "150,000", "orgs": "12",
+                       "orgs_noun": "hospitals", "accounts": "4,000", "years": "27", "videos": "90", "flaws": "17"}):
+        for entities in ((), ("Widget", "Acme")):
+            for status in ("not_reported", "compromise", "exploited", "attacks_observed"):
+                b = _brief_for(scene, facts=facts, entities=entities, status=status)
+                assert check_brief(b, render_doc(b).labels) == [], (facts, entities, status)
+
+
+def test_alt_text_is_refreshed_only_for_an_image_drawn_byte_for_byte(monkeypatch: pytest.MonkeyPatch,
+                                                                      tmp_path: Path) -> None:
+    from cyberalertx.media import engine
+    from cyberalertx.media.renderer import Plan
+    plan = Plan("cax-editorial-4", _brief_for("vuln_advisory"), {"en": "new", "ua": "нове"}, "h")
+    import hashlib
+    data = engine.render_plan(plan)
+    same = SimpleNamespace(generation_method="svg", generation_model="cax-editorial-4",
+                           storage_key=hashlib.sha256(data).hexdigest() + ".svg")
+    other = SimpleNamespace(generation_method="svg", generation_model="cax-editorial-4",
+                            storage_key="0" * 64 + ".svg")
+    assert engine._draws_stored_image(plan, same)          # type: ignore[arg-type]
+    assert not engine._draws_stored_image(plan, other)     # type: ignore[arg-type]

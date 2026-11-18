@@ -77,6 +77,9 @@ class Doc:
     #: Region (16:9) the small feed thumbnail crops to, so the subject stays
     #: legible at ~170 px wide. None = the whole frame.
     focus: "Box | None" = None
+    #: Every string set as type in the image, as drawn (after `T.supported`).
+    #: `consistency.check` compares the alt text against it.
+    labels: list[str] = field(default_factory=list)
 
     def add(self, s: str) -> None:
         if s:
@@ -190,6 +193,9 @@ class Doc:
              tracking: float = 0.0, opacity: float = 1.0) -> float:
         svg, w = T.text_path(s, x, y, size, font=font, fill=fill, anchor=anchor, tracking=tracking,
                              opacity=opacity)
+        drawn = T.supported(s, font).strip()
+        if svg and drawn:
+            self.labels.append(drawn)
         self.add(svg)
         return w
 

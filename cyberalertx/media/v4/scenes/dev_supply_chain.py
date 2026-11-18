@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import random
 
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from .. import type as T
 from ..kit import Box, Doc, background, f, vignette
 from . import scene
@@ -83,7 +83,7 @@ def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> Non
     background(doc, light=(0.62, 0.3))
     ents = list(brief.entities)
     text = brief.text or ""
-    holder = next((e for e in ents if f"{e.lower()} ai" in text or f"key we had issued to {e.lower()}" in text),
+    holder = next((e for e in ents if mentions(f"{e} ai", text) or f"key we had issued to {e.lower()}" in text),
                   ents[0] if len(ents) > 1 else "")
     ext = "Claude Code" if "Claude" in ents else "Extension"
     market = next((e for e in ents if e not in (holder, "Claude")), "")

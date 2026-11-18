@@ -14,7 +14,7 @@ import random
 import re
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, W, H, f, icon
 from . import scene
 
@@ -116,7 +116,7 @@ def compromised_sites(doc: Doc, brief: EditorialBrief, rng: random.Random) -> No
     attack = brief.status in _ATTACK
     red = p.danger
     head = text[:200]
-    names = [e for e in brief.entities if T.supported(e, "display") == e and e.lower() in head][:3]
+    names = [e for e in brief.entities if T.supported(e, "display") == e and mentions(e, head)][:3]
     phone = any(k in text for k in ("iphone", "ios", "apple"))
     coin = any(k in text for k in ("crypto", "криптовалют", "wallet", "гаман"))
 

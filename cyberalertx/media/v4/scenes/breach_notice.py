@@ -9,16 +9,20 @@ sources say:
 
 Record cards are silhouettes: a portrait placeholder and redacted bars. No
 field names (the sources rarely list which fields), no letter text, no legal
-wording, no card numbers, no provider names unless the headline names them."""
+wording, no card numbers. A supplier is named only when the sources call that
+entity the supplier; a generic token ("IT provider") is never a name.
+"""
 from __future__ import annotations
 
 import random
 import re
+from dataclasses import dataclass
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, f, icon
 from . import scene
+from ._editorial import fit_size, product_groups
 
 _PAPER = "#FFFDF8"
 
@@ -41,6 +45,8 @@ def count_label(brief: EditorialBrief) -> tuple[str, str]:
         elif fx.get(key + "_plus"):
             v += "+"
         return v, noun
+    if brief.facts.get("orgs"):
+        return str(brief.facts["orgs"]), str(brief.facts.get("orgs_noun") or "organizations")
     return "", ""
 
 
@@ -171,8 +177,25 @@ def _airmail(doc: Doc, x: float, y: float, w: float, h: float, red: str, blue: s
         doc.path(d_blue, fill=blue)
 
 
+def _stamp(doc: Doc, cx: float, cy: float, top: str, name: str) -> None:
+    """A rubber stamp on the envelope's face: how the data got out (the
+    breached supplier), with the supplier's name when the sources give it."""
+    p = doc.pal
+    s1, s2 = 30.0, 46.0
+    w1 = T.measure(T.supported(top, "ui_bold"), s1, "ui_bold", tracking=s1 * 0.14)
+    w2 = T.measure(T.supported(name, "ui_bold"), s2, "ui_bold") if name else 0.0
+    w = max(w1, w2) + 56
+    h = 120.0 if name else 76.0
+    with doc.g(transform=f"rotate(-7 {f(cx)} {f(cy)})"):
+        doc.rect(cx - w / 2, cy - h / 2, w, h, "#FBF7EE", 8, stroke=p.danger, sw=5, opacity=0.96)
+        ty = cy - h / 2 + 22 + T.cap_height(s1, "ui_bold")
+        doc.text(top, cx, ty, s1, p.danger, "ui_bold", anchor="middle", tracking=s1 * 0.14)
+        if name:
+            doc.text(name, cx, ty + 22 + T.cap_height(s2, "ui_bold"), s2, p.ink, "ui_bold", anchor="middle")
+
+
 def _envelope(doc: Doc, brief: EditorialBrief, kind: str, figure: str, noun: str, sender: str,
-              rng: random.Random, opened: bool) -> None:
+              rng: random.Random, opened: bool, stamp: tuple[str, str] | None = None) -> None:
     p = doc.pal
     ex, ey, ew, eh = 300.0, 330.0, 1000.0, 500.0
     cw, ch = _card_size(kind)
@@ -197,18 +220,22 @@ def _envelope(doc: Doc, brief: EditorialBrief, kind: str, figure: str, noun: str
              stroke="#D8CCB3", sw=2)
     _airmail(doc, ex, ey + eh - 22, ew, 22, p.danger, p.accent)
     # what the envelope is about: the count, else the company the sources name
+    # with a stamp on the left, the label moves right so the two never touch
+    tx, room = (ex + ew * 0.66, ew * 0.56) if stamp else (ex + ew / 2, ew - 120)
     if figure:
         size = 200.0
         tw = T.measure(T.supported(figure, "display"), size, "display")
-        size = min(size, size * (ew - 120) / tw)
-        doc.text(figure, ex + ew / 2, ey + eh * 0.62 + 60, size, p.ink, "display", anchor="middle")
-        doc.text(noun, ex + ew / 2, ey + eh - 60, 50, p.danger, "ui_bold", anchor="middle")
+        size = min(size, size * room / tw)
+        doc.text(figure, tx, ey + eh * 0.62 + 60, size, p.ink, "display", anchor="middle")
+        doc.text(noun, tx, ey + eh - 60, fit_size(noun, 50, room, "ui_bold"), p.danger, "ui_bold", anchor="middle")
     elif sender:
         size = 150.0
         tw = T.measure(T.supported(sender, "display"), size, "display")
-        size = min(size, size * (ew - 160) / max(tw, 1))
-        doc.text(sender, ex + ew / 2, ey + eh * 0.62 + 50, size, p.ink, "display", anchor="middle")
-        doc.text(noun, ex + ew / 2, ey + eh - 60, 50, p.danger, "ui_bold", anchor="middle")
+        size = min(size, size * (room - 40) / max(tw, 1))
+        doc.text(sender, tx, ey + eh * 0.62 + 50, size, p.ink, "display", anchor="middle")
+        doc.text(noun, tx, ey + eh - 60, fit_size(noun, 50, room, "ui_bold"), p.danger, "ui_bold", anchor="middle")
+    if stamp:
+        _stamp(doc, ex + 190, ey + eh * 0.64, *stamp)
 
 
 def _cloud_path(cx: float, cy: float, s: float) -> str:
@@ -290,20 +317,80 @@ def _disputed(doc: Doc, sender: str, denied: bool) -> None:
                  tracking=size * 0.12)
 
 
-@scene("breach_notice")
-def breach_notice(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
-    text = brief.text or ""
-    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#EEE8DC", 1), (1, "#D8CDB8", 1)], 0, 0, 0.3, 1))
-    doc.rect(0, 0, 1600, 900, doc.rad([(0, "#FFFFFF", 0.6), (1, "#FFFFFF", 0)], 0.5, 0.2, 0.6))
+_SUPPLIER = re.compile(r"\b(?:(it|software|technology|managed service|third[- ]party|payroll|hr) "
+                       r"(?:provider|supplier|vendor|contractor)|supplier|contractor)\b|"
+                       r"(?:it-)?постачальник\w*|підрядник\w*")
+_HACK = re.compile(r"hack\w*|breach\w*|cyberattack|attack\w*|compromis\w*|ransomware|зламан\w*|атак\w*|витік\w*")
+_EVENT = (("hack", "HACK"), ("зламан", "HACK"), ("breach", "BREACH"), ("витік", "BREACH"), ("cyberattack", "ATTACK"),
+          ("attack", "ATTACK"), ("атак", "ATTACK"), ("ransomware", "ATTACK"), ("compromis", "COMPROMISE"))
+_KIND_EN = {"payment": "payment card", "employee": "employee", "driver": "driver", "email": "subscriber",
+            "customer": "customer"}
+_KIND_UA = {"payment": "платіжних карток", "employee": "працівників", "driver": "водіїв",
+            "email": "підписників", "customer": "клієнтів"}
 
+
+@dataclass(frozen=True)
+class _Plan:
+    mode: str              # "denied" | "alleged" | "cloud" | "envelope"
+    kind: str
+    opened: bool
+    figure: str
+    noun: str
+    sender: str
+    stamp: tuple[str, str] | None
+
+
+def _names(brief: EditorialBrief) -> list[str]:
+    """Headline names with adjacent parts joined ("Baker Tilly")."""
+    return product_groups(brief)
+
+
+def _NOTIFIER(name: str) -> re.Pattern[str]:
+    return re.compile(r"(?<!\w)" + re.escape(name.lower()) + r"(?:\s+\w+){0,2},? (?:says|said|notif|is notifying|"
+                      r"confirm|disclos|warn|announc|denies|told|повідомил|попередил)")
+
+
+def _provider(brief: EditorialBrief, head: str) -> tuple[str, str] | None:
+    """(stamp caption, supplier name) when the headline says the data was
+    taken through a supplier. The name only when the sources call that
+    entity the supplier ("supplier Wellington IT", "Acme, an IT provider")."""
+    m = _SUPPLIER.search(head)
+    if not m:
+        return None
+    role = "IT PROVIDER" if (m.group(1) or "") == "it" or "it-" in m.group(0) or re.search(
+        r"\bit (?:provider|supplier|vendor)|постачальник\w* іт|it-постачальник", head) else "SUPPLIER"
+    text = brief.text or ""
+    name = ""
+    for e in _names(brief):
+        if _NOTIFIER(e).search(text):
+            continue                  # the sources show it notifying: it is the sender, not the supplier
+        el = re.escape(e.lower())
+        if re.search(r"(?:provider|supplier|vendor|contractor|постачальник\w*|підрядник\w*)\s+" + el + r"(?!\w)",
+                     text) or re.search(r"(?<!\w)" + el + r",? (?:an? |the )?(?:\w+ ){0,2}"
+                                        r"(?:provider|supplier|vendor|contractor)", text):
+            if T.supported(e, "ui_bold") == e and len(e) <= 24:
+                name = e
+                break
+    # the sources' own word for what happened, the one nearest the supplier
+    window = head[max(0, m.start() - 40):m.end() + 40]
+    hits = [(abs(h.start() - (m.start() - max(0, m.start() - 40))), h.group(0)) for h in _HACK.finditer(window)]
+    word = min(hits)[1] if hits else ""
+    event = next((v for k, v in _EVENT if word.startswith(k)), "")
+    return (f"{role} {event}" if event else f"VIA {role}"), name
+
+
+def _plan(brief: EditorialBrief) -> _Plan:
+    text = brief.text or ""
     kind = _kind(text)
     exposed = brief.status in _EXPOSED
-    head = text[:160]
-    named = [e for e in brief.entities if e.lower() in head and T.supported(e, "display") == e and len(e) <= 18]
-    sender = next((e for e in named if re.search(
-        r"\b" + re.escape(e.lower()) + r"\b,? (says|said|notif|is notifying|confirm|disclos|warn|announc|denies|"
-        r"employee|customer|newsletter)", text)), "") or next(
-        (e for e in named if not re.search(r"(ese|ian|ish)$", e)), "")
+    head = text[:200]
+    stamp = _provider(brief, head)
+    supplier = stamp[1] if stamp else ""
+    named = [e for e in _names(brief) if mentions(e, head) and e != supplier
+             and T.supported(e, "display") == e and len(e) <= 18]
+    sender = next((e for e in named if _NOTIFIER(e).search(text) or re.search(
+        r"\b" + re.escape(e.lower()) + r"\b,? (employee|customer|newsletter|members)", text)), "") or (
+        named[0] if named else "")
     figure, noun = count_label(brief)
     who = {"driver": "drivers", "employee": "employees", "email": "subscribers", "payment": "customers"}.get(
         kind, "customers")
@@ -315,27 +402,65 @@ def breach_notice(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
         noun = {"payment": "payment card data", "employee": "employee data", "driver": "driver data",
                 "email": "email addresses"}.get(kind, "customer data")
     cloud = re.search(r"cloud (provider|service|storage)|хмарн\w* (провайдер|сервіс)", text) is not None
+    if _DENIED.search(text[:160]):
+        return _Plan("denied", kind, False, "", "", sender, None)
+    if _ALLEGED.search(text[:160]) and not exposed:
+        return _Plan("alleged", kind, False, "", "", sender, None)
+    if cloud and not figure:
+        return _Plan("cloud", kind, exposed, "", noun, sender, None)
+    if not figure and not sender:
+        noun = ""            # a lone data-type caption would read as a label for nobody
+    return _Plan("envelope", kind, exposed, figure, noun, sender if not figure else "", stamp)
 
-    denied = _DENIED.search(head) is not None
-    if denied or (_ALLEGED.search(head) and not exposed):
-        _disputed(doc, sender, denied)
+
+@scene("breach_notice")
+def breach_notice(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
+    doc.rect(0, 0, 1600, 900, doc.lin([(0, "#EEE8DC", 1), (1, "#D8CDB8", 1)], 0, 0, 0.3, 1))
+    doc.rect(0, 0, 1600, 900, doc.rad([(0, "#FFFFFF", 0.6), (1, "#FFFFFF", 0)], 0.5, 0.2, 0.6))
+    pl = _plan(brief)
+    if pl.mode in ("denied", "alleged"):
+        _disputed(doc, pl.sender, pl.mode == "denied")
         doc.focus = Box(240, 140, 1120, 630)
-    elif cloud and not figure:
-        _cloud(doc, kind, sender, noun, rng, exposed)
+    elif pl.mode == "cloud":
+        _cloud(doc, pl.kind, pl.sender, pl.noun, rng, pl.opened)
         doc.focus = Box(60, 30, 1480, 833)
     else:
-        _envelope(doc, brief, kind, figure, noun, sender, rng, exposed)
+        _envelope(doc, brief, pl.kind, pl.figure, pl.noun, pl.sender, rng, pl.opened, pl.stamp)
         doc.focus = Box(160, 110, 1280, 720)
 
 
-def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
-    """Disputed or denied breaches are drawn sealed: say so in the alt text."""
-    head = (brief.text or "")[:160]
-    exposed = brief.status in _EXPOSED
-    if _DENIED.search(head):
-        return ("Illustration: a sealed envelope with a question mark, stamped 'breach denied'.",
-                "Ілюстрація: запечатаний конверт зі знаком питання і штампом «витік заперечено».")
-    if _ALLEGED.search(head) and not exposed:
-        return ("Illustration: a sealed envelope with a question mark, stamped 'alleged'.",
-                "Ілюстрація: запечатаний конверт зі знаком питання і штампом «нібито».")
-    return None
+def alt_for(brief: EditorialBrief) -> tuple[str, str]:
+    """Describes exactly what `breach_notice` draws for this brief: the same
+    plan decides both."""
+    pl = _plan(brief)
+    if pl.mode in ("denied", "alleged"):
+        st_en, st_ua = ("breach denied", "витік заперечено") if pl.mode == "denied" else ("alleged", "нібито")
+        who_en = f" bearing the name {pl.sender}," if pl.sender else ""
+        who_ua = f" з назвою {pl.sender}" if pl.sender else ""
+        return (f"Illustration: a sealed envelope{who_en} with a question mark, stamped '{st_en}'.",
+                f"Ілюстрація: запечатаний конверт{who_ua} зі знаком питання і штампом «{st_ua}».")
+    k_en, k_ua = _KIND_EN[pl.kind], _KIND_UA[pl.kind]
+    if pl.mode == "cloud":
+        en = "Illustration: a dark cloud labelled 'cloud provider'"
+        ua = "Ілюстрація: темна хмара з написом «cloud provider»"
+        if pl.opened:
+            en += f", {k_en} record cards falling from a tear in it"
+            ua += f", з розриву в ній випадають картки записів {k_ua}"
+        lab = " ".join(x for x in (pl.sender, pl.noun) if x)
+        return (f"{en}; beside it: '{lab}'.", f"{ua}; поруч напис «{lab}».")
+    if pl.opened:
+        en = f"Illustration: an opened envelope with {k_en} record cards rising out of it"
+        ua = f"Ілюстрація: відкритий конверт, з якого виходять картки записів {k_ua}"
+    else:
+        en, ua = "Illustration: a sealed envelope", "Ілюстрація: запечатаний конверт"
+    if pl.figure:
+        en += f", marked '{pl.figure} {pl.noun}'"
+        ua += f" з написом «{pl.figure} {pl.noun}»"
+    elif pl.sender:
+        en += f", addressed from {pl.sender}, '{pl.noun}'"
+        ua += f" від {pl.sender}, «{pl.noun}»"
+    if pl.stamp:
+        top, name = pl.stamp
+        en += f", and a stamp reading '{top}'" + (f" with the supplier's name, {name}" if name else "")
+        ua += f" і штамп «{top}»" + (f" з назвою постачальника {name}" if name else "")
+    return en + ".", ua + "."

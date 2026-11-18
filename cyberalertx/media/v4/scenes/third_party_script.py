@@ -16,7 +16,7 @@ import random
 import re
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Box, Doc, W, H, f
 from . import scene
 
@@ -26,7 +26,7 @@ _ATTACK = ("exploited", "confirmed", "attacks_observed", "compromise")
 def _vendor(brief: EditorialBrief) -> str:
     head = (brief.text or "")[:160]
     for e in brief.entities:
-        if e.lower() in head and T.supported(e, "display") == e:
+        if mentions(e, head) and T.supported(e, "display") == e:
             return e
     return ""
 

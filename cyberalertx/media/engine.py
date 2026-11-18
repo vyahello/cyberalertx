@@ -16,6 +16,7 @@ Guarantees:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -140,6 +141,17 @@ def _record_usage(store: MediaStore, entry: Mapping[str, Any]) -> None:
 
 
 
+def _draws_stored_image(plan: Any, asset: MediaAsset) -> bool:
+    """True when rendering `plan` now gives the stored file byte for byte."""
+    if asset.generation_method != "svg" or asset.generation_model != plan.renderer or not asset.storage_key:
+        return False
+    try:
+        data = render_plan(plan)
+    except Exception:                                    # a renderer bug keeps the stored alt text
+        return False
+    return hashlib.sha256(data).hexdigest() == asset.storage_key.split(".")[0]
+
+
 def run(
     items: Sequence[NewsItem],
     *,
@@ -217,9 +229,14 @@ def run(
         members = sorted(m.fingerprint for m in story.members)
 
         if existing and existing.content_hash == inputs_hash and existing.status in ("validated", "published"):
-            if (existing.members != members or dict(existing.alt_text) != alt
-                    or dict(existing.credit) != plan.credit) and not dry_run:
-                existing.members, existing.alt_text, existing.credit = members, alt, dict(plan.credit)
+            changed = existing.members != members or dict(existing.credit) != plan.credit
+            existing.members, existing.credit = members, dict(plan.credit)
+            # Alt text and image are written together: a new alt text replaces
+            # the stored one only when the current code still draws exactly the
+            # stored image (same bytes), so it is known to describe it.
+            if dict(existing.alt_text) != alt and _draws_stored_image(plan, existing):
+                existing.alt_text, changed = alt, True
+            if changed and not dry_run:
                 store.put(existing)
             res.reused.append(story.key)
             continue

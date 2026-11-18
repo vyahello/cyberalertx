@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import Doc, f
 
 # Capitalised headline words that are not product or organisation names.
@@ -40,7 +40,7 @@ def product_groups(brief: EditorialBrief) -> list[str]:
     text = brief.text
     groups: list[list[str]] = []
     for e in ents:
-        if groups and f"{groups[-1][-1]} {e}".lower() in text:
+        if groups and mentions(f"{groups[-1][-1]} {e}", text):
             groups[-1].append(e)
         else:
             groups.append([e])

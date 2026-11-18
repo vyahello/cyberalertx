@@ -13,7 +13,7 @@ import random
 import re
 
 from .. import type as T
-from ..brief import EditorialBrief
+from ..brief import EditorialBrief, mentions
 from ..kit import H, W, Box, Doc, f, pill
 from . import scene
 
@@ -58,7 +58,7 @@ def usb_worm(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     text = brief.text or ""
     doc.rect(0, 0, W, H, doc.lin([(0, "#13201A", 1), (1, "#060A08", 1)], 0, 0, 0.3, 1))
     doc.rect(0, 0, W, H, doc.rad([(0, "#7CE0A8", 0.12), (1, "#7CE0A8", 0)], 0.62, 0.62, 0.55))
-    names = [n for n in ("Retadup", "CoffeeLoader") if n.lower() in text]
+    names = [n for n in ("Retadup", "CoffeeLoader") if mentions(n, text)]
 
     # the trail: copies receding along an S-curve toward the top left
     trail = [(1000, 300, 0.95, -18), (760, 200, 0.70, 8), (560, 250, 0.52, -14), (410, 170, 0.40, 10),

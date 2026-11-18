@@ -336,6 +336,30 @@ _FACT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("years", _NUM + r"\s*(?:years|років|роки)"),
     ("days", _NUM + r"[- ]?(?:days?|днів|дні)"),
 )
+#: Organisations affected, counted ("40 Irish credit unions", "12 hospitals").
+#: The words between the number and the noun are kept when they are a plain
+#: qualifier ("Irish", "regional"); the label stays English and ASCII.
+_ORG_NOUNS = {
+    "credit unions": "credit unions", "banks": "banks", "hospitals": "hospitals", "companies": "companies",
+    "organizations": "organizations", "organisations": "organisations", "firms": "firms",
+    "businesses": "businesses", "schools": "schools", "universities": "universities", "councils": "councils",
+    "municipalities": "municipalities", "agencies": "agencies", "retailers": "retailers", "insurers": "insurers",
+    "clinics": "clinics", "pharmacies": "pharmacies", "school districts": "school districts",
+    "кредитних спілок": "credit unions", "банків": "banks", "лікарень": "hospitals", "компаній": "companies",
+    "організацій": "organizations", "шкіл": "schools", "університетів": "universities",
+}
+_ORGS = re.compile(r"(?<![\w$.,-])(\d{1,4})\s+((?:[A-Za-z][\w-]*\s+){0,2}?)(" +
+                   "|".join(sorted(map(re.escape, _ORG_NOUNS), key=len, reverse=True)) + r")\b", re.I)
+
+
+def _org_noun(m: re.Match[str]) -> str:
+    noun = _ORG_NOUNS[m.group(3).lower()]
+    qual = m.group(2).strip()
+    if qual and qual.isascii() and len(qual) <= 18 and not re.search(r"\d", qual):
+        return f"{qual} {noun}"
+    return noun
+
+
 _MONEY = re.compile(r"\$\s?(\d+(?:[.,]\d+)?)\s*(million|billion|m|bn|мільйон\w*|млн|млрд)?", re.I)
 _CVE = re.compile(r"CVE-\d{4}-\d{4,7}", re.I)
 
@@ -383,7 +407,19 @@ def extract_facts(title: str, excerpt: str, post: str) -> dict[str, Any]:
                 unit = (m.group(2) or "").lower()
                 unit = "M" if unit.startswith(("m", "мільйон", "млн")) else "B" if unit.startswith(("b", "млрд"))\
                     else ""
-                facts["money"] = f"${m.group(1)}{unit}"
+                # "40,5 млн" is a decimal comma (Ukrainian), "1,500" a thousands separator
+                amount = re.sub(r"^(\d+),(\d{1,2})$", r"\1.\2", m.group(1))
+                facts["money"] = f"${amount}{unit}"
+                prefix = text[max(0, m.start() - 22):m.start()].lower()
+                if re.search(r"(more than|over|at least|понад|більше|щонайменше)\s*$", prefix):
+                    facts["money_plus"] = True
+                elif re.search(r"(nearly|almost|майже|близько)\s*$", prefix):
+                    facts["money_approx"] = True
+        if "orgs" not in facts:
+            m = _ORGS.search(text)
+            if m and m.group(1) != "0":
+                facts["orgs"] = _clean_num(m.group(1))
+                facts["orgs_noun"] = _org_noun(m)
     cves = sorted({c.upper() for c in _CVE.findall(" ".join((title, post, excerpt)))})
     if cves:
         facts["cves"] = cves[:4]
@@ -410,6 +446,44 @@ _NOT_ENTITY = {"The", "A", "An", "And", "Or", "Of", "In", "On", "To", "For", "Wi
                "Exploits", "Patch", "Second", "Life", "Spreading", "Vulnerability", "Zero"}
 
 
+#: Generic technology, role and place terms. Alone they never name an
+#: organisation, product or sender ("IT provider", "AI platform", "RCE flaw").
+#: A genuine name that contains one keeps it whole ("Wellington IT", "Scale AI").
+GENERIC_TERMS = frozenset({
+    "IT", "AI", "ML", "LLM", "LLMs", "GenAI", "API", "APIs", "VPN", "VPNs", "SaaS", "IoT", "OT", "ICS", "SCADA",
+    "ERP", "CRM", "CMS", "DNS", "SSO", "MFA", "2FA", "RCE", "SQL", "SQLi", "XSS", "CSRF", "SSRF", "DDoS", "DoS",
+    "PC", "PCs", "OS", "USB", "GPU", "GPUs", "CPU", "CPUs", "NAS", "HR", "PR", "CEO", "CTO", "CFO", "CISO", "IP",
+    "URL", "URLs", "PDF", "SMS", "EDR", "XDR", "SIEM", "SOC", "NFT", "NFTs", "CVE", "CVEs", "CVSS", "LPE", "PoC",
+    "MSP", "MSPs", "ISP", "ISPs", "OTP", "QR", "ID", "IDs", "PIN", "ATM", "ATMs", "POS", "KEV", "RAT", "RATs",
+    "UK", "EU", "UN", "UAE", "USA",
+})
+#: Nationalities and regions describe where, not who.
+DEMONYMS = frozenset({
+    "Irish", "British", "English", "Scottish", "Welsh", "Chinese", "Iranian", "Ukrainian", "American", "German",
+    "French", "Dutch", "Israeli", "Indian", "Italian", "Spanish", "Polish", "Japanese", "Vietnamese", "Turkish",
+    "Swedish", "Danish", "Finnish", "Norwegian", "Australian", "Canadian", "Brazilian", "European", "Pakistani",
+    "Belarusian", "Romanian", "Czech", "Hungarian", "Taiwanese", "Singaporean", "Mexican", "Nigerian", "Estonian",
+    "Latvian", "Lithuanian", "Georgian", "Moldovan", "Slovak", "Austrian", "Belgian", "Swiss", "Portuguese",
+    "Greek", "Thai", "Malaysian", "Indonesian", "Filipino", "Saudi", "Emirati", "Egyptian", "African", "Asian",
+    "Korean", "Russian", "South",
+})
+
+
+#: Generic terms that can end a company name ("Wellington IT", "Scale AI").
+_NAME_SUFFIXES = frozenset({"IT", "AI"})
+
+
+def is_generic(w: str) -> bool:
+    """True for a token that can never be an entity label on its own."""
+    return w in GENERIC_TERMS or w in DEMONYMS or w.upper() in {t.upper() for t in GENERIC_TERMS if len(t) > 2}
+
+
+def mentions(name: str, text: str) -> bool:
+    """`name` occurs in `text` as a whole word (case-insensitive). Unlike a
+    substring test, "IT" is not found in "with" and "Roller" not in "rollers"."""
+    return bool(name) and re.search(r"(?<!\w)" + re.escape(name.lower()) + r"(?!\w)", text.lower()) is not None
+
+
 def _name_like(w: str) -> bool:
     return bool(re.search(r"\d|-|\$|[a-z][A-Z]|^[A-Z]{2,}", w))
 
@@ -422,8 +496,20 @@ def extract_entities(title: str, context: str = "") -> list[str]:
     words = [w for w in re.findall(r"[A-Za-z][\w$'-]*", title) if len(w) >= 4]
     title_case = bool(words) and sum(w[0].isupper() for w in words) / len(words) > 0.6
     out: list[str] = []
+    last_end = -2          # end of the last accepted name in `title`
     for m in _NAME.finditer(title):
         w = m.group(1)
+        if is_generic(w):
+            # "IT"/"AI" end a company name when they directly follow one and the
+            # source writes that compound ("Wellington IT", "Fireworks AI").
+            # Otherwise, and for every other generic term ("RCE flaw", "Turin
+            # CPU"), it is a common noun and never a label.
+            compound = f"{out[-1]} {w}" if out else ""
+            if (w in _NAME_SUFFIXES and out and m.start() == last_end + 1 and title[last_end] == " "
+                    and (not context or re.search(r"(?<!\w)" + re.escape(compound) + r"(?!\w)", context))):
+                out[-1] = compound
+                last_end = m.end()
+            continue
         if w in _NOT_ENTITY or len(w) < 2 or w in out:
             continue
         if title_case and not _name_like(w) and context and (
@@ -431,6 +517,7 @@ def extract_entities(title: str, context: str = "") -> list[str]:
                 or not re.search(r"\b" + re.escape(w) + r"\b", context)):
             continue
         out.append(w)
+        last_end = m.end()
     return out[:6]
 
 
