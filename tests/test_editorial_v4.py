@@ -437,3 +437,13 @@ def test_names_from_our_headline_count_only_when_the_source_contains_them() -> N
     b2 = B.build(story("Attackers Used Optimizely to A/B Test Malware on Top Websites", body,
                        post="Acme and BBC among sites that served malware via Optimizely"))
     assert "Acme" not in b2.entities
+
+
+def test_script_scene_alt_text_names_what_is_drawn() -> None:
+    body = ("At least 178 top web destinations served malware exploits against visitors, injected into sites "
+            "like the BBC, CNN, Equifax, Ledger and Zoom via Optimizely.")
+    b = B.build(story("Attackers Used Optimizely to A/B Test Malware on Top Websites", body, category="malware",
+                      post="BBC, CNN and Zoom among 178 sites that served malware via Optimizely"))
+    b = replace(b, status="compromise")
+    en = B.alt_text(b)["en"]
+    assert "178 websites" in en and "BBC" in en and "visitors" in en and "Optimizely" in en

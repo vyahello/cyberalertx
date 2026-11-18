@@ -6,7 +6,10 @@ test.describe("journeys @e2e", () => {
     page,
     baseURL,
   }) => {
-    await page.goto("/en");
+    // Interact once the page is interactive, as a reader would. A click fired
+    // during hydration can be dropped (pre-existing; see docs/release/OPEN_ISSUES.md
+    // O50), which made this journey flaky rather than testing navigation.
+    await page.goto("/en", { waitUntil: "networkidle" });
 
     // Each feed row has exactly one link: its headline.
     const cardLinks = page.locator('#feed article a[href^="/en/threat/"]');

@@ -145,3 +145,28 @@ def third_party_script(doc: Doc, brief: EditorialBrief, rng: random.Random) -> N
 
     doc.rect(0, 0, W, H, doc.rad([(0.62, "#000", 0), (1, "#000", 0.45)], 0.5, 0.5, 0.75))
     doc.focus = Box(60, 40, 1480, 833) if visitors else Box(170, 40, 1260, 709)
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
+    """Describe what this scene draws for the story: the shared script, the
+    reported count, the named sites and visitors receiving the payload."""
+    vendor = _vendor(brief)
+    named = [e for e in brief.entities if e != vendor and T.supported(e, "ui_bold") == e][:3]
+    count = str(brief.facts.get("sites") or "")
+    tainted = brief.status in _ATTACK or "malicious" in (brief.text or "")
+    visitors = tainted and re.search(r"visitors|відвідувач", brief.text or "") is not None
+    if not (named or count or visitors):
+        return None
+    script_en = f"one tampered {vendor} script" if vendor else "one tampered third-party script"
+    script_ua = f"один змінений скрипт {vendor}" if vendor else "один змінений сторонній скрипт"
+    sites_en = f"{count} websites" if count else "many websites"
+    sites_ua = f"{count} сайтах" if count else "багатьох сайтах"
+    en = f"Illustration: {script_en} loaded on {sites_en}"
+    ua = f"Ілюстрація: {script_ua} на {sites_ua}"
+    if named:
+        en += ", among them " + ", ".join(named)
+        ua += ", серед них " + ", ".join(named)
+    if visitors:
+        en += ", passing a malicious payload to their visitors"
+        ua += ", що передає шкідливе навантаження відвідувачам"
+    return en + ".", ua + "."

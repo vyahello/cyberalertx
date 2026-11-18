@@ -44,7 +44,12 @@ test.describe("smoke @smoke", () => {
   });
 
   test("/healthz returns 200 JSON", async ({ baseURL }) => {
-    const ctx = await request.newContext({ baseURL });
+    // /healthz belongs to the API (FastAPI), not to Next.js. In production nginx
+    // routes it to the API on the site origin; a bare local Next server has no
+    // such route, so locally the check goes to the API directly (API_URL).
+    const local = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(baseURL ?? "");
+    const target = process.env.HEALTHZ_BASE_URL ?? (local ? process.env.API_URL ?? "http://127.0.0.1:8000" : baseURL);
+    const ctx = await request.newContext({ baseURL: target });
     try {
       const resp = await ctx.get("/healthz");
       expect(resp.status(), `healthz status was ${resp.status()}`).toBe(200);
