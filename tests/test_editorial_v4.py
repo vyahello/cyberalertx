@@ -788,9 +788,10 @@ def test_o56_arrest_is_never_drawn_as_a_seizure_and_a_country_is_never_seized() 
                              "Ukrainian authorities and the FBI detained four suspected members of an international "
                              "ransomware operation tied to over $40.5M in ransoms from at least 28 firms.")
     assert "SEIZED" not in labels and "Ukraine" not in labels           # no seizure; Ukraine is no object
-    assert "ARRESTED" in labels and "Ukraine + FBI" in labels and "RANSOMWARE GANG" in labels
-    assert "$40M" in labels and "in ransoms" in labels
-    assert "case file labelled 'RANSOMWARE GANG'" in alt and "'arrested'" in alt and "Ukraine and FBI" in alt
+    assert "ARRESTED" in labels and "Ukrainian authorities + FBI" in labels and "RANSOMWARE GANG" in labels
+    assert "OVER $40.5M" in labels and "in ransoms" in labels           # the source's precise figure
+    assert "case file labelled 'RANSOMWARE GANG'" in alt and "'arrested'" in alt
+    assert "Ukrainian authorities and FBI" in alt
 
 
 @pytest.mark.parametrize("title,authority,group", [
@@ -885,7 +886,11 @@ def test_fixes_announced_as_coming_are_not_a_patch() -> None:
     labels = _adv("PHP Warns of Critical Security Flaws Affecting All Supported Versions, Fixes Coming November 19",
                   "PHP maintainers say fixes are coming on November 19.")
     assert "PATCH AVAILABLE" not in labels and "DISCLOSED" in labels and "PHP" in labels
-    assert "PATCH AVAILABLE" in _adv("CISA Urges Immediate Patching of Java4Shell Flaw That Could Allow RCE")
+    # an appeal to patch is not a statement that a fix exists (owner review, 19 Nov)
+    urged = _adv("CISA Urges Immediate Patching of Java4Shell Flaw That Could Allow RCE")
+    assert "PATCHING URGED" in urged and "PATCH AVAILABLE" not in urged
+    assert "PATCH AVAILABLE" in _adv("10-Year-Old NGINX HTTP/2 Flaw Lets Unauthenticated Attackers Execute Code",
+                                     "Fixed versions 1.31.9 and 1.30.7 came out today.")
 
 
 def test_a_kev_list_of_several_vendors_is_the_catalogue_not_one_vendor() -> None:
@@ -974,11 +979,46 @@ def test_kev_alt_text_lists_every_cve_the_catalogue_draws() -> None:
     assert check_brief(b6, labels6) == []
 
 
-def test_a_figure_only_in_our_summary_needs_a_source_that_states_it() -> None:
+def test_a_figure_from_our_summary_is_never_drawn_even_if_another_subject_shares_it() -> None:
+    # Oracle's 11 Java SE fixes are a different subject from CVE-2026-114938 (owner review, 19 Nov)
     from types import SimpleNamespace as NS
-    s = story("CISA Urges Immediate Patching of Java4Shell Flaw", "CISA urged organizations to patch.",
+    s = story("CISA Urges Immediate Patching of Java4Shell Flaw That Could Allow Remote Code Execution",
+              "CISA has urged organizations to immediately patch a newly disclosed critical security flaw impacting "
+              "Oracle Java. The flaw, tracked as CVE-2026-114938 (CVSS score: 8.1).",
               post="Oracle's Java update targets 11 flaws reachable without any login")
-    assert "flaws" not in B.build(s).facts                          # no source states 11: dropped
-    member = NS(title="Oracle to Patch 11 Java Flaws Today", raw_content="The 11 vulnerabilities carry a maximum")
-    s.members = [s.anchor, member]
-    assert B.build(s).facts.get("flaws") == "11"                    # a member article states it: kept
+    s.members = [s.anchor, NS(title="Oracle to Patch 11 Java Flaws Today", raw_content="The 11 vulnerabilities")]
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(s)
+    labels = render_doc(b).labels
+    assert "flaws" not in b.facts and "11" not in labels
+    assert "PATCHING URGED" in labels and "PATCH AVAILABLE" not in labels      # urged; availability not stated
+    assert "CVE-2026-114938" in labels and not any("Oracle" in x for x in labels)
+    assert "'PATCHING URGED'" in B.alt_text(b)["en"]
+
+
+def test_a_cve_from_our_summary_stays_only_when_a_source_contains_it() -> None:
+    from types import SimpleNamespace as NS
+    s = story("Google patches eighth Chrome zero-day exploited in attacks this year", "Google fixed a zero-day.",
+              post="Chrome zero-day CVE-2026-125350 exploited")
+    assert "cves" not in B.build(s).facts
+    s.members = [s.anchor, NS(title="Chrome update", raw_content="tracked as CVE-2026-125350")]
+    assert B.build(s).facts.get("cves") == ["CVE-2026-125350"]
+
+
+def test_the_ukraine_arrest_names_the_authorities_and_the_precise_amount() -> None:
+    b, labels, alt = _police("Ukraine, FBI arrest ransomware gang members tied to $40M in ransoms",
+                             "Ukrainian authorities, working with the FBI, have arrested four suspected members of an "
+                             "international ransomware organization linked to more than $40.5 million in ransom "
+                             "payments from at least 28 companies worldwide.")
+    assert "Ukrainian authorities + FBI" in labels and "OVER $40.5M" in labels and "$40M" not in labels
+    assert "Ukrainian authorities and FBI" in alt and "'OVER $40.5M in ransoms'" in alt
+
+
+def test_a_precise_headline_amount_keeps_its_own_qualifier() -> None:
+    f = B.extract_facts("Нацполіція та ФБР викрили хакерів, які виманили понад $40,5 млн",
+                        "Угруповання виманило $40,5 млн у жертв.", "")
+    assert f["money"] == "$40.5M" and f["money_plus"]
+
+
+def test_counts_step_over_hyphenated_product_names() -> None:
+    assert B.extract_facts("N-able Patches 17 N-central Flaws", "", "")["flaws"] == "17"

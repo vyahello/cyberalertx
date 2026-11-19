@@ -305,8 +305,20 @@ picture that asserted more than the sources do. The rules:
   * KEV alt text lists every CVE the catalogue draws. When the headline
     counts more additions than the sources list, the catalogue shows
     "+N more" instead of padding.
-  * A figure that only our own published summary states is kept only when
-    a source article of the story states it (`brief._sourced`).
+  * Figures come from the sources only: the headline, then the excerpt. Our
+    own published summary never adds a figure. It may carry another
+    subject's number: Oracle's 11 Java SE fixes are not CVE-2026-114938. A
+    CVE id from the summary stays only when a source article of the story
+    contains that exact id.
+  * When the headline rounds an amount ("$40M") and the excerpt states it
+    precisely ("more than $40.5 million"), the precise figure is drawn with
+    its qualifier (`OVER $40.5M`).
+  * A country that acts is named as the sources name it ("Ukrainian
+    authorities + FBI").
+  * An appeal to patch is not a statement that a fix exists. The advisory
+    shows PATCHING URGED unless a source states availability ("fixed
+    versions … came out", "patches", "updates released").
+  * Secondary products are listed only when the source headline names them.
 * **Recognition (hybrid policy).** V4 draws a story only when the drawing
   names something of it, or shows a verified library photograph. That
   means an entity, figure, identifier or acting authority. Unlabelled

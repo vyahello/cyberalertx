@@ -78,7 +78,19 @@ def _authorities(brief: EditorialBrief) -> list[str]:
                      r"викри|вилучи|ліквідува", head, re.I)
     lead = head[:verb.start()] if verb else ""
     places = [w for w in re.findall(r"[A-Z][a-zA-Z]+", lead) if w in _PLACES]
-    return list(dict.fromkeys(places + _actors(brief)))
+    named = []
+    for place in places:
+        adj = _DEMONYM_OF.get(place, "")
+        m = re.search(rf"\b{adj.lower()} (authorities|police|law enforcement|prosecutors)\b", brief.text) if adj else None
+        named.append(f"{adj} {m.group(1)}" if m else place)
+    return list(dict.fromkeys(named + _actors(brief)))
+
+
+#: How the sources name a country's authorities ("Ukrainian authorities").
+_DEMONYM_OF = {"Ukraine": "Ukrainian", "Germany": "German", "France": "French", "Netherlands": "Dutch",
+               "Poland": "Polish", "Spain": "Spanish", "Italy": "Italian", "Brazil": "Brazilian", "India": "Indian",
+               "Canada": "Canadian", "Australia": "Australian", "Romania": "Romanian", "Moldova": "Moldovan",
+               "Georgia": "Georgian", "Japan": "Japanese", "Britain": "British"}
 
 
 _GROUPS: tuple[tuple[str, str], ...] = (

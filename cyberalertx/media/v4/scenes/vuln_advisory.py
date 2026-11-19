@@ -59,6 +59,8 @@ class _Adv:
     extra: dict[str, str] = field(default_factory=dict)
     #: KEV additions the headline counts ("Adds Six ..."); 0 when it gives none.
     kev_total: int = 0
+    #: Patching is urged, but no source states that a fix is available.
+    urged: bool = False
 
 
 def _facts(brief: EditorialBrief) -> _Adv:
@@ -82,8 +84,10 @@ def _facts(brief: EditorialBrief) -> _Adv:
         r"expected|planned|scheduled|due|not yet)|no (?:patch|fix)|not yet (?:patched|fixed)|unpatched|"
         r"yet to (?:be )?(?:patch|fix)|will (?:be )?(?:patch|fix|releas)|виправлення (?:вийде|очікує)|"
         r"без (?:патча|виправлення)|не виправлен", t))
+    urged = bool(re.search(r"urg\w* (?:\w+ ){0,4}(?:to )?(?:immediate(?:ly)? )?patch|immediate(?:ly)? patch|"
+                           r"patch(?:ing)? (?:now|immediately)", t))
     patched = not pending and bool(re.search(
-        r"\bpatch(?:es|ed|ing)\b|\bfix(?:es|ed)\b|fixed in|hotfix|security updates?|cumulative update|"
+        r"\bpatch(?:es|ed)\b|\bfix(?:es|ed)\b|fixed in|fixed versions?|hotfix|security updates?|cumulative update|"
         r"(?:update|upgrade) to (?:version )?\d|apply (?:the )?(?:patch|update|fix)|"
         r"updates? (?:released|available|issued|out)|released (?:a |an )?(?:patch|fix|update)|patch(?:es)? "
         r"(?:is |are )?(?:now )?(?:available|released|out)|виправ|оновлен", t))
@@ -113,6 +117,9 @@ def _facts(brief: EditorialBrief) -> _Adv:
         name = "CISA KEV"
         others = []
     others = [o for o in others if not o.startswith("CISA")]
+    # Secondary products only when the source headline names them: a product named
+    # only in our summary may belong to another subject (Oracle's separate patch set).
+    others = [o for o in others if not brief.headline or o.split()[0].lower() in brief.headline.lower()]
     flaws = str(brief.facts.get("flaws", ""))
     if flaws and not _flaws_stated(t, flaws):
         flaws = ""                       # e.g. "CVSS 10.0" read as a count: never draw it
@@ -122,7 +129,7 @@ def _facts(brief: EditorialBrief) -> _Adv:
     words = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
     tm = re.search(r"\badds? (\w+) (?:new )?(?:known exploited|vulnerabilit|flaws)", head)
     kev_total = (int(tm.group(1)) if tm.group(1).isdigit() else words.get(tm.group(1), 0)) if tm else 0
-    return _Adv(name=name, others=others[:3], cves=cves, kev_total=kev_total if kev else 0,
+    return _Adv(name=name, others=others[:3], cves=cves, kev_total=kev_total if kev else 0, urged=urged,
                 flaws=flaws, flaws_approx=bool(brief.facts.get("flaws_approx")), exploited=exploited,
                 patched=patched, proof=proof, sev=sev, kind=_kind(t, name), kev=kev,
                 wallet=bool(re.search(r"wallet|crypto|seed phrase|гаманц", t)))
@@ -187,7 +194,7 @@ def _kind(text: str, name: str) -> str:
 _DISCLOSED_DARK, _DISCLOSED_LIGHT = "#7FB4FF", "#1E4FD8"
 # Darker inks of the four status colours for the light (paper) treatment.
 _ON_PAPER = {"EXPLOITED": "#D7372B", "PROOF OF CONCEPT": "#B86E00", "PATCH AVAILABLE": "#1F8A4C",
-             "DISCLOSED": _DISCLOSED_LIGHT}
+             "PATCHING URGED": "#B86E00", "DISCLOSED": _DISCLOSED_LIGHT}
 
 
 def _status(a: _Adv, p: Palette) -> tuple[str, str]:
@@ -197,6 +204,8 @@ def _status(a: _Adv, p: Palette) -> tuple[str, str]:
         return "PROOF OF CONCEPT", p.warn
     if a.patched:
         return "PATCH AVAILABLE", p.safe
+    if a.urged:
+        return "PATCHING URGED", p.warn
     return "DISCLOSED", _DISCLOSED_DARK if p.dark else _DISCLOSED_LIGHT
 
 
@@ -456,7 +465,7 @@ def vuln_advisory(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
 
 
 _STATUS_UA = {"EXPLOITED": "EXPLOITED", "PROOF OF CONCEPT": "PROOF OF CONCEPT", "PATCH AVAILABLE": "PATCH AVAILABLE",
-              "DISCLOSED": "DISCLOSED"}
+              "PATCHING URGED": "PATCHING URGED", "DISCLOSED": "DISCLOSED"}
 
 
 def alt_for(brief: EditorialBrief) -> tuple[str, str]:

@@ -344,7 +344,7 @@ _FACT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("videos", _NUM + r"\s*(?:[^\W\d]+\s+){0,3}(?:videos?|відео)"),
     ("sites", _NUM + r"\s*(?:[^\W\d]+\s+){0,2}(?:web ?sites|sites|web destinations|сайт\w*)"),
     # not a CVSS score ("CVSS 10.0 flaw" is one flaw rated 10.0)
-    ("flaws", r"(?<!cvss )(?<!cvss: )(?<!score of )" + _NUM + r"\s*(?:\w+\s){0,2}(?:flaws|vulnerabilities|bugs|"
+    ("flaws", r"(?<!cvss )(?<!cvss: )(?<!score of )" + _NUM + r"\s*(?:[\w-]+\s){0,2}(?:flaws|vulnerabilities|bugs|"
               r"вразливост\w*)"),
     ("years", _NUM + r"\s*(?:years|років|роки)"),
     ("days", _NUM + r"[- ]?(?:days?|днів|дні)"),
@@ -433,6 +433,23 @@ def extract_facts(title: str, excerpt: str, post: str) -> dict[str, Any]:
             if m and m.group(1) != "0":
                 facts["orgs"] = _clean_num(m.group(1))
                 facts["orgs_noun"] = _org_noun(m)
+    # The headline rounds ("$40M"); the excerpt states the same amount precisely
+    # ("more than $40.5 million"): draw the precise figure with its qualifier.
+    if facts.get("money") and excerpt:
+        m = _MONEY.search(excerpt)
+        if m:
+            unit = (m.group(2) or "").lower()
+            unit = "M" if unit.startswith(("m", "мільйон", "млн")) else "B" if unit.startswith(("b", "млрд")) else ""
+            amount = re.sub(r"^(\d+),(\d{1,2})$", r"\1.\2", m.group(1))
+            head = re.match(r"\$(\d+)([MB])$", str(facts["money"]))          # a rounded headline figure only
+            if head and "." in amount and amount.split(".")[0] == head.group(1) and head.group(2) == unit:
+                prefix = excerpt[max(0, m.start() - 22):m.start()].lower()
+                facts["money"] = f"${amount}{unit}"
+                facts.pop("money_approx", None)
+                if re.search(r"(more than|over|at least|понад|більше|щонайменше)\s*$", prefix):
+                    facts["money_plus"] = True
+                elif re.search(r"(nearly|almost|майже|близько)\s*$", prefix):
+                    facts["money_approx"] = True
     cves = sorted({c.upper() for c in _CVE.findall(" ".join((title, post, excerpt)))})
     if cves:
         facts["cves"] = cves[:4]
@@ -668,25 +685,6 @@ def advisory_without_incident(headline: str, status: str) -> bool:
             and not reports_incident(headline))
 
 
-def _sourced(facts: dict[str, Any], from_sources: dict[str, Any], story: Any) -> dict[str, Any]:
-    """A figure only our own published summary states is kept when a source
-    article of the story states it too (title or full text of any member);
-    otherwise it is dropped. Figures from the headline and excerpt stay."""
-    texts = " ".join(f"{getattr(m, 'title', '')} {getattr(m, 'raw_content', '') or ''}"
-                     for m in (getattr(story, "members", None) or [story.anchor]))
-    digits_in_sources = {re.sub(r"[^\d]", "", n) for n in re.findall(r"\d[\d,. ]*\d|\d", texts)}
-    out = dict(facts)
-    for key, value in facts.items():
-        if key.endswith(("_plus", "_approx", "_noun")) or key in from_sources:
-            continue
-        values = value if isinstance(value, (list, tuple)) else [value]
-        if not all(re.sub(r"[^\d]", "", str(v)) in digits_in_sources or str(v).upper() in texts.upper()
-                   for v in values):
-            for k in (key, key + "_plus", key + "_approx", key + "_noun"):
-                out.pop(k, None)
-    return out
-
-
 def build(story: Any) -> EditorialBrief:
     from ...pipeline.evidence import assess
 
@@ -721,7 +719,15 @@ def build(story: Any) -> EditorialBrief:
             # Only the excerpt/post supports a scene: too weak to depict it.
             why = [f"weak support for '{spec0.id}' ({top:.0f}, not in the headline)", *why0]
     lib = library.find(" ".join((title, excerpt, post))) if spec.id == "hpc_hall" else None
-    facts = _sourced(extract_facts(title, excerpt, post), extract_facts(title, excerpt, ""), story)
+    # Figures come from the sources only (headline, then excerpt). Our own summary
+    # may name a figure of another subject in the same story (Oracle's 11 Java SE
+    # fixes are not CVE-2026-114938), so it never adds one.
+    facts = extract_facts(title, excerpt, "")
+    sources = " ".join(f"{getattr(m, 'title', '')} {getattr(m, 'raw_content', '') or ''}"
+                       for m in (getattr(story, "members", None) or [anchor])).upper()
+    cves = [c for c in extract_facts(title, excerpt, post).get("cves", []) if c in sources]
+    if cves:
+        facts["cves"] = cves[:4]
     # Entities are drawn in the image, so they come from the headline and the
     # source text only: rewording our own post must not change the picture.
     names = extract_entities(title, excerpt)
