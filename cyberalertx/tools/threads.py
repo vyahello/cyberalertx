@@ -360,6 +360,79 @@ def cmd_test_post(args: argparse.Namespace, *, client: Any = None) -> int:
     return 0
 
 
+# ------------------------------------------------------------------ editorial review (drafts only)
+
+def cmd_editorial_review(args: argparse.Namespace, *, provider: Any = None) -> int:
+    """Draft the EN and UA posts for the given stories into OUT and print a
+    summary. Review only: nothing is queued, published or recorded, and the
+    production draft cache is never read or written (OUT has its own)."""
+    from ..config import DATA_DIR
+    from ..publish.config import build_telegram_settings
+    from ..publish.format import deep_link
+    from ..storage.json_store import JsonNewsStore
+    from ..threads import editorial as E
+    from ..threads.destination import IMAGE_VARIANT
+    from ..threads.format import TOPIC_TAG, threads_length
+
+    out = Path(args.out)
+    if out.resolve() == Path(DATA_DIR).resolve() or (out / "threads_editorial.json").resolve() == \
+            (Path(DATA_DIR) / "threads_editorial.json").resolve():
+        print("refusing to write the review into the production data directory", file=sys.stderr)
+        return 2
+    out.mkdir(parents=True, exist_ok=True)
+    base = build_telegram_settings().public_base_url
+    items = {i.fingerprint: i for i in JsonNewsStore(Path(DATA_DIR) / "items.json").all()}
+    model = ""
+    if provider is None:
+        provider, model = E.default_provider()
+    writer = E.Editorial(E.DraftStore(out / "drafts.json"), provider_factory=lambda: provider,
+                         items=items.get, model=model)
+    results: list[dict[str, Any]] = []
+    for story in args.story:
+        try:
+            payloads = {loc: _story_payload(story, loc) for loc in ("en", "ua")}
+        except ValueError as exc:
+            results.append({"story": story, "error": str(exc)})
+            continue
+        pid = str(payloads["en"]["id"])
+        ev = E.evidence_from(payloads["en"], items.get(pid))
+        try:
+            resp, review = writer.draft(ev)                 # re-checked against the current gates
+        except Exception as exc:                            # noqa: BLE001 - record it, review the rest
+            results.append({"story": story, "article_id": pid, "error": f"{type(exc).__name__}: {exc}"[:300]})
+            print(f"{story}: writer error {type(exc).__name__}", file=sys.stderr)
+            continue
+        draft_d = {**(writer.store.get(ev.article_id, ev.digest()) or {}), "scores": review.scores,
+                   "problems": review.problems, "publishable": review.publishable}
+        row: dict[str, Any] = {"story": story, "article_id": pid, "evidence": {
+            "outlet": ev.outlet, "headline": ev.headline, "text": ev.text, "url": ev.url,
+            "published": ev.published_label()}, "status": resp.status, "facts": [f.model_dump() for f in resp.facts],
+            "scores": draft_d["scores"], "problems": draft_d["problems"], "publishable": draft_d["publishable"],
+            "attempts": draft_d.get("attempts", 0), "history": draft_d.get("history", []), "omitted": resp.omitted,
+            "discussion_prompt": resp.discussion_prompt.model_dump(), "posts": {}}
+        for loc in ("en", "ua"):
+            url = deep_link(base, loc, pid)
+            text = E.compose(resp, loc, outlet=ev.outlet, url=url)
+            ill = (payloads[loc].get("media") or {}).get("illustration") or {}
+            try:
+                old = story_post(payloads[loc], loc, base)["text"]
+            except ValueError:
+                old = ""
+            row["posts"][loc] = {"text": text, "length": threads_length(text), "topic_tag": TOPIC_TAG.get(loc, ""),
+                                 "image": f"{base}/media/{ill['asset_id']}/{IMAGE_VARIANT}" if ill.get("asset_id")
+                                 else "", "alt": str((ill.get("alt") or {}).get(loc) or ""),
+                                 "edition_title": str(((payloads[loc].get("translations") or {}).get(loc) or {})
+                                                      .get("title") or ""), "old_text": old,
+                                 "old_length": threads_length(old) if old else 0}
+        results.append(row)
+        print(f"{story}: publishable={row['publishable']} en={row['posts']['en']['length']} "
+              f"ua={row['posts']['ua']['length']} scores={row['scores']}", file=sys.stderr)
+    (out / "review.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps({"stories": len(results), "publishable": sum(bool(r.get("publishable")) for r in results),
+                      "out": str(out / "review.json")}))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="cyberalertx.tools.threads", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -384,6 +457,10 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--preview", action="store_true", help="print what would be posted; publish nothing")
     t.add_argument("--confirm", action="store_true")
     t.set_defaults(fn=cmd_test_post)
+    r = sub.add_parser("editorial-review", help="draft EN/UA posts for review; publishes and queues nothing")
+    r.add_argument("story", nargs="+", help="story keys or article fingerprints")
+    r.add_argument("--out", required=True, help="review directory (never the data directory)")
+    r.set_defaults(fn=cmd_editorial_review)
     args = ap.parse_args(argv)
     return int(args.fn(args))
 

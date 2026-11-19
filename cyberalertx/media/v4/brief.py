@@ -99,7 +99,10 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "attackers abuse the management platform to push their own payload to managed machines",
        "an MSP's management console", "flaws in the management server; payload deployed through it",
        "Illustration: a remote-management control bar with strings to a fleet of managed computers.",
-       "Ілюстрація: панель віддаленого керування, від якої тягнуться нитки до парку керованих комп'ютерів."),
+       "Ілюстрація: панель віддаленого керування, від якої тягнуться нитки до парку керованих комп'ютерів.",
+       # the vendor's name alone is not its RMM product (N-able also runs an email-security cloud)
+       head_requires=r"N-central|\bRMM\b|remote monitoring|remote management|ScreenConnect|ConnectWise|Kaseya|"
+                     r"SimpleHelp|віддален\w* (?:керуван|адміністр)|endpoint management|\bUEM\b|MSPs?\b"),
     _s("patch_to_exploit", [(r"fully[- ]automated|повністю автоматизован|autonomous|agentic|AI agents?|"
                              r"ШІ-агент|агентн", 6), (r"\bAI\b|ШІ|штучн", 2),
                             (r"exploit|patch|вразлив|кібератак|attack", 2)], "violet",
@@ -671,8 +674,27 @@ _INCIDENT = re.compile(
 _HYPOTHETICAL = re.compile(r"\b(?:could|may|might|can|would|lets?|allows?|enables?)\b(?:\s+\w+){0,3}", re.I)
 
 
+#: A claim, allegation or investigation: the headline reports what someone says,
+#: not a compromise (O59: "NVIDIA investigating Gentlemen ransomware breach claims").
+#: An investigation counts only when it is into the incident itself; "hackers under
+#: investigation" in a story about a confirmed theft is not a claim.
+_CLAIMED = re.compile(r"\bclaim(?:s|ed|ing)?\b|\balleg\w*|leak site|says it (?:hacked|breached|stole)|"
+                      r"\binvestigat\w* (?:a |the |an? )?(?:possible |potential |suspected |reported )?"
+                      r"(?:breach|hack|cyberattack|attack|incident|security incident|data (?:breach|leak|theft)|"
+                      r"intrusion|claims?|reports?)|"
+                      r"нібито|заяв\w*|розслідує|стверджу\w*", re.I)
+_CONFIRMS = re.compile(r"\bconfirm(?:s|ed)\b|підтверди\w*", re.I)
+
+
+def claimed_only(headline: str) -> bool:
+    return _CLAIMED.search(headline) is not None
+
+
 def reports_incident(headline: str) -> bool:
-    """The headline reports an attack or compromise as having happened."""
+    """The headline reports an attack or compromise as having happened (a claim
+    or an investigation into one does not)."""
+    if claimed_only(headline):
+        return False
     return _INCIDENT.search(_HYPOTHETICAL.sub(" ", headline)) is not None
 
 
@@ -703,7 +725,17 @@ def build(story: Any) -> EditorialBrief:
     ev = assess(anchor)
     category = str(anchor.category or "other").lower()
     status = ("compromise" if ev.compromise == "confirmed" else ev.exploitation or "not_reported")
-    if _REGISTRY.search(title) and not _EXTENSION.search(title):
+    if claimed_only(title) and not _CONFIRMS.search(f"{title} {excerpt}"):
+        # O59: a claim is not an incident (whatever the evidence heuristics read into
+        # "the group says it stole 2 TB"); only a confirmation in the sources lifts it. Only the breach scene's sealed "ALLEGED"
+        # envelope may draw it; no locked systems, leaking records or wiped hosts.
+        # The breach scene stays only for a headline about an alleged breach itself
+        # (it draws the victim's sealed envelope stamped ALLEGED); a gang's leak-site
+        # listing would put the gang's name on the envelope, so V3 draws that.
+        keep = "breach_notice" if re.search(r"\bbreach\b", title, re.I) and \
+            re.search(r"\bclaim(?:s|ed)?\b|\balleg\w*", title, re.I) else ""
+        ranked = [r for r in ranked if r[1].id not in IMPACT_SCENES or r[1].id == keep]
+    elif _REGISTRY.search(title) and not _EXTENSION.search(title):
         # A package-registry compromise (PyPI, npm ...) has no faithful V4.1 scene:
         # the extension picture would invent a marketplace and a stolen key. V3 draws it.
         ranked = []

@@ -521,6 +521,9 @@ def run(
             store.update(j.job_id, precut, now)
             report.cancelled.append({"job_id": j.job_id, "reason": "published before Telegram activation"})
     claimed = store.claim(now, worker, lease_s=policy.lease_seconds, select=select)
+    # Telegram and the website first: a slow Threads step (the editorial writer,
+    # container processing) can never delay or crowd out a Telegram post.
+    claimed = sorted(claimed, key=lambda j: j.destination.startswith("threads@"))
     paused: set[tuple[str, str]] = set()
     sent_telegram = 0
 

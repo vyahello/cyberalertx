@@ -45,6 +45,10 @@ CONTAINER_TTL = timedelta(hours=24)          # official: unpublished containers 
 #: The story's canonical illustration — the same asset as the website and
 #: Telegram — as its 1200×675 PNG derivative (width within Threads' 320–1440).
 IMAGE_VARIANT = "telegram.png"
+#: Worst case for create + first wait + status + publish (each HTTP call ≤ 20 s).
+SEND_RESERVE_S = 90.0
+#: Worst case for a status check and the publish call of a ready container.
+FINISH_RESERVE_S = 45.0
 
 
 def _norm(text: str) -> str:
@@ -57,7 +61,8 @@ class ThreadsDestination:
                  image_check: Callable[[str], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 initial_wait_s: float = 30.0, poll_interval_s: float = 60.0, poll_budget_s: float = 120.0) -> None:
+                 initial_wait_s: float = 30.0, poll_interval_s: float = 60.0, poll_budget_s: float = 120.0,
+                 editorial: Any = None, remaining: Callable[[], float] | None = None) -> None:
         if slot not in settings.accounts:
             raise ValueError(f"unknown Threads slot {slot!r}")
         self.slot, self.locale = slot, settings.accounts[slot]
@@ -69,6 +74,12 @@ class ThreadsDestination:
         self._image_check = image_check
         self._sleep, self._clock = sleep, clock
         self.initial_wait_s, self.poll_interval_s, self.poll_budget_s = initial_wait_s, poll_interval_s, poll_budget_s
+        #: threads.editorial.Editorial: the evidence-checked EN/UA post. None = the
+        #: legacy formatter (render_post), kept for tests and manual tools.
+        self._editorial = editorial
+        #: Seconds left in this run (the publish unit has a hard timeout). A writer
+        #: attempt or a send starts only when it can finish; else the job waits.
+        self._remaining = remaining
 
     # -- contract -------------------------------------------------------------
 
@@ -117,10 +128,25 @@ class ThreadsDestination:
                 self.accounts.published_last_24h(self.slot, self._clock()) >= self.settings.daily_limit:
             raise DeliveryError(f"{self.name}: daily limit of {self.settings.daily_limit} reached", category=WAITING)
         url = deep_link(self.base, job.locale, str(payload["id"]))
-        try:
-            post = render_post(payload, locale=job.locale, url=url)
-        except ThreadsContentError as exc:
-            raise DeliveryError(str(exc), category="invalid_content") from exc
+        if self._editorial is not None:
+            from .editorial import EditorialDeferred, EditorialRejected
+            try:
+                post = self._editorial.post(payload, job.locale, url, remaining=self._remaining)
+            except EditorialRejected as exc:
+                # A draft that fails a gate is never published (no fallback text).
+                raise DeliveryError(str(exc), category="invalid_content") from exc
+            except EditorialDeferred as exc:
+                raise DeliveryError(str(exc), category=WAITING) from exc
+            except DeliveryError:
+                raise
+            except Exception as exc:                 # the writer is unavailable: try again later
+                raise DeliveryError(f"editorial writer unavailable: {type(exc).__name__}: {exc}"[:300],
+                                    category="temporary", retry_after=1800) from exc
+        else:
+            try:
+                post = render_post(payload, locale=job.locale, url=url)
+            except ThreadsContentError as exc:
+                raise DeliveryError(str(exc), category="invalid_content") from exc
         ill = (payload.get("media") or {}).get("illustration") or {}
         if not ill.get("asset_id"):
             # Same rule as Telegram: the story's own image or nothing yet; never another picture.
@@ -134,6 +160,9 @@ class ThreadsDestination:
         created = _parse(str(state.get("container_created_at", "")))
         if not state.get("container_id") or (created and self._clock() - created >= CONTAINER_TTL):
             state = {}
+        need = SEND_RESERVE_S if not state else FINISH_RESERVE_S
+        if self._remaining is not None and self._remaining() < need:
+            raise DeliveryError("no time left in this run to send; next run", category=WAITING)
         return Prepared(
             destination=self.name, locale=job.locale, target=f"@{acc.username or self.slot}", url=url,
             text=post.text, media_url=image, content_hash=edition_hash(payload, job.locale),
@@ -246,7 +275,8 @@ class ThreadsDestination:
                 container, image = self._create(p, on_sending, user, token, image)
                 created_at = _iso(self._clock())
                 continue
-            if waited >= self.poll_budget_s:
+            if waited >= self.poll_budget_s or (
+                    self._remaining is not None and self._remaining() - self.poll_interval_s < FINISH_RESERVE_S):
                 # Still processing: keep the container, come back next run.
                 raise DeliveryError(f"container {status or 'unknown'} after {waited:.0f}s",
                                     category="temporary", retry_after=self.poll_interval_s)

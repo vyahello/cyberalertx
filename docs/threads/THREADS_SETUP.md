@@ -121,13 +121,19 @@ Threads when `THREADS_ENABLED=1`, as destinations `threads@en` and
   its own alt text in the post's language. Without it, or if Threads cannot
   fetch it, the post waits; it is never sent text-only or with another
   picture.
-- **Text** (`threads/format.py`): headline, what happened, a "why it
-  matters" line or an action only when the evidence justifies one, the
-  source, and the article link. It targets 450 characters (hard limit 500)
-  and drops whole blocks, never cutting a sentence. A threat actor's claim
-  is labelled "Unconfirmed: this is the attackers' own claim." / «Не
-  підтверджено: це заява самих зловмисників.» Suspected exploitation is
-  labelled as suspected.
+- **Text** (`threads/editorial.py`, rules in
+  [EDITORIAL_STYLE.md](EDITORIAL_STYLE.md)): one evidence-checked draft per
+  story, written in both languages at once from the source article: a hook
+  that is not the headline, what happened, why it matters, advice only when
+  the source gives it, then `Reporting: <outlet>` / `Джерело: <outlet>` and
+  the article link. Target 350–450 characters, hard limit 500, never
+  truncated. The draft is stored (`data/threads_editorial.json`) and reused
+  while the evidence is unchanged, so a retry always sends the same text.
+  A draft that fails a hard gate is **never published**: the job fails as
+  invalid content and there is no fallback to another text. If the writer
+  (the site's LLM provider) is unavailable, the job waits and is retried.
+  Discussion prompts are drafted for the editor and never posted; nothing
+  replies or comments automatically.
 
 Two-step publication, with the container id saved before every step:
 
@@ -174,6 +180,31 @@ venv/bin/python -m cyberalertx.tools.threads test-post en --story <story> --conf
 A story posted this way predates the account's `publishing_since` (fixed on
 the first enabled run), so scheduled publishing can never post it a second
 time. The post counts towards the account's daily limit. After both are checked
-on Threads, set `THREADS_ENABLED=1` (an operator edit of .env). Emergency
-stop: set `THREADS_ENABLED=0`. Telegram and the website are unaffected
-either way.
+on Threads, activate scheduled publishing.
+
+Review the writer before activation, without publishing or queueing anything
+(the review directory has its own draft cache; the production cache is
+never touched):
+
+```bash
+venv/bin/python -m cyberalertx.tools.threads editorial-review --out $REVIEW_DIR/threads <story> [<story> ...]
+```
+
+### Activation (the only .env edit)
+
+```bash
+install -d -m 700 $BACKUPS/threads-activation-$(date +%Y%m%d-%H%M%S)   # call it $B
+cp -p $APP_HOME/.env $B/env.before && sha256sum $APP_HOME/.env > $B/env.before.sha256
+sed -i 's/^THREADS_ENABLED=0$/THREADS_ENABLED=1/' $APP_HOME/.env
+diff $B/env.before $APP_HOME/.env      # exactly one line: THREADS_ENABLED
+```
+
+Nothing else changes: not the timer, not the tokens, not Telegram. The unit
+reads `.env` at each start, so the next scheduled run picks it up. That run
+fixes `publishing_since` and posts nothing older; the first post follows on
+a later run. Check `tools.threads status --live`, the job store and the two
+profiles after each of the first runs; an unclear outcome is reconciled
+(`tools.threads reconcile`), never retried by hand.
+
+Emergency stop: `THREADS_ENABLED=0` (or restore `$B/env.before`). Telegram
+and the website are unaffected either way.

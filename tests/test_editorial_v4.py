@@ -1077,3 +1077,71 @@ def test_signing_key_theft_is_the_code_signing_scene_not_a_marketplace() -> None
     b = B.build(story("Hackers stole Acme code-signing key to sign malware",
                       "Attackers stole the company code-signing key and signed malware with it."))
     assert b.scene == "code_signing"
+
+
+# ------------------------------------------------------------------ O59: claims and investigations are not incidents
+
+NVIDIA = ("NVIDIA investigating Gentlemen ransomware breach claims",
+          "NVIDIA says it is investigating claims by the Gentlemen ransomware gang that it breached the company.")
+
+
+@pytest.mark.parametrize("title,body", [
+    NVIDIA,                                                                          # a company investigating a claim
+    ("Akira ransomware lists Contoso on its leak site", "The gang added Contoso to its data leak site."),
+    ("Ransomware gang claims attack on Acme Health", "The group says it stole 2 TB of data; Acme has not commented."),
+    ("Банда вимагачів заявляє про злам Acme", ""),
+    ("Acme investigating possible breach after ransomware gang post", "Acme is looking into the post."),
+])
+def test_a_claim_or_investigation_is_never_drawn_as_a_confirmed_incident(monkeypatch: pytest.MonkeyPatch,
+                                                                         title: str, body: str) -> None:
+    assert B.claimed_only(title) and not B.reports_incident(title)
+    b = B.build(story(title, body, category="ransomware"))
+    if b.scene == "breach_notice":                     # only an alleged breach keeps its sealed ALLEGED envelope
+        assert "claim" in title.lower() and "breach" in title.lower()
+    else:
+        assert b.scene not in B.IMPACT_SCENES
+    plan = _plan(monkeypatch, title, body, category="ransomware")
+    assert plan.renderer == "cax-svg-3" or plan.brief.scene == "breach_notice"
+
+
+def test_the_nvidia_investigation_falls_back_to_v3(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _plan(monkeypatch, *NVIDIA, category="ransomware").renderer == "cax-svg-3"
+
+
+def test_a_breach_claim_keeps_the_alleged_treatment_where_supported() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story("Hackers claim breach of Acme Bank, leak customer records",
+                      "A threat actor claims to have breached Acme Bank.", category="breach"))
+    if b.scene == "breach_notice":
+        assert "CONFIRMED" not in " ".join(render_doc(b).labels).upper()
+
+
+def test_an_investigation_of_suspects_is_not_a_claim() -> None:
+    assert not B.claimed_only("FBI agent stole $2.5 million in crypto from hackers under investigation")
+
+
+@pytest.mark.parametrize("title,body,scene", [
+    ("Maersk confirms data breach as WhiteArmor ransomware demands $5 million",
+     "Maersk confirmed a ransomware attack encrypted systems.", {"ransomware_impact", "breach_notice"}),
+    ("Uber notifies drivers of data breach affecting nearly 150,000 people", "", {"breach_notice"}),
+])
+def test_confirmed_ransomware_and_verified_data_theft_keep_their_incident_scenes(title: str, body: str,
+                                                                                 scene: set[str]) -> None:
+    assert not B.claimed_only(title) and B.reports_incident(title)
+    assert B.build(story(title, body, category="ransomware")).scene in scene
+
+
+# ------------------------------------------------------------------ N-able: RMM only when the story is about RMM
+
+@pytest.mark.parametrize("title,body,scene", [
+    ("Hackers Breach N-able Cloud Server, Disrupting Email Security Management Across 3 Regions",
+     "N-able's Mail Assure email security cloud was disrupted.", "not_rmm"),
+    ('New N-able "4EverAble2Shell" zero-day exploited hours after PoC released', "", "vuln_advisory"),
+    ("N-able releases security hotfixes for zero-day vulnerabilities", "", "vuln_advisory"),
+])
+def test_n_able_is_drawn_as_an_rmm_console_only_when_the_headline_is_about_rmm(title: str, body: str,
+                                                                              scene: str) -> None:
+    b = B.build(story(title, body))
+    assert b.scene != "rmm_console"
+    if scene != "not_rmm":
+        assert b.scene == scene

@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -86,9 +88,35 @@ def _threads_destinations(base_url: str) -> dict[str, Any]:
     if not ts.publish_enabled:
         return {}
     accounts = AccountStore(key=ts.token_key, mapping=ts.accounts, env_tokens=ts.env_tokens)
+    editorial = _threads_editorial()
+    # The publish unit stops a run after TimeoutStartSec=300; Threads (which runs
+    # after Telegram) starts nothing it could not finish inside this budget.
+    end = time.monotonic() + float(os.getenv("CYBERALERTX_THREADS_RUN_BUDGET_S", "240"))
+
+    def remaining() -> float:
+        return end - time.monotonic()
     return {f"threads@{slot}": ThreadsDestination(slot, settings=ts, accounts=accounts, public_base_url=base_url,
-                                                  image_check=http_image_check)
+                                                  image_check=http_image_check, editorial=editorial,
+                                                  remaining=remaining)
             for slot in ts.accounts}
+
+
+def _threads_editorial() -> Any:
+    """One editorial writer for both accounts: one draft per story, both languages."""
+    from ..config import DATA_DIR
+    from ..storage.json_store import JsonNewsStore
+    from ..threads.editorial import DraftStore, Editorial, default_provider
+
+    items: dict[str, Any] = {}
+
+    def lookup(fingerprint: str) -> Any:
+        if not items:
+            items.update({i.fingerprint: i for i in JsonNewsStore(DATA_DIR / "items.json").all()})
+        return items.get(fingerprint)
+
+    def provider() -> Any:
+        return default_provider()[0]
+    return Editorial(DraftStore(DATA_DIR / "threads_editorial.json"), provider_factory=provider, items=lookup)
 
 
 def _source() -> Any:
