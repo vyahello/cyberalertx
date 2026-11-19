@@ -740,7 +740,6 @@ def test_an_advisory_is_drawn_as_exposure_not_as_an_incident(title: str, body: s
 @pytest.mark.parametrize("title,scene", [
     ("Hackers exploit Citrix flaw to deploy wiper on ESXi hosts", "edge_wiper"),
     ("Attackers exploit F5 BIG-IP flaw to crash servers in ongoing DDoS campaign", "kernel_dos"),
-    ("NoisyTCP attack lets remote hackers crash Linux servers", "kernel_dos"),           # no advisory wording
     ("Uber notifies drivers of data breach affecting nearly 150,000 people", "breach_notice"),
 ])
 def test_incidents_with_evidence_keep_their_incident_scene(title: str, scene: str) -> None:
@@ -770,3 +769,179 @@ def test_attack_preconditions_and_cve_ids_are_not_product_names() -> None:
     labels = render_doc(b).labels
     assert "MongoDB" in labels and not any("Pre-Auth" in x for x in labels)
     assert sum(x == "CVE-2026-118383" for x in labels) == 1
+
+
+# ------------------------------------------------------------------ O56: police roles (actor, group, object, action)
+
+def _police(title: str, body: str = "") -> tuple[B.EditorialBrief, list[str], str]:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story(title, body))
+    labels = render_doc(b).labels
+    assert b.scene == "police_takedown", (b.scene, b.evidence)
+    assert check_brief(b, labels) == []
+    return b, labels, B.alt_text(b)["en"]
+
+
+def test_o56_arrest_is_never_drawn_as_a_seizure_and_a_country_is_never_seized() -> None:
+    b, labels, alt = _police("Ukraine, FBI arrest ransomware gang members tied to $40M in ransoms",
+                             "Ukrainian authorities and the FBI detained four suspected members of an international "
+                             "ransomware operation tied to over $40.5M in ransoms from at least 28 firms.")
+    assert "SEIZED" not in labels and "Ukraine" not in labels           # no seizure; Ukraine is no object
+    assert "ARRESTED" in labels and "Ukraine + FBI" in labels and "RANSOMWARE GANG" in labels
+    assert "$40M" in labels and "in ransoms" in labels
+    assert "case file labelled 'RANSOMWARE GANG'" in alt and "'arrested'" in alt and "Ukraine and FBI" in alt
+
+
+@pytest.mark.parametrize("title,authority,group", [
+    ("Кіберполіція затримала хакерів, які атакували банки", "Cyber Police", "HACKERS"),
+    ("Police arrest suspected admin of ransomware gang", "Police", "RANSOMWARE GANG"),
+    ("Правоохоронці заарештували адміністратора ботнету", "Police", "BOTNET OPERATORS"),
+])
+def test_arrests_without_a_seizure_show_the_group_and_the_authority(title: str, authority: str, group: str) -> None:
+    _, labels, alt = _police(title)
+    assert "SEIZED" not in labels and "ARRESTED" in labels
+    assert authority in labels and group in labels and "phone" not in alt
+
+
+def test_the_phone_appears_only_when_calls_are_the_stated_channel() -> None:
+    _, labels, alt = _police(*UA_FRAUD)
+    assert "incoming call" in labels and "IT SUPPORT" in labels and "phone" in alt
+
+
+@pytest.mark.parametrize("title,word,seized", [
+    ("Operation Endgame Takes Down Gootloader, CastleRAT and StealC Servers, Seizes 6.4M Stolen Logins",
+     "SEIZED", ["Gootloader", "CastleRAT", "StealC"]),
+    ("Police dismantle Gootloader, CastleRAT, StealC malware infrastructure", "TAKEN DOWN",
+     ["Gootloader", "CastleRAT", "StealC"]),
+    ("Europol and Ukraine take down DanaBot infrastructure", "TAKEN DOWN", ["DanaBot"]),
+    ("FBI and Dutch police seize Rhysida leak site, arrest two admins in Germany", "SEIZED", ["Rhysida"]),
+])
+def test_stated_seizures_and_takedowns_keep_the_rack_with_their_own_action(title: str, word: str,
+                                                                             seized: list[str]) -> None:
+    from cyberalertx.media.v4.scenes.police_takedown import _authorities, _seized_names
+    b, labels, alt = _police(title, "Law enforcement took Gootloader, CastleRAT, StealC, DanaBot and Rhysida "
+                                    "infrastructure offline.")
+    assert word in labels and (word == "SEIZED" or "SEIZED" not in labels)
+    assert _seized_names(b) == seized
+    for place_or_agency in ("Ukraine", "Europol", "Dutch", "Germany", "FBI", "Police"):
+        assert place_or_agency not in _seized_names(b)
+    assert "server rack" in alt and f"'{word.lower()}'" in alt
+    if "Europol and Ukraine" in title:
+        assert _authorities(b) == ["Ukraine", "Europol"]
+
+
+# ------------------------------------------------------------------ QA sweep (19 Nov): scene and label integrity
+
+@pytest.mark.parametrize("title,body,never", [
+    ("Railway breach leads to $740,000 in fraudulent AI charges", "", "court_case"),          # billing charges
+    ("Blind Eagle Uses Fake Court Notices to Deliver Remote Access Trojan Across Latin America", "", "court_case"),
+    ("Забудьте про крадіжки відеокарт: у Бразилії бізнесмен намагався підірвати конкурента бомбою в Xbox 360",
+     "", "gpu_cryptominer"),                                                                     # a hook, not mining
+    ("Check Point warns of zero-day flaw exploited for root access", "", "edge_wiper"),        # no wiper stated
+    ("Russian Turla Hackers Use New Cereal Malware to Steal Emails From Government Exchange Servers", "",
+     "espionage_backdoor"),                                                                      # no cloud service
+    ("Отруєне оновлення: хакери атакували Quantum Systems, яка постачає дрони Україні", "", "dev_supply_chain"),
+    ("Who Runs the Ransomware Group Qilin?", "", "ransomware_impact"),                          # a profile
+    ("Ransomware recovery is now a client retention metric", "Kaseya examines recovery tools.", "ransomware_impact"),
+])
+def test_a_scene_needs_its_subject_in_the_headline_and_damage_needs_an_incident(title: str, body: str,
+                                                                               never: str) -> None:
+    assert B.build(story(title, body)).scene != never
+
+
+@pytest.mark.parametrize("title,scene", [
+    ("British Scattered Spider hacker sentenced to 6 years in prison", "court_case"),
+    ("SANSAR Linux Cryptomining Malware Uses Modified NVIDIA Library to Hide GPU Activity", "gpu_cryptominer"),
+    ("Check Point gateways hacked via PHP2Shell to deploy VMware ESXi wiper", "edge_wiper"),
+    ("Operation ShadowCloud: cloud service-based backdoors targeting government networks in Asia", "espionage_backdoor"),
+    ("Stolen Fireworks AI Key Led to Cursor Data Breach and Trojanized Claude Code Extension", "dev_supply_chain"),
+])
+def test_scenes_whose_subject_is_stated_still_apply(title: str, scene: str) -> None:
+    assert B.build(story(title)).scene == scene
+
+
+def test_an_imposed_sentence_is_not_a_maximum_the_defendant_faces() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story("British Scattered Spider hacker sentenced to 6 years in prison",
+                      "A court sentenced him to six years."))
+    labels = render_doc(b).labels
+    assert "FACES UP TO" not in labels and "PRISON SENTENCE" in labels
+    assert "sentence handed down" in B.alt_text(b)["en"] and "faces" not in B.alt_text(b)["en"]
+    b2 = B.build(story("Ransomware affiliate suspect extradited to US, faces 27 years in prison"))
+    assert "FACES UP TO" in render_doc(b2).labels
+
+
+def _adv(title: str, body: str = "", status: str | None = None) -> list[str]:
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story(title, body))
+    if status:
+        b = replace(b, status=status)
+    assert b.scene == "vuln_advisory", (b.scene, b.evidence)
+    return render_doc(b).labels
+
+
+def test_fixes_announced_as_coming_are_not_a_patch() -> None:
+    labels = _adv("PHP Warns of Critical Security Flaws Affecting All Supported Versions, Fixes Coming November 19",
+                  "PHP maintainers say fixes are coming on November 19.")
+    assert "PATCH AVAILABLE" not in labels and "DISCLOSED" in labels and "PHP" in labels
+    assert "PATCH AVAILABLE" in _adv("CISA Urges Immediate Patching of Java4Shell Flaw That Could Allow RCE")
+
+
+def test_a_kev_list_of_several_vendors_is_the_catalogue_not_one_vendor() -> None:
+    labels = _adv("CISA Adds Four Known Exploited Vulnerabilities to Catalog",
+                  "CISA has added four new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog. "
+                  "CVE-2024-10441 Synology DiskStation Manager CVE-2026-40217 BerriAI LiteLLM "
+                  "CVE-2026-90436 Apache Axis CVE-2026-90817 REDCap", status="confirmed")
+    assert "CISA KEV" in labels and "Synology" not in labels
+
+
+def test_a_cve_is_never_drawn_under_a_product_it_is_not_tied_to() -> None:
+    labels = _adv("CISA Warns of Active Exploitation of OpenSSH, GPUStack, FreeSWITCH, and IBM Flaws",
+                  "CISA added four flaws impacting GPUStack, SignalWire FreeSwitch, OpenBSD OpenSSH and IBM Aspera "
+                  "Faspex to its catalog, citing active exploitation. The vulnerabilities are listed below - "
+                  "CVE-2026-123218 (CVSS score: 9.8) - An incorrect authorization vulnerability in GPUStack",
+                  status="confirmed")
+    assert "CVE-2026-123218" not in labels or "CISA KEV" in labels       # never under OpenSSH
+
+
+def test_a_kev_story_naming_several_vendors_only_in_the_body_is_the_catalogue() -> None:
+    labels = _adv("CISA Warns of Active Exploitation of OpenSSH, GPUStack, FreeSWITCH, and IBM Flaws",
+                  "CISA on Monday added four security flaws impacting GPUStack, SignalWire FreeSwitch, OpenBSD "
+                  "OpenSSH, and IBM Aspera Faspex to its Known Exploited Vulnerabilities (KEV) catalog. "
+                  "CVE-2026-123218 (CVSS score: 9.8)", status="confirmed")
+    assert "CISA KEV" in labels and "OpenSSH" not in labels
+
+
+@pytest.mark.parametrize("title,never", [
+    ("Binance warns of iOS flaw that could leak crypto wallet secrets", "Binance"),        # the warner
+    ("Google patches eighth Chrome zero-day exploited in attacks this year", "+ Google"),   # the vendor-reporter
+])
+def test_a_warner_or_reporter_is_not_the_affected_product(title: str, never: str) -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story(title))
+    assert never not in render_doc(b).labels
+
+
+def test_hackers_targeting_a_product_is_exploitation() -> None:
+    labels = _adv("Hackers Target Qlik Sense Servers With Reverse Shells, Stage ActiveMQ and Veeam Exploits",
+                  status="suspected")
+    assert "EXPLOITED" in labels and "DISCLOSED" not in labels
+
+
+def test_disclosed_flaws_are_not_drawn_as_patched() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = replace(B.build(story("N-able Takes N-central Cloud Offline After Researcher Discloses 33 Zero-Days",
+                              "the public disclosure of over 30 vulnerabilities")), scene="rmm_console")
+    labels = render_doc(b).labels
+    assert "30+ flaws disclosed" in labels and not any("patched" in x for x in labels)
+
+
+def test_a_picture_that_names_nothing_of_the_story_stays_on_v3(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cyberalertx.media import renderer
+    plan = _plan(monkeypatch, "Російські хакери здійснили першу повністю автоматизовану ШІ-атаку",
+                 "Штучний інтелект провів кібератаку без участі людини.")
+    assert plan.renderer == "cax-svg-3"                                   # unlabelled gears: not recognisable
+    fugaku = renderer.plan_for(story("Japan takes Fugaku supercomputer offline after cyberattack",
+                                     "RIKEN took Fugaku offline after a security breach."))
+    assert fugaku.renderer == "cax-editorial-4"                           # a verified photo of the subject

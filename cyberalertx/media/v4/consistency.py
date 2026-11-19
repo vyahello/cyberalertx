@@ -93,3 +93,29 @@ def check_brief(brief: object, labels: Iterable[str]) -> list[str]:
     if entry is not None:
         subjects += [entry.subject, entry.subject_ua]
     return check(alt_text(brief), labels, subjects)
+
+
+def story_specific(brief: object, labels: Iterable[str]) -> bool:
+    """True when the drawing names something of this story: an entity, a
+    figure or an identifier from the sources. A picture with no such label
+    (unlabelled gears, a bare mast) cannot be recognised as this story at
+    feed size, so the hybrid policy leaves it to V3."""
+    from .brief import EditorialBrief
+    assert isinstance(brief, EditorialBrief)
+    drawn = " | ".join(_norm(x) for x in labels)
+    # an acting authority the headline names (police, FBI, Europol) is sourced and specific
+    from .scenes.police_takedown import _ACTORS, _PLACES
+    names = [n for _, n in _ACTORS] + ["Police"] + sorted(_PLACES)
+    if any(re.search(r"(?<!\w)" + re.escape(n.lower()) + r"(?!\w)", drawn) for n in names):
+        return True
+    for e in brief.entities:
+        if len(e) >= 2 and re.search(r"(?<!\w)" + re.escape(e.lower()) + r"(?!\w)", drawn):
+            return True
+    for k, v in brief.facts.items():
+        if k.endswith(("_plus", "_approx", "_noun")):
+            continue
+        for item in (v if isinstance(v, (list, tuple)) else [v]):
+            digits = re.sub(r"[^\d]", "", str(item))
+            if digits and digits in re.sub(r"[^\d|]", "", drawn):
+                return True
+    return False

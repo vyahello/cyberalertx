@@ -68,17 +68,43 @@ def _facts(brief: EditorialBrief) -> _Adv:
     # sources report use in the wild, it is drawn as a proof of concept.
     research = bool(re.search(r"researchers? (claim|demonstrat|show|found|develop|publish)|proof[- ]of[- ]concept|"
                               r"\bPoC\b|дослідник\w* (показал|продемонстр|заявля)", t, re.I))
+    in_wild = in_wild or bool(re.search(
+        r"(hackers|attackers|threat actors|cybercriminals|criminals|gangs?) (now )?(target|exploit|abuse|hijack|breach)",
+        t))
     proof = research and not in_wild
     exploited = not proof and (brief.status in _EXPLOITED or in_wild)
-    patched = bool(re.search(r"\bpatch|\bfix|hotfix|security update|cumulative update|виправ|оновлен", t))
+    # A fix counts only when the sources say it exists ("patches", "fixed in",
+    # "updates released"); "fixes coming", "no patch yet" and "unpatched" do not.
+    pending = bool(re.search(
+        r"fix(?:es)? (?:are |is )?(?:coming|expected|planned|scheduled|due)|patch(?:es)? (?:are |is )?(?:coming|"
+        r"expected|planned|scheduled|due|not yet)|no (?:patch|fix)|not yet (?:patched|fixed)|unpatched|"
+        r"yet to (?:be )?(?:patch|fix)|will (?:be )?(?:patch|fix|releas)|виправлення (?:вийде|очікує)|"
+        r"без (?:патча|виправлення)|не виправлен", t))
+    patched = not pending and bool(re.search(
+        r"\bpatch(?:es|ed|ing)\b|\bfix(?:es|ed)\b|fixed in|hotfix|security updates?|cumulative update|"
+        r"(?:update|upgrade) to (?:version )?\d|apply (?:the )?(?:patch|update|fix)|"
+        r"updates? (?:released|available|issued|out)|released (?:a |an )?(?:patch|fix|update)|patch(?:es)? "
+        r"(?:is |are )?(?:now )?(?:available|released|out)|виправ|оновлен", t))
     sev = ""
     if re.search(r"maximum[- ]severity|cvss 10|critical|критичн", t):
         sev = "CRITICAL"
     elif re.search(r"high[- ]severity|високого рівня", t):
         sev = "HIGH"
     name, others = primary_product(brief)
-    kev = bool(re.search(r"\bkev\b|known exploited vulnerabilities", t)) and (not name or name.startswith("CISA")
-                                                                             or "Adds" in brief.entities)
+    head = (brief.headline or "").lower()
+    # A third party that warns OF someone else's flaw is not the product
+    # ("Binance warns of iOS flaw"); a vendor warning about its own product
+    # names that product next ("F5 Warns 6 Critical BIG-IP Flaws") and stays.
+    warner = re.match(r"([\w.-]+(?: [\w.-]+)?) (?:warns|alerts) (?:\w+ )?(?:of|about) (\S+(?: \S+)?)",
+                      brief.headline or "", re.I)
+    if warner and name and name.lower() == warner.group(1).lower() and not others and _names_product(warner.group(2)):
+        name = ""
+    kev_text = bool(re.search(r"\bkev\b|known exploited vulnerabilities", t))
+    # A KEV addition that lists several vendors is drawn as the catalogue: no
+    # single vendor may carry CVEs that belong to others.
+    kev = kev_text and (not name or name.startswith("CISA") or "Adds" in brief.entities or bool(others)
+                        or bool(re.search(r"\badds?\b.*known exploited|to (?:its )?(?:kev|known exploited "
+                                          r"vulnerabilities) catalog", head)))
     if not name:
         name = "Advisory"
     if kev:
@@ -88,10 +114,32 @@ def _facts(brief: EditorialBrief) -> _Adv:
     flaws = str(brief.facts.get("flaws", ""))
     if flaws and not _flaws_stated(t, flaws):
         flaws = ""                       # e.g. "CVSS 10.0" read as a count: never draw it
-    return _Adv(name=name, others=others[:3], cves=[str(c) for c in brief.facts.get("cves", [])][:4],
+    cves = [str(c) for c in brief.facts.get("cves", [])][:4]
+    if cves and others and not kev and not _cve_near(t, cves[0], name):
+        cves = []                        # several products, CVE not tied to the named one: never attribute it
+    return _Adv(name=name, others=others[:3], cves=cves,
                 flaws=flaws, flaws_approx=bool(brief.facts.get("flaws_approx")), exploited=exploited,
                 patched=patched, proof=proof, sev=sev, kind=_kind(t, name), kev=kev,
                 wallet=bool(re.search(r"wallet|crypto|seed phrase|гаманц", t)))
+
+
+#: Words after "warns of" that describe the flaw, not another product.
+_FLAW_WORDS = {"critical", "security", "severe", "serious", "new", "multiple", "high", "zero-day", "zero-days",
+               "flaw", "flaws", "bug", "bugs", "vulnerability", "vulnerabilities", "two", "three", "four", "five",
+               "six", "seven", "eight", "nine", "ten", "a", "an", "the", "actively", "exploited", "unpatched", "rce"}
+
+
+def _names_product(words: str) -> bool:
+    """`words` (just after "warns of") name a product of their own: "iOS flaw",
+    not "Critical Security Flaws" or "zero-day flaw"."""
+    return any(w.lower().strip(",.:") not in _FLAW_WORDS and re.search(r"[A-Z]", w) for w in words.split())
+
+
+def _cve_near(text: str, cve: str, name: str) -> bool:
+    """The sources tie `cve` to `name`: both within one short span."""
+    t, c, n = text.lower(), cve.lower(), name.lower()
+    return any(abs(i.start() - j.start()) < 90 for i in re.finditer(re.escape(c), t)
+               for j in re.finditer(re.escape(n), t)) if n else False
 
 
 def _flaws_stated(text: str, n: str) -> bool:

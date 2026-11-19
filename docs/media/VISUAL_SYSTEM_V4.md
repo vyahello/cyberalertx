@@ -273,6 +273,37 @@ An exploitation status (`exploited`, `confirmed`, `attacks_observed`,
 scenes. Incident wording means "exploited", "hackers exploit", "attacked",
 "breached", "stolen" or "in the wild".
 
+### Roles, subjects and sources (V4.1.4, O56/O57)
+
+Canary 4 and the sweep that followed showed one pattern: a keyword chose a
+picture that asserted more than the sources do. The rules:
+
+* **Law enforcement (O56).** The action, the acting authorities, the
+  arrested group and the seized objects are separate. A seized object is
+  only a name that follows a seizure or takedown verb. It is never a place,
+  a nationality or an agency. Arrests draw the group as a case file; the
+  phone appears only when calls are the stated channel. Takedowns and
+  seizures keep the rack, with the headline's own action on the tape.
+* **The headline states the subject** (`SceneSpec.head_requires`):
+  * court: a legal action, not "charges" on a bill or "fake court notices";
+  * GPU mining, a wiper, a cloud backdoor, an extension supply chain: each
+    needs its subject named in the headline.
+* **Damage needs an incident** (`brief.IMPACT_SCENES`). Locked systems,
+  leaking records or a wiped host need an attack status or incident wording.
+  "Could/may/lets …" is a possibility, not a report.
+* **Advisories.**
+  * PATCH AVAILABLE only when the sources say a fix exists. "Fixes coming"
+    and "unpatched" mean pending.
+  * A KEV list, or KEV wording with several vendors, is drawn as the
+    catalogue. A CVE is never drawn under a product it is not tied to.
+  * A third party that warns *of* another product is not the product.
+  * "Hackers target X" is exploitation.
+* **Sentences.** A sentence handed down is not "faces up to".
+* **Recognition (hybrid policy).** V4 draws a story only when the drawing
+  names something of it, or shows a verified library photograph. That
+  means an entity, figure, identifier or acting authority. Unlabelled
+  metaphors (the AI gears, a bare mast) stay on V3.
+
 ## Scenes
 
 There are 37 scene modules: the 35 catalogue scenes, `hpc_drawn`

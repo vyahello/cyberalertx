@@ -47,14 +47,19 @@ class SceneSpec:
     #: The headline must name this actor (e.g. a law-enforcement body); keeps
     #: an action word like "exposed" from routing a vulnerability story here.
     actor: str = ""
+    #: The headline must state what the picture asserts (a court action, a
+    #: wiper, mining, a cloud service, an extension). A keyword elsewhere in
+    #: the headline ("fake court notices", "forget GPU thefts") is not enough.
+    head_requires: str = ""
 
 
 def _s(id: str, pats: list[tuple[str, float]], palette: str, subject: str, action: str, environment: str,
        mechanism: str, alt_en: str, alt_ua: str, *, supporting: tuple[str, ...] = (),
-       exclude: tuple[str, ...] = (), requires: str = "", excludes: str = "", actor: str = "") -> SceneSpec:
+       exclude: tuple[str, ...] = (), requires: str = "", excludes: str = "", actor: str = "",
+       head_requires: str = "") -> SceneSpec:
     return SceneSpec(id, tuple(pats), palette, subject, action, environment, mechanism, supporting,
                      ("generic cubes", "glowing orbs", "hooded hackers", "brand logos") + exclude, alt_en, alt_ua,
-                     requires, excludes, actor)
+                     requires, excludes, actor, head_requires)
 
 
 # Order matters only for ties: more specific scenes first.
@@ -136,7 +141,11 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "a criminal case against an alleged cybercriminal", "the case reaches a court decision",
        "a court docket", "legal proceedings (no technical detail)",
        "Illustration: the court case's outcome with its key figure, as reported.",
-       "Ілюстрація: рішення в судовій справі з ключовою цифрою, як повідомляється."),
+       "Ілюстрація: рішення в судовій справі з ключовою цифрою, як повідомляється.",
+       head_requires=r"sentenc|convict|plead|guilty|\bplea\b|indict|charged (?:with|over|for)|charges? (?:against|filed|dropped)|"
+                     r"extradit|acquit|\bclears?\b|cleared|court (?:rules|ruled|orders|ordered|clears|dismiss|approv|"
+                     r"blocks|finds)|\btrial\b|\bjudge|prison|\bjail|lawsuit|\bsues?\b|\bsued\b|засуд|вирок|"
+                     r"визна\w* провину|екстрадиц|виправда|суд\w* (?:ухвал|визна|постанов|відмов)|позов"),
     _s("police_takedown", [(r"\btake[sn]? down\b|takedown of|dismantl\w*|\bseiz\w*|\bbust(?:ed|s)?\b|\barrest\w*|"
                             r"\bdetain\w*|\bcharg(?:ed|es)\b|\braid\w*|\bexpos(?:ed|es)\b|\buncover\w*|"
                             r"викри\w*|затрима\w*|заарешту\w*|ліквідува\w*|вилучи\w*|повідомили про підозру|обшук\w*", 10),
@@ -196,7 +205,8 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "Illustration: a hot graphics card beside a gauge whose reported reading is low while the real load "
        "is pinned high.",
        "Ілюстрація: гаряча відеокарта поруч зі шкалою: показане навантаження низьке, а справжнє — "
-       "максимальне.", requires=r"\bGPU\b|NVIDIA|graphics card|відеокарт"),
+       "максимальне.", requires=r"\bGPU\b|NVIDIA|graphics card|відеокарт",
+       head_requires=r"cryptomin|crypto[- ]?jack|\bminer|mining|майн"),
     _s("kernel_dos", [(r"crash|denial[- ]of[- ]service|\bDoS\b|kernel panic|NoisyTCP|TCP", 6),
                       (r"Linux", 2)], "midnight",
        "Linux servers and their network stack", "crafted network traffic crashes the server",
@@ -216,7 +226,8 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "a server room edge", "edge-device exploit -> hypervisor -> destructive wiper",
        "Illustration: a security gateway with a lit crack, leading to a virtualisation host whose layers "
        "break apart.",
-       "Ілюстрація: шлюз безпеки з тріщиною, від якої шлях веде до хоста віртуалізації, що розпадається."),
+       "Ілюстрація: шлюз безпеки з тріщиною, від якої шлях веде до хоста віртуалізації, що розпадається.",
+       head_requires=r"wiper|\bwipe[sd]?\b|destroy|erase|знищ|стира|ESXi"),
     _s("code_signing", [(r"code[- ]signing|signing (server|certificate|key)|підпис\w* код", 7),
                         (r"Log4Shell|Log4j|vCenter", 3)], "ember",
        "a code-signing server and its certificate", "attackers reach the signing infrastructure",
@@ -231,7 +242,8 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "Illustration: a stolen key turned in the lock of a code-editor extension listing marked trojanized; "
        "its contents are not described.",
        "Ілюстрація: викрадений ключ у замку сторінки розширення редактора коду з позначкою «троян»; його "
-       "вміст не описано."),
+       "вміст не описано.",
+       head_requires=r"extension|marketplace|\bnpm\b|PyPI|package|VS Code|plugin|\bkey\b|розширен|пакет"),
     _s("ransomware_impact", [(r"ransomware|програм\w*-?вимагач|вимагач|encrypt\w* (files|servers)|"
                               r"зашифрува", 7)], "ember",
        "systems encrypted by ransomware", "files and servers are made unavailable",
@@ -250,7 +262,8 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "government networks are infiltrated and controlled through cloud storage",
        "a government network and a public cloud service", "C2 over a legitimate cloud API",
        "Illustration: a government building with a side door open to an ordinary cloud service.",
-       "Ілюстрація: урядова будівля з відчиненими бічними дверима до звичайного хмарного сервісу."),
+       "Ілюстрація: урядова будівля з відчиненими бічними дверима до звичайного хмарного сервісу.",
+       head_requires=r"cloud|хмар|Google Drive|OneDrive|Dropbox|Graph API|\bSaaS\b"),
     _s("cloud_breach", [(r"cloud (provider|breach|tenant|storage|account|credentials|keys)|хмарн\w* (провайдер|сервіс)|"
                          r"\bS3\b|bucket|Azure|\bAWS\b|Snowflake", 6)], "glacier",
        "data held by a third-party cloud provider", "records are taken from the provider's environment",
@@ -588,6 +601,8 @@ def score_scenes(texts: dict[str, str]) -> list[tuple[float, SceneSpec, list[str
             continue
         if spec.actor and not re.search(spec.actor, head, re.I):
             continue
+        if spec.head_requires and not re.search(spec.head_requires, head, re.I):
+            continue
         # The first pattern names the scene's subject; the others only add
         # weight. "Linux" alone must not make a story a kernel crash.
         if spec.patterns and not re.search(spec.patterns[0][0], joined, re.I):
@@ -612,6 +627,12 @@ INCIDENT_SCENES = frozenset({
     "compromised_sites", "session_theft", "usb_worm", "cloud_breach", "breach_notice", "espionage_backdoor",
     "dev_supply_chain", "code_signing", "third_party_script", "deepfake_call", "credential_phish",
 })
+#: Incident scenes that show a specific victim's damage. They need a reported
+#: incident even when the headline is not an advisory.
+IMPACT_SCENES = frozenset({
+    "kernel_dos", "edge_wiper", "ransomware_impact", "crypto_theft", "payment_skimmer", "compromised_sites",
+    "cloud_breach", "breach_notice", "espionage_backdoor",
+})
 #: Evidence statuses (pipeline.evidence) that report an attack or compromise.
 ATTACK_STATUSES = frozenset({"exploited", "confirmed", "attacks_observed", "compromise"})
 #: A headline that announces a vulnerability, a fix or a warning.
@@ -628,13 +649,22 @@ _INCIDENT = re.compile(
     r"зламал|зламан|викрал|витік|заражен|скомпрометов", re.I)
 
 
+#: "could leak", "may allow attackers to steal": a possibility, not a report.
+_HYPOTHETICAL = re.compile(r"\b(?:could|may|might|can|would|lets?|allows?|enables?)\b(?:\s+\w+){0,3}", re.I)
+
+
+def reports_incident(headline: str) -> bool:
+    """The headline reports an attack or compromise as having happened."""
+    return _INCIDENT.search(_HYPOTHETICAL.sub(" ", headline)) is not None
+
+
 def advisory_without_incident(headline: str, status: str) -> bool:
     """O55: the headline announces a flaw, fix or warning, and neither the
     evidence status nor the headline reports an attack. Such a story is drawn
     as exposure, never as an incident ("F5 warns flaws CAN crash traffic" is
     not a crashed server)."""
     return (status not in ATTACK_STATUSES and _ADVISORY.search(headline) is not None
-            and _INCIDENT.search(headline) is None)
+            and not reports_incident(headline))
 
 
 def build(story: Any) -> EditorialBrief:
@@ -652,6 +682,11 @@ def build(story: Any) -> EditorialBrief:
     if advisory_without_incident(title, status):
         # O55: an advisory never wins an incident scene; the next-ranked scene decides.
         ranked = [r for r in ranked if r[1].id not in INCIDENT_SCENES]
+    elif status not in ATTACK_STATUSES and not reports_incident(title):
+        # A scene that shows a victim's damage (locked systems, leaking records,
+        # a wiped host) needs a reported incident: not an explainer, an opinion
+        # piece or a profile of a ransomware group.
+        ranked = [r for r in ranked if r[1].id not in IMPACT_SCENES]
 
     spec, why, conf = FALLBACK, ["no catalogue scene is supported by the sources"], "low"
     if ranked:

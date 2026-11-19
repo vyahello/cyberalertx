@@ -14,6 +14,7 @@ it; a flaw count only from `brief.facts`."""
 from __future__ import annotations
 
 import random
+import re
 
 from .. import type as T
 from ..brief import EditorialBrief, mentions
@@ -162,7 +163,11 @@ def rmm_console(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
         ex, ey = 1160 - th * 0.55, bar_y + (1160 - 800 - th * 0.55) * -0.0524 * (1 if attack else 0)
         tx, ty = 1100.0, bar_y + 56
         doc.path(f"M{f(ex)} {f(ey)}L{f(tx - 8)} {f(ty + 30)}", stroke="#C9D2E3", sw=2, opacity=0.8)
-        lab = f"{flaws} flaws patched"
+        # "patched" only when the headline reports the fix; the sources' "over"
+        # stays ("30+ flaws disclosed", N-able took the service offline instead)
+        n = flaws + ("+" if brief.facts.get("flaws_plus") else "")
+        fixed = re.search(r"\bpatch(?:es|ed)\b|\bfix(?:es|ed)\b|hotfix", brief.headline or "", re.I)
+        lab = f"{n} flaws patched" if fixed else f"{n} flaws disclosed"
         tw = T.measure(T.supported(lab, "ui_bold"), 30, "ui_bold")
         doc.path(f"M{f(tx)} {f(ty)}H{f(tx + tw + 46)}V{f(ty + 60)}H{f(tx)}L{f(tx - 18)} {f(ty + 30)}Z",
                  fill=p.warn)

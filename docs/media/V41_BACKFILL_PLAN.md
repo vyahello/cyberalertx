@@ -7,7 +7,7 @@ hybrid policy) has passed.
 Paths use the runbook placeholders: `$APP_HOME` (checkout with `.env` and
 `data/`), `$APP_ROOT/current` (active release) and `$BACKUPS`.
 
-## Scope (read-only plan, reconciled 19 Nov 2026, 00:40 EET)
+## Scope (read-only plan, reconciled 19 Nov 2026, 09:30 EET, V4.1.4)
 
 The archive follows the **hybrid policy** (`renderer.v4_applies`, see
 VISUAL_SYSTEM_V4.md). With `CYBERALERTX_ILLUSTRATION_RENDERER=editorial-4`, a
@@ -22,23 +22,18 @@ image index report:
 
 | Route | Current image | Stories | Backfill action |
 |---|---|---|---|
-| **V4.1** (confidence high/medium), 125 | `cax-svg-2` | 112 | redraw with V4.1 |
-| | `cax-svg-3` | 8 | redraw with V4.1 |
-| | `cax-editorial-4`, inputs unchanged | 4 | keep: 3 corrected canary redraws, Optimizely |
-| | `cax-editorial-4`, inputs changed | 1 | redraw: `s:244fe89270c50c` (F5, O55 fix) |
-| **V3** (low confidence), 21 | `cax-svg-2` | 15 | redraw with V3 |
-| | `cax-svg-3` | 6 | keep |
-| **Total eligible** | | **146** | **136 redraws, 10 kept** |
+| **V4.1** (evidence-backed scene that names the story), 103 | `cax-svg-2` | 86 | redraw with V4.1 |
+| | `cax-svg-3` | 11 | redraw with V4.1 |
+| | `cax-editorial-4` | 6 | keep: Optimizely, 3 corrected redraws, F5 advisory, Apache Roller |
+| **V3** (low confidence, or a drawing that names nothing of the story), 49 | `cax-svg-2` | 39 | redraw with V3 |
+| | `cax-svg-3` | 10 | keep (incl. the 6 canary-4 rollbacks) |
+| **Total eligible** | | **152** | **136 redraws, 16 kept** |
 
-| | |
-|---|---|
 | Images shared between stories | none |
 | Render cost | about 7 s CPU in total, $0 |
 | New files | about 3.1 MB (disk: 22 GB free) |
 
-The F5 redraw replaces the canary 3 image that failed O55. Its file stays on
-disk, its key stays in `previous_storage_keys` and its URL keeps resolving,
-so it remains available as review evidence. Illustrations of stories outside
+Illustrations of stories outside
 the window are not touched.
 
 ### Why the count moves (152 → 153 → 145 → 146 → 145 → 146)
@@ -54,6 +49,7 @@ enters it when it gets its first published AI brief.
 | 15:40 backfill plan | 145 | −10 aged out, +2 new (below) |
 | 16:00 hourly run | 146 | +1: `s:04b949e06cb43f` (the V4.1 canary image) |
 | 18 Nov, 22:3x O54 audit | 145 | |
+| 19 Nov, 09:30 V4.1.4 reconciliation | 152 | +6 new stories during canary 4; the V4.1.4 routing (O56, O57) moves 22 more stories to V3 |
 | 19 Nov, 00:40 hybrid reconciliation | 146 | −1 aged out: `s:c14c9dbe7a909e` (low-confidence, V2, which is why the V3 group is 15, not 16); +2 new: `s:244fe89270c50c` (F5, canary 3), `s:7c7e65f63ae32c` (23:02 V3 run) |
 
 * **Aged out (all their articles left the window):** `s:4afcb47f404ff0`,

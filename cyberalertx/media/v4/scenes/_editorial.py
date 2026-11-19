@@ -57,7 +57,8 @@ def primary_product(brief: EditorialBrief) -> tuple[str, list[str]]:
         return "", []
     ranked = [g for g in groups if g.split()[0] not in _REPORTERS] or groups
     main = ranked[0]
-    return main, [g for g in groups if g != main]
+    # Reporters and tools (CISA, Google, Claude) are never listed as affected products.
+    return main, [g for g in groups if g != main and g.split()[0] not in _REPORTERS]
 
 
 def ascii_ids(text: str, limit: int = 3) -> list[str]:

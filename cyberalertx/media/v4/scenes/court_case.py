@@ -398,6 +398,13 @@ def _leak_b(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
 
 # ---------------------------------------------------------------- years
 
+def _handed_down(brief: EditorialBrief) -> bool:
+    """The years are a sentence the court imposed, not the maximum a defendant faces."""
+    t = brief.text or ""
+    return bool(re.search(r"sentenced to|засуджен\w* до|отримав \d+ рок|вирок", t)) and not re.search(
+        r"\bfaces?\b|could face|загрожує", (brief.headline or "").lower())
+
+
 def _years_a(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     """One tally stroke per year of the maximum sentence; the step set large."""
     p = doc.pal
@@ -425,7 +432,7 @@ def _years_a(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     doc.path("".join(marks), stroke="#000", sw=sw, opacity=0.12, extra=' transform="translate(5 7)"')
     doc.path("".join(marks), stroke=_INK, sw=sw)
     doc.path("".join(cross), stroke=p.danger, sw=sw)
-    _kicker(doc, x0, 130, "FACES UP TO", p.danger)
+    _kicker(doc, x0, 130, "PRISON SENTENCE" if _handed_down(brief) else "FACES UP TO", p.danger)
     doc.text(f"{years} years", x0 - 6, 150 + 112, 160, _INK, "display")
     w = T.measure(word, 64, "ui_bold", 4) + 56
     doc.rect(W - x0 - w, 150, w, 100, "none", 8, stroke=col, sw=5)
@@ -471,7 +478,8 @@ def _years_b(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     size = _fit(word, 120, 900)
     doc.text(word, 800, 200, size, col, "display", anchor="middle")
     if years:
-        doc.text(f"faces up to {years} years", 800, 290, 58, _INK, "ui_bold", anchor="middle")
+        what = f"sentenced to {years} years" if _handed_down(brief) else f"faces up to {years} years"
+        doc.text(what, 800, 290, 58, _INK, "ui_bold", anchor="middle")
     doc.focus = Box(140, 70, 1320, 742)
     _ = rng
 
@@ -524,6 +532,11 @@ def alt_for(brief: EditorialBrief) -> tuple[str, str]:
                 "суду.")
     if k == "years":
         y = str(brief.facts.get("years", ""))
+        if _handed_down(brief):
+            return (f"Illustration: {y} tally strokes for the {y}-year prison sentence handed down, marked "
+                    f"'{_verdict(brief.text or '')[0]}'.",
+                    f"Ілюстрація: {y} рисок-позначок — призначене покарання {y} років ув'язнення, позначка "
+                    f"«{_verdict(brief.text or '')[0]}».")
         return (f"Illustration: {y} tally strokes for the maximum sentence of {y} years the defendant faces.",
                 f"Ілюстрація: {y} рисок-позначок — максимальний строк {y} років, який загрожує обвинуваченому.")
     return ("Illustration: a judge's gavel with the stage the court case has reached.",

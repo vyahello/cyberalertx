@@ -1,11 +1,17 @@
-"""Law enforcement takes criminal infrastructure offline. The subject is the
-seized hardware itself: a dark server rack (every status light off) taped
-off with barrier tape, the operations it served hanging from it on evidence
-tags. The tags carry only what the headline names (malware or operation
-names as plain text, and a seized count when the headline gives one).
+"""Law-enforcement actions, drawn by role (O56): the acting authority, the
+arrested group, the seized object and the action are kept apart.
 
-No agency, seal, badge or jurisdiction is drawn; the only banner word is
-the generic SEIZED."""
+* Seizure or takedown the headline states, of named infrastructure or a
+  stated count: a dark server rack under barrier tape carrying the
+  headline's own action (SEIZED / TAKEN DOWN), the seized operations on
+  evidence tags. Only names that follow the seizure verb are tags; a
+  country, a nationality or an agency is never a seized object.
+* Arrest, charge or exposure: the arrested group as a case file labelled as
+  the headline describes it (or the phone when calls are the stated
+  channel), under tape with the action word; the acting authorities, the
+  reported figure and secondary context on evidence tags.
+
+No seal, badge, mugshot or document text is drawn."""
 from __future__ import annotations
 
 import math
@@ -28,13 +34,71 @@ _NOT_SEIZED = {"Police", "Operation Endgame", "Operation", "Endgame", "Europol",
                "Stolen", "Seizes", "Takes", "Down", "Dismantle", "Takedown"}
 
 
+#: Places and nationalities: an acting authority or a location, never a seized object.
+_PLACES = {"Ukraine", "US", "USA", "UK", "Britain", "Germany", "France", "Netherlands", "Poland", "Spain",
+           "Italy", "Brazil", "India", "China", "Russia", "Iran", "Japan", "Korea", "Canada", "Australia",
+           "Romania", "Moldova", "Georgia", "Europe", "EU", "Latin", "America", "Asia", "Africa"}
+_SEIZE_VERB = re.compile(r"seiz\w*|confiscat\w*|take[sn]? down|took down|takedown|dismantl\w*|shut(?:s)? down|"
+                         r"disrupt\w*|вилуч\w*|ліквідува\w*|заблокува\w*", re.I)
+
+
+def _not_an_object(name: str) -> bool:
+    from ..brief import DEMONYMS
+    first = name.split()[0]
+    return (name in _NOT_SEIZED or first in {"Police", "Operation", "Europol"} or first in _PLACES
+            or name in _PLACES or first in DEMONYMS
+            or any(re.search(pat, name.lower()) for pat, _ in _ACTORS))
+
+
 def _seized_names(brief: EditorialBrief) -> list[str]:
-    out = []
+    """What the headline says was seized or taken down: names that follow a
+    seizure/takedown verb. An arrest seizes nothing; a country or agency is
+    never an object."""
+    if _action(brief) not in ("SEIZED", "TAKEN DOWN"):
+        return []
+    head = brief.headline or headline_main(brief.text)
+    m = _SEIZE_VERB.search(head)
+    if not m:
+        return []
+    after = head[m.start():]
+    out: list[str] = []
     for g in product_groups(brief):
-        if g in _NOT_SEIZED or g.split()[0] in {"Police", "Operation", "Europol"}:
-            continue
-        out.append(g)
+        # "Endgame Takes Down Gootloader" -> "Gootloader": action words and operation names are not objects
+        name = " ".join(w for w in g.split() if w not in _NOT_SEIZED)
+        if name and name in after and not _not_an_object(name) and name not in out:
+            out.append(name)
     return out[:4]
+
+
+def _authorities(brief: EditorialBrief) -> list[str]:
+    """Who acted: the agencies named in the headline, and a country named
+    before the action verb ("Ukraine, FBI arrest ...")."""
+    head = brief.headline or headline_main(brief.text)
+    verb = re.search(r"arrest|detain|charg|expos|uncover|bust|seiz|take[sn]? down|dismantl|заарешту|затрима|"
+                     r"викри|вилучи|ліквідува", head, re.I)
+    lead = head[:verb.start()] if verb else ""
+    places = [w for w in re.findall(r"[A-Z][a-zA-Z]+", lead) if w in _PLACES]
+    return list(dict.fromkeys(places + _actors(brief)))
+
+
+_GROUPS: tuple[tuple[str, str], ...] = (
+    (r"ransomware (?:gang|group|operation|crew|affiliate)", "RANSOMWARE GANG"),
+    (r"ransomware", "RANSOMWARE SUSPECTS"),
+    (r"(?:fraud|scam|scammer)\w*|шахра\w*", "FRAUD RING"),
+    (r"botnet|ботнет", "BOTNET OPERATORS"),
+    (r"phishing", "PHISHING GANG"),
+    (r"hacker\w*|хакер\w*", "HACKERS"),
+    (r"угрупован\w*|gang|group|ring|crew", "CRIMINAL GROUP"),
+)
+
+
+def _arrested(brief: EditorialBrief) -> str:
+    """The arrested or exposed group as the headline describes it."""
+    head = (brief.headline or headline_main(brief.text)).lower()
+    for pat, label in _GROUPS:
+        if re.search(pat, head):
+            return label
+    return "SUSPECTS"
 
 
 def _headline_count(brief: EditorialBrief) -> tuple[str, str]:
@@ -193,8 +257,9 @@ def _comp_rack(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     handles = _rack(doc, rx, -30, rw, 880, rng)
     # floor shadow line
     doc.rect(rx - 40, 846, rw + 80, 20, "#000", 10, opacity=0.5, extra=f' filter="{doc.blur(12)}"')
-    _tape(doc, -40, 250, 1640, 470, phase=0.15)
-    _tape(doc, -40, 690, 1100, 520, hgt=60, phase=0.55)
+    word = _action(brief)                 # SEIZED or TAKEN DOWN: the headline's own action
+    _tape(doc, -40, 250, 1640, 470, word=word, phase=0.15)
+    _tape(doc, -40, 690, 1100, 520, hgt=60, word=word, phase=0.55)
     # evidence tags down the right rail
     tags: list[list[tuple[str, float, str]]] = []
     for nm in names:
@@ -309,11 +374,14 @@ def _action(brief: EditorialBrief) -> str:
     for pat, word in _ACTIONS:
         if re.search(pat, _head(brief)):
             return word
-    return "SEIZED"
+    return "EXPOSED"
 
 
 def _actors(brief: EditorialBrief) -> list[str]:
-    return [name for pat, name in _ACTORS if re.search(pat, _head(brief))]
+    named = [name for pat, name in _ACTORS if re.search(pat, _head(brief))]
+    if not named and re.search(r"\bpolice\b|поліці|правоохорон|law enforcement", _head(brief)):
+        named = ["Police"]                    # the headline names police, no specific body
+    return named
 
 
 def _ai_calls(brief: EditorialBrief) -> bool:
@@ -323,7 +391,15 @@ def _ai_calls(brief: EditorialBrief) -> bool:
 
 
 def _seizure(brief: EditorialBrief) -> bool:
-    return _action(brief) in ("SEIZED", "TAKEN DOWN") or bool(_seized_names(brief))
+    """The seized-rack composition: only for a seizure or takedown the
+    headline states, with a seized object or count to tag."""
+    return _action(brief) in ("SEIZED", "TAKEN DOWN") and bool(_seized_names(brief) or _headline_count(brief)[0])
+
+
+def _contact(brief: EditorialBrief) -> bool:
+    """The sources name the group's channel of contact: calls."""
+    return _support(brief) or re.search(r"\bcalls?\b|phone|vishing|дзвін\w*|дзвінк\w*|телефон\w*",
+                                        brief.text) is not None
 
 
 def _support(brief: EditorialBrief) -> bool:
@@ -340,6 +416,8 @@ def _money_tag(brief: EditorialBrief) -> tuple[str, str]:
         fig = f"OVER {fig}"                   # the sources' own qualifier ("over $40.5M", "понад")
     elif brief.facts.get("money_approx"):
         fig = f"NEARLY {fig}"
+    if re.search(r"ransom|викуп", _head(brief)):
+        return fig, "in ransoms"
     lost = re.search(r"виманил|stole|stolen|викрал|lost|збит|defraud", brief.text) is not None
     return fig, ("reported losses" if lost else "reported")
 
@@ -347,7 +425,7 @@ def _money_tag(brief: EditorialBrief) -> tuple[str, str]:
 def _exposed_tags(brief: EditorialBrief) -> list[list[tuple[str, float, str]]]:
     """The evidence tags `_comp_exposed` draws (at most three), in order."""
     tags: list[list[tuple[str, float, str]]] = []
-    actors = _actors(brief)
+    actors = _authorities(brief)
     if actors:
         line = " + ".join(actors)
         tags.append([(line, fit_size(line, 58, 430, "ui_bold"), "ui_bold")])
@@ -368,6 +446,38 @@ def _comp_exposed(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     doc.rect(0, 0, 1600, 900, doc.rad([(0, "#8FA3B8", 0.34), (0.6, "#56677A", 0.10), (1, "#000", 0)], 0.32, 0.40,
                                       0.55))
     px, py, pw, ph = 330, 110, 380, 730
+    if not _contact(brief):
+        _case_file(doc, 250, 150, 560, 640, _arrested(brief))
+        px, pw = 250, 560
+    else:
+        _phone(doc, brief, px, py, pw, ph)
+    word = _action(brief)
+    _tape(doc, -40, 300, 1640, 520, word=word, phase=0.2)
+    _tape(doc, -40, 770, 1000, 610, hgt=60, word=word, phase=0.6)
+    tags = _exposed_tags(brief)
+    y = 110.0
+    for i, t in enumerate(tags[:3]):
+        h_ = 190.0 if len(t) > 1 else 110.0
+        _tag(doc, 900 + (i % 2) * 40, y, 560, h_, (px + pw, py + 200 + i * 160), t, (2.5 if i % 2 else -2.0))
+        y += h_ + 40
+    doc.focus = Box(180, 60, 1340, 754)
+    vignette(doc, 0.5)
+
+
+def _case_file(doc: Doc, x: float, y: float, w: float, h: float, label: str) -> None:
+    """The arrested group as a manila case file, its label the group as the
+    headline describes it. No names, photos, documents or seals are drawn."""
+    doc.rect(x + 20, y + 36, w, h, "#000", 14, opacity=0.5, extra=f' filter="{doc.blur(22)}"')
+    doc.path(f"M{f(x)} {f(y + 40)}V{f(y + 10)}Q{f(x)} {f(y)} {f(x + 10)} {f(y)}H{f(x + w * 0.38)}"
+             f"L{f(x + w * 0.44)} {f(y + 40)}Z", fill="#C9A869")
+    doc.rect(x, y + 36, w, h - 36, doc.lin([(0, "#E3C88E", 1), (1, "#C7A465", 1)], 0, 0, 0.4, 1), 12)
+    doc.rect(x + 36, y + 120, w - 72, 4, "#9C7E45", 2, opacity=0.6)
+    size = fit_size(label, 64, w - 90, "display")
+    doc.text(label, x + w / 2, y + h * 0.56, size, "#2A2116", "display", anchor="middle")
+
+
+def _phone(doc: Doc, brief: EditorialBrief, px: float, py: float, pw: float, ph: float) -> None:
+    """The group's tool of contact: a phone taking a call (IT support when stated)."""
     doc.rect(px + 18, py + 34, pw, ph, "#000", 54, opacity=0.5, extra=f' filter="{doc.blur(22)}"')
     doc.rect(px, py, pw, ph, doc.lin([(0, "#2B313A", 1), (1, "#12161C", 1)], 0, 0, 1, 1), 54, stroke="#4A5260", sw=3)
     doc.rect(px + 18, py + 18, pw - 36, ph - 36, doc.lin([(0, "#1D2A3A", 1), (1, "#0D131C", 1)]), 40)
@@ -382,17 +492,6 @@ def _comp_exposed(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
         doc.text("IT SUPPORT", cx, py + 410, 46, "#FFFFFF", "display", anchor="middle")
     doc.circle(cx - 90, py + ph - 120, 44, "#D64545")
     doc.circle(cx + 90, py + ph - 120, 44, "#3BA55C")
-    word = _action(brief)
-    _tape(doc, -40, 300, 1640, 520, word=word, phase=0.2)
-    _tape(doc, -40, 770, 1000, 610, hgt=60, word=word, phase=0.6)
-    tags = _exposed_tags(brief)
-    y = 110.0
-    for i, t in enumerate(tags[:3]):
-        h_ = 190.0 if len(t) > 1 else 110.0
-        _tag(doc, 900 + (i % 2) * 40, y, 560, h_, (px + pw, py + 200 + i * 160), t, (2.5 if i % 2 else -2.0))
-        y += h_ + 40
-    doc.focus = Box(180, 60, 1340, 754)
-    vignette(doc, 0.5)
 
 
 # ---------------------------------------------------------------- compositions
@@ -411,17 +510,23 @@ def police_takedown(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None
         _comp_exposed(doc, brief, rng)
 
 
-def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
-    """Describes the exposure composition exactly as drawn (the seizure
-    composition keeps the catalogue text)."""
-    if _seizure(brief):
-        return None
+def alt_for(brief: EditorialBrief) -> tuple[str, str]:
+    """Describes the composition exactly as drawn: the seized rack with its
+    tags, or the arrested group (case file, or the phone when calls are the
+    stated channel) with the acting authorities and the reported figure."""
     word = _action(brief).lower()
-    call_en = "an incoming call from 'IT support'" if _support(brief) else "an incoming call"
-    call_ua = "вхідним дзвінком «IT support»" if _support(brief) else "вхідним дзвінком"
+    if _seizure(brief):
+        tags = list(_seized_names(brief))
+        fig, what = _headline_count(brief)
+        if fig:
+            tags.append(f"'{fig} {what}'")
+        return (f"Illustration: a dark server rack under police tape marked '{word}', with evidence tags: "
+                f"{'; '.join(tags)}.",
+                f"Ілюстрація: темна серверна стійка під поліцейською стрічкою з написом «{word}», бирки: "
+                f"{'; '.join(tags)}.")
     parts_en: list[str] = []
     parts_ua: list[str] = []
-    actors = _actors(brief)
+    actors = _authorities(brief)
     if actors:
         parts_en.append(" and ".join(actors))
         parts_ua.append(" і ".join(actors))
@@ -432,8 +537,15 @@ def alt_for(brief: EditorialBrief) -> tuple[str, str] | None:
     if _ai_calls(brief):
         parts_en.append("'AI calling platform'")
         parts_ua.append("«AI calling platform»")
-    en = f"Illustration: a phone showing {call_en}, under police tape marked '{word}'"
-    ua = f"Ілюстрація: телефон із {call_ua} під поліцейською стрічкою з написом «{word}»"
+    if _contact(brief):
+        call_en = "an incoming call from 'IT support'" if _support(brief) else "an incoming call"
+        call_ua = "вхідним дзвінком «IT support»" if _support(brief) else "вхідним дзвінком"
+        en = f"Illustration: a phone showing {call_en}, under police tape marked '{word}'"
+        ua = f"Ілюстрація: телефон із {call_ua} під поліцейською стрічкою з написом «{word}»"
+    else:
+        group = _arrested(brief)
+        en = f"Illustration: a case file labelled '{group}' under police tape marked '{word}'"
+        ua = f"Ілюстрація: тека справи з написом «{group}» під поліцейською стрічкою з написом «{word}»"
     if parts_en:
         en += ", with evidence tags: " + "; ".join(parts_en)
         ua += ", бирки з написами: " + "; ".join(parts_ua)

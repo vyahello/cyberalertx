@@ -83,9 +83,17 @@ def plan_for(story: Any, renderer: str | None = None) -> Plan:
 
 def v4_applies(brief: Any) -> bool:
     """True when editorial-4 should draw this V4 brief: an evidence-backed
-    scene, not the low-confidence `dossier` fallback."""
+    scene (not the low-confidence `dossier` fallback) whose drawing names
+    something of the story (an entity, figure or identifier), or shows a
+    verified library photograph of it. Otherwise V3 draws it."""
     from .v4.brief import FALLBACK
-    return bool(brief.confidence != "low" and brief.scene != FALLBACK.id)
+    if brief.confidence == "low" or brief.scene == FALLBACK.id:
+        return False
+    if brief.library_id:
+        return True
+    from .v4.consistency import story_specific
+    from .v4.render import render_doc
+    return story_specific(brief, render_doc(brief).labels)
 
 
 def _v3_plan(story: Any) -> Plan:
