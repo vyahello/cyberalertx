@@ -95,6 +95,7 @@ class PublicationJob:
     media_url: str = ""             # the card/photo actually used
     content_hash: str = ""          # hash of the delivered content (update detection)
     evidence_fingerprint: str = ""  # Breaking evidence the delivery reflected
+    event: dict[str, Any] = field(default_factory=dict)   # Threads: event signature (threads/events.py)
     last_error: str = ""
     error_category: str = ""
     history: list[dict[str, Any]] = field(default_factory=list)
@@ -148,11 +149,18 @@ class RetryPolicy:
 
 # ---------------------------------------------------------------- store
 
+def replace_status(job: PublicationJob, status: str) -> PublicationJob:
+    """A copy of `job` with another status (for conflict checks; never stored)."""
+    return PublicationJob.from_dict({**job.to_dict(), "status": status})
+
+
 class JobStore:
     """`{job_id: job}` in one JSON file; every mutation runs under the lock."""
 
     def __init__(self, path: Path = JOBS_PATH) -> None:
         self.path = Path(path)
+        #: Jobs the last `claim` cancelled through its `conflict` check (for the run report).
+        self.last_conflicts: list[PublicationJob] = []
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     @contextlib.contextmanager
@@ -230,17 +238,48 @@ class JobStore:
             return job
 
     def claim(self, now: datetime, worker: str, *, lease_s: float = 600.0,
-              select: Callable[[list[PublicationJob]], list[PublicationJob]] | None = None) -> list[PublicationJob]:
+              select: Callable[[list[PublicationJob]], list[PublicationJob]] | None = None,
+              conflict: Callable[[PublicationJob, list[PublicationJob]], str] | None = None) -> list[PublicationJob]:
         """Move due jobs to `processing` for `worker`, in one locked step.
 
         `select` orders and caps the due jobs (priority, per-destination
         limits); the default takes all of them. Only what it returns is claimed.
+        `conflict(job, jobs)` names a reason a due job must never be sent (its event
+        is already published); such a job is cancelled, not claimed, inside the
+        same lock, so concurrent runs cannot both send it. A reason starting with
+        "defer:" (the covering job is still in flight) only skips it this time.
         """
         with self._locked():
             data = self._read()
-            due = [PublicationJob.from_dict(v) for v in data.values()]
-            due = [j for j in due if j.due(now)]
+            self.last_conflicts = []
+            every = [PublicationJob.from_dict(v) for v in data.values()]
+            due = [j for j in every if j.due(now)]
+            if conflict is not None:
+                blocked = []
+                for j in due:
+                    reason = conflict(j, every)
+                    if reason.startswith("defer:"):
+                        blocked.append(j)          # wait: the covering job is still in flight
+                    elif reason:
+                        j.status, j.claimed_by, j.lease_until, j.completed_at = "cancelled", "", "", _iso(now)
+                        j.last_error, j.updated_at = reason[:300], _iso(now)
+                        j.note(now, "cancelled", reason=j.last_error)
+                        data[j.job_id] = j.to_dict()
+                        blocked.append(j)
+                        self.last_conflicts.append(j)
+                due = [j for j in due if j not in blocked]
+                if any(j.status == "cancelled" for j in blocked):
+                    self._write(data)
             chosen = select(due) if select else due
+            if conflict is not None:
+                # Two due jobs about one event in this very claim: the first chosen goes.
+                taken: list[PublicationJob] = []
+                for j in list(chosen):
+                    reason = conflict(j, [replace_status(t, "processing") for t in taken])
+                    if reason:
+                        chosen.remove(j)
+                    else:
+                        taken.append(j)
             lease = _iso(now + timedelta(seconds=lease_s))
             for j in chosen:
                 j.status, j.claimed_by, j.lease_until, j.phase = "processing", worker, lease, ""

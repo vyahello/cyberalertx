@@ -32,11 +32,16 @@ from ..models import NewsItem
 from .config import TelegramSettings
 from .destinations import (INELIGIBLE, OPERATOR, RETRYABLE, UNKNOWN, WAITING, DeliveryError, before_activation,
                            edition_hash)
+from ..threads.events import covering as event_covering, not_news, signature as event_signature
 from .jobs import JobStore, PublicationJob, RetryPolicy, _iso, _parse as _parse_ts, job_id
 
 logger = logging.getLogger(__name__)
 
 KYIV = "Europe/Kyiv"
+#: Job states in which an event counts as covered for an account: sent, maybe
+#: sent, being sent, or waiting to be sent. Cancelled/failed jobs never posted.
+EVENT_HOLDING = frozenset({"published", "outcome_unknown", "processing", "scheduled", "retrying"})
+
 _LANGUAGE_GATE = {"en": frozenset({"en"}), "ua": frozenset({"en", "ua"})}   # = publish.service
 
 
@@ -242,6 +247,7 @@ def plan(
                    and j.publication_type == ptype and j.status not in ("published", "cancelled", "failed")
                    for j in list(existing.values()) + list(proposed.values()))
 
+    threads_candidates: list[PublicationJob] = []
     for item in sorted(items, key=lambda i: i.published_at, reverse=True):
         if getattr(item, "duplicate_of", ""):
             continue                                   # later coverage: its story already has an article
@@ -302,8 +308,12 @@ def plan(
                     skip(item, locale, dname, "outside the publication window")
                 elif not tdest.qualifies(payload):
                     skip(item, locale, dname, "below the Threads severity bar")
+                elif not_news(payload, item):
+                    skip(item, locale, dname, not_news(payload, item))
                 else:
-                    proposed[th_id] = make(dname, ev=view.breaking.get(story, ""))
+                    j = make(dname, ev=view.breaking.get(story, ""))
+                    j.event = event_signature(payload, item)
+                    threads_candidates.append(j)
 
             # ---- telegram -----------------------------------------------
             tg = destinations.get("telegram")
@@ -347,6 +357,22 @@ def plan(
                     upd = make("telegram", "breaking_update", ev[:10], p=PRIORITY_BREAKING, when=now,
                                reasons=["breaking: evidence materially changed"], ev=ev)
                     proposed[upd.job_id] = upd
+
+    # Threads: one initial post per event and account, across story keys. The
+    # first report of an event is kept; a later article about it is planned
+    # only for a substantive development (threads/events.py).
+    for j in sorted(threads_candidates, key=lambda x: (x.article_published_at, x.job_id)):
+        others = [(o.job_id, o.event) for o in list(existing.values()) + list(proposed.values())
+                  if o.destination == j.destination and o.publication_type == "initial" and o.event
+                  and o.status in EVENT_HOLDING]
+        dup, update = event_covering(j.event, others)
+        if dup:
+            res.skipped.append({"fingerprint": j.fingerprint, "locale": j.locale, "destination": j.destination,
+                                "reason": f"same event as {dup}"})
+            continue
+        if update:
+            j.reasons = [*j.reasons, f"event update: {update}"]
+        proposed[j.job_id] = j
 
     if dry_run:
         res.created = list(proposed.values())
@@ -392,6 +418,23 @@ def _supersede_story_duplicates(store: JobStore, view: IntelView, now: datetime,
                         x.note(now, "cancelled", reason=x.last_error)
                 store.update(j.job_id, cancel, now)
     return out
+
+
+def _event_conflict(job: PublicationJob, jobs: list[PublicationJob]) -> str:
+    """Claim-time guard (inside the job-store lock): a Threads initial post whose
+    event this account already published, may have published (outcome unknown)
+    or is publishing right now is never sent. Planning already skips these; this
+    covers concurrent planners and jobs planned before the first one was sent."""
+    if not job.destination.startswith("threads@") or job.publication_type != "initial" or not job.event:
+        return ""
+    for states, prefix in ((frozenset({"published", "outcome_unknown"}), ""), (frozenset({"processing"}), "defer:")):
+        others = [(o.job_id, o.event) for o in jobs
+                  if o.job_id != job.job_id and o.destination == job.destination and o.publication_type == "initial"
+                  and o.event and o.status in states]
+        dup, _ = event_covering(job.event, others)
+        if dup:
+            return f"{prefix}same event as {dup} ({'in flight' if prefix else 'already sent'})"
+    return ""
 
 
 # ---------------------------------------------------------------- execution
@@ -520,7 +563,9 @@ def run(
                     x.note(now, "cancelled", reason=x.last_error)
             store.update(j.job_id, precut, now)
             report.cancelled.append({"job_id": j.job_id, "reason": "published before Telegram activation"})
-    claimed = store.claim(now, worker, lease_s=policy.lease_seconds, select=select)
+    claimed = store.claim(now, worker, lease_s=policy.lease_seconds, select=select, conflict=_event_conflict)
+    for j in getattr(store, "last_conflicts", []):
+        report.cancelled.append({"job_id": j.job_id, "reason": j.last_error})
     # Telegram and the website first: a slow Threads step (the editorial writer,
     # container processing) can never delay or crowd out a Telegram post.
     claimed = sorted(claimed, key=lambda j: j.destination.startswith("threads@"))

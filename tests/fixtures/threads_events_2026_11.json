@@ -1,0 +1,116 @@
+{
+ "nginx_thn": {
+  "title": "10-Year-Old NGINX HTTP/2 Flaw Lets Unauthenticated Attackers Execute Code on Servers",
+  "source": "The Hacker News",
+  "published_at": "2026-11-18T16:31:17+00:00",
+  "lead": "A flaw in NGINX's HTTP/2 support can allow an attacker to run code on servers with HTTP/2 enabled, without needing to log in. The decade-old flaw, CVE-2026-123007, dubbed \"nginx2root,\" has been present in NGINX's open-source code since version 1.9.5, released on September 22, 2015. Fixed versions 1.31.9 and 1.30.7 came out today. F5, the company behind NGINX, says attackers can run code where"
+ },
+ "roller_thn": {
+  "title": "Critical Apache Roller RCE Flaw Under Active Exploitation, No Authentication Required",
+  "source": "The Hacker News",
+  "published_at": "2026-11-18T15:10:45+00:00",
+  "lead": "A critical security flaw in Apache Roller, an open-source, Java-based blogging platform, has come under active exploitation in the wild, according to the Apache Software Foundation (ASF) The vulnerability, tracked as CVE-2026-129448 (CVSS score: 9.8), is a case of unauthenticated deserialization in the XML-RPC endpoint that could lead to remote code execution. \"Deserialization of Untrusted"
+ },
+ "kev_four": {
+  "title": "CISA Adds Four Known Exploited Vulnerabilities to Catalog",
+  "source": "CISA Alerts",
+  "published_at": "2026-11-18T10:00:00+00:00",
+  "lead": "CISA has added four new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2024-10441 Synology DiskStation Manager (DSM) Improper Encoding or Escaping of Output Vulnerability CVE-2026-40217 BerriAI LiteLLM Unprotected Alternate Channel Vulnerability CVE-2026-90436 Apache Axis Unsafe Reflection Vulnerability CVE-2026-90817 Vanderbilt University Research Electronic Data Capture (REDCap) Code Injection Vulnerability These types of vulnerabilities are a frequent attack vector for malicious cyber actors and pose significant risks to "
+ },
+ "roller_bc": {
+  "title": "Apache warns of Roller RCE vulnerability exploited in attacks",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-18T08:35:05+00:00",
+  "lead": "Apache has released security updates to address a critical Roller flaw that threat actors are exploiting to gain code execution on vulnerable servers. [...]"
+ },
+ "optimizely_krebs": {
+  "title": "Attackers Used Optimizely to A/B Test Malware on Top Websites",
+  "source": "Krebs on Security",
+  "published_at": "2026-11-18T00:52:04+00:00",
+  "lead": "At least 178 top web destinations unwittingly served a variety of malware exploits against visitors over the past 24 hours thanks to a security vulnerability involving Optimizely, a company that helps websites customize user experiences and test out new features. Experts say the incident, which saw data-stealing malicious software silently injected into sites like the BBC, CNN, Equifax, Ledger and Zoom, was exacerbated by the reality that few popular websites enforce strict rules on the sources of third-party content."
+ },
+ "optimizely_bc": {
+  "title": "Optimizely supply chain attack infects major brands' sites with malware",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-17T00:12:17+00:00",
+  "lead": "A suspected supply chain attack targeting Optimizely has led to malicious JavaScript being loaded on numerous popular websites, including Zoom, CNN, Fox News, BBC, Salesforce, and GitLab, exposing visitors to scripts designed to steal cryptocurrency and payment information and exploit vulnerabilities in iOS devices. [...]"
+ },
+ "unrealircd_thn": {
+  "title": "Attackers Exploit UnrealIRCd Flaw That Enables Server-Level Command Injection",
+  "source": "The Hacker News",
+  "published_at": "2026-11-14T10:38:35+00:00",
+  "lead": "The U.S. Cybersecurity and Infrastructure Security Agency (CISA) on Friday added a high-severity security flaw impacting UnrealIRCd, an open-source Internet Relay Chat (IRC) server, to its Known Exploited Vulnerabilities (KEV) catalog, following reports of active exploitation. The vulnerability, tracked as CVE-2026-114713 (CVSS score: 8.6), is a case of improper neutralization of delimiters"
+ },
+ "kev_two": {
+  "title": "CISA Adds Two Known Exploited Vulnerabilities to Catalog",
+  "source": "CISA Alerts",
+  "published_at": "2026-11-13T10:00:00+00:00",
+  "lead": "CISA has added two new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-114713 UnrealIRCd Improper Neutralization of Delimiters Vulnerability CVE-2026-123039 Check Point Multiple Products Incorrect Permission Assignment for Critical Resource Vulnerability These types of vulnerabilities are a frequent attack vector for malicious cyber actors and pose significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requir"
+ },
+ "checkpoint_zeroday": {
+  "title": "Check Point warns of zero-day flaw exploited for root access",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-13T08:44:22+00:00",
+  "lead": "Check Point Software has released emergency hotfixes to address a high-severity flaw that hackers have been exploiting to gain root privileges and establish persistence on vulnerable devices since late October. [...]"
+ },
+ "checkpoint_php2shell": {
+  "title": "Hackers Exploit PHP2Shell Flaws in Check Point Gateways to Deploy TSGA Backdoor and Wipe ESXi Files",
+  "source": "The Hacker News",
+  "published_at": "2026-11-13T06:05:49+00:00",
+  "lead": "An unknown threat actor has been observed targeting unpatched Check Point Security Gateways to obtain initial access via the PHP2Shell vulnerabilities and then a previously reported local privilege escalation flaw in Gaia OS to deploy a backdoor called TSGA. The activity, detailed by Check Point, began on October 30, 2026, and targeted Israeli organizations, with a broader follow-up wave"
+ },
+ "nable_exploited": {
+  "title": "New N-able \"4EverAble2Shell\" zero-day exploited hours after PoC released",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-12T17:51:16+00:00",
+  "lead": "Hackers are actively exploiting a newly disclosed N-able N-central zero-day vulnerability dubbed \"4EverAble2Shell\" to compromise servers and deploy cryptocurrency miners, with researchers reporting at least 21 affected systems, including 19 running the company's latest security update. [...]"
+ },
+ "http2_bc": {
+  "title": "Apache HTTP Server patches critical HTTP/2 remote code execution flaw",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-12T17:12:55+00:00",
+  "lead": "A critical vulnerability in the HTTP/2 module of Apache HTTP Server could be exploited by an unauthenticated attacker to obtain remote code execution (RCE). [...]"
+ },
+ "http2_thn": {
+  "title": "Critical Apache HTTP/2 Flaw Could Let Unauthenticated Attackers Execute Code Remotely",
+  "source": "The Hacker News",
+  "published_at": "2026-11-12T03:12:26+00:00",
+  "lead": "A critical flaw in Apache HTTP Server's HTTP/2 module, mod_http2, can let a remote attacker run code on the server. Tracked as CVE-2026-119618, it affects versions 2.4.55 through 2.4.70 and is fixed in version 2.4.71, released yesterday. Only servers with HTTP/2 enabled are affected, according to Red Hat, which ships the server as part of Red Hat Enterprise Linux. An attacker who can reach the"
+ },
+ "nable_hotfix": {
+  "title": "N-able releases security hotfixes for zero-day vulnerabilities",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-11T10:32:27+00:00",
+  "lead": "N-able released hotfixes to address zero-day bugs affecting its N-central remote monitoring and management (RMM) platform, which were publicly disclosed over the weekend and forced it to take vulnerable hosted environments offline. [...]"
+ },
+ "broadworks_bc": {
+  "title": "CISA flags Cisco BroadWorks flaw as actively exploited in attacks",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-11T08:12:08+00:00",
+  "lead": "The US Cybersecurity and Infrastructure Security Agency (CISA) warned on Tuesday that hackers are now exploiting a high-severity Cisco BroadWorks vulnerability in attacks. [...]"
+ },
+ "pt_thn": {
+  "title": "Microsoft Patches 1,259 Flaws, Including Exploited Outlook Bug That May Expose NTLMv2 Hashes",
+  "source": "The Hacker News",
+  "published_at": "2026-11-11T06:17:53+00:00",
+  "lead": "Microsoft on Tuesday released patches for a total of 1,259 vulnerabilities spanning its software portfolio, the second consecutive month where the patch volume has exceeded 1,000 flaws. These cover 726 flaws in Windows, 174 in Office, 61 in Developer Tools, 59 in SQL Server, 53 in Developer Tools, and 27 in SharePoint Server. The patches also include 165 non-Microsoft-issued CVE identifiers."
+ },
+ "broadworks_thn": {
+  "title": "Cisco BroadWorks and Openwave Flaws Actively Exploited Despite Available Patches",
+  "source": "The Hacker News",
+  "published_at": "2026-11-11T04:04:02+00:00",
+  "lead": "The U.S. Cybersecurity and Infrastructure Security Agency (CISA) Tuesday added two security flaws impacting Cisco BroadWorks and Openwave Messaging Webtop Media Transcoder to its Known Exploited Vulnerabilities (KEV) catalog, citing evidence of active exploitation. Details of the vulnerabilities are below - CVE-2026-20320 (CVSS score: 7.5) - An improper restriction of XML external entity"
+ },
+ "pt_krebs": {
+  "title": "Microsoft Fixes Nearly 1,100 Security Vulnerabilities",
+  "source": "Krebs on Security",
+  "published_at": "2026-11-10T19:55:03+00:00",
+  "lead": "Microsoft did another four-digit patch drop today, releasing updates to fix almost 1,100 security vulnerabilities in its Windows operating systems and supported software. This month's Patch Tuesday addresses 63 critical flaws -- including a zero-day in Microsoft Outlook -- and comes amid important security updates from other software makers, including Adobe, Apple, Google and Mozilla."
+ },
+ "pt_bc": {
+  "title": "Microsoft November 2026 Patch Tuesday fixes 1,235 flaws, Outlook zero-day",
+  "source": "BleepingComputer",
+  "published_at": "2026-11-10T17:07:36+00:00",
+  "lead": "Today is Microsoft's November 2026 Patch Tuesday, with security updates addressing a record-breaking 1,235 flaws, including one actively exploited Microsoft Outlook zero-day vulnerability. [...]"
+ }
+}

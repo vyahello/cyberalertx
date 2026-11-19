@@ -114,6 +114,18 @@ Threads when `THREADS_ENABLED=1`, as destinations `threads@en` and
 - **No backlog:** on the first sending run with Threads on, each account
   records `publishing_since`. Older articles are never posted, and Telegram
   history is not imported.
+- **One post per event:** articles about one event from different outlets
+  can belong to different stories. Each Threads job carries an event
+  signature (`threads/events.py`), and an account gets one initial post per
+  event: the first report. The signature covers CVEs, named products and
+  organisations, the kind of event and what the article itself reports.
+  A later article is posted only for a substantive development: exploitation
+  confirmed, a breach confirmed after a claim, a patch released, a
+  law-enforcement action, or materially more people affected. A new headline
+  or a new outlet alone is not one. Planning records the skip as
+  `same event as <job>`, and the claim step re-checks under the job-store lock
+  (concurrent planners, sends with an unknown outcome). Sponsored pieces,
+  webinars, vendor checklists and weekly roundups are never Threads posts.
 - **Pilot pace:** at most 1 post per account per run and
   `THREADS_DAILY_LIMIT` (default 3) per 24 h.
 - **Image:** the story's canonical illustration, the same asset as the
