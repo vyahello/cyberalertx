@@ -169,7 +169,11 @@ def run(
     budget: Budget | None = None,
     sleep: Any = time.sleep,
     upgrade_renderer: bool = False,
+    only: frozenset[str] | None = None,
 ) -> MediaRunResult:
+    """Record cards and generate due illustrations. With `only`, illustrations
+    are considered for these story keys alone (the V4.1 quarantine's
+    `promote`); every other story is left exactly as it is."""
     from ..intel.engine import run as intel_run
 
     store = store or MediaStore()
@@ -216,6 +220,8 @@ def run(
     # Newest first: currently visible stories are served before older ones.
     ordered = sorted(intel.stories, key=lambda st: st.anchor.published_at, reverse=True)
     for story in ordered:
+        if only is not None and story.key not in only:
+            continue
         ev = intel.evals.get(story.key)
         elig = eligibility(story, ev, top_rank=ranks.get(story.key), breaking=story.key in breaking, cfg=cfg)
         if not elig.eligible:

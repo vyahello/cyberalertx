@@ -5,6 +5,8 @@
     python -m cyberalertx.tools.media regenerate STORY    clear a story's illustration so the next run redoes it
     python -m cyberalertx.tools.media brief STORY [--svg F] the V4 visual brief of a story (read-only)
     python -m cyberalertx.tools.media validate-cards URL  fetch every card variant from a running site and check it
+    python -m cyberalertx.tools.media candidates ACTION   V4.1 canary in quarantine (start, collect, gallery,
+                                                          review, promote approved only, cleanup)
 
 No scheduler is added: run it after `generate`, by hand or from the existing
 timer. With no image provider configured (CYBERALERTX_IMAGE_PROVIDER unset or
@@ -16,6 +18,7 @@ import argparse
 import json
 import sys
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 from ..config import DATA_DIR
 from ..storage.json_store import JsonNewsStore
@@ -142,6 +145,63 @@ def cmd_validate_cards(args: argparse.Namespace) -> int:
     return 1 if bad else 0
 
 
+def _story_set() -> tuple[list[Any], Any, Any, list[Any], Callable[[Any], bool]]:
+    """(items, sheets, posts, stories, eligible) as the hourly run sees them."""
+    from ..intel.engine import run as intel_run
+    from ..media.illustrations import EligibilityConfig, eligibility
+
+    items = JsonNewsStore(DATA_DIR / "items.json").all()
+    sheets, posts = _stores()
+    intel = intel_run(items, sheets=sheets, posts=posts, write=False)
+    cfg = EligibilityConfig.from_env()
+
+    def eligible(story: Any) -> bool:
+        return bool(eligibility(story, intel.evals.get(story.key), cfg=cfg).eligible)
+    return list(items), sheets, posts, list(intel.stories), eligible
+
+
+def cmd_candidates(args: argparse.Namespace) -> int:
+    """V4.1 canary in quarantine (see media/candidates.py). Never publishes,
+    except `promote` for candidates approved in review.json."""
+    from pathlib import Path
+
+    from ..media import candidates as C
+    from ..media.assets import MediaStore
+
+    store = MediaStore()
+    try:
+        if args.action == "start":
+            _, _, _, stories, eligible = _story_set()
+            release = Path("RELEASE").read_text().splitlines()[0] if Path("RELEASE").exists() else ""
+            path = C.start(Path(args.root), [s.key for s in stories if eligible(s)], store=store, hours=args.hours,
+                           release=release)
+            print(json.dumps({"session": str(path), **C.load(path)}, ensure_ascii=False, indent=2)[:1200])
+        elif args.action == "collect":
+            _, _, _, stories, eligible = _story_set()
+            res = C.collect(Path(args.session), stories, store=store, eligible=eligible, recent=args.recent)
+            C.gallery(Path(args.session))
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+        elif args.action == "gallery":
+            print(C.gallery(Path(args.session)))
+        elif args.action == "review":
+            if len(args.story) != 1:
+                raise C.CandidateError("review takes exactly one --story")
+            scores = {k: int(v) for k, v in (kv.split("=", 1) for kv in args.score)}
+            print(json.dumps(C.review(Path(args.session), args.story[0], scores=scores, verdict=args.verdict,
+                                      reviewer=args.reviewer, notes=args.notes), ensure_ascii=False, indent=2))
+            C.gallery(Path(args.session))
+        elif args.action == "promote":
+            items, sheets, posts, _, _ = _story_set()
+            print(json.dumps(C.promote(Path(args.session), args.story, items=items, store=store, sheets=sheets,
+                                       posts=posts), ensure_ascii=False, indent=2))
+        elif args.action == "cleanup":
+            print(json.dumps({"removed": args.session, "index_sha256": C.cleanup(Path(args.session), store=store)}))
+    except C.CandidateError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="cyberalertx.tools.media", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -161,6 +221,19 @@ def main(argv: list[str] | None = None) -> int:
     br.add_argument("story")
     br.add_argument("--svg", default="", help="also write the V4 rendering to this file")
     br.set_defaults(fn=cmd_brief)
+    c = sub.add_parser("candidates", help="V4.1 canary in quarantine: collect, review, promote approved only")
+    c.add_argument("action", choices=["start", "collect", "gallery", "review", "promote", "cleanup"])
+    c.add_argument("--root", default="", help="start: directory for sessions (e.g. $REVIEW_DIR/v41-candidates)")
+    c.add_argument("--hours", type=float, default=6.0, help="start: expiry of the session (secondary guard)")
+    c.add_argument("--session", default="", help="the session directory")
+    c.add_argument("--recent", type=int, default=0,
+                   help="collect: also this many of the newest existing stories without a V4.1 image")
+    c.add_argument("--story", action="append", default=[], help="review/promote: story key (repeatable for promote)")
+    c.add_argument("--score", action="append", default=[], help="review: gate=score, e.g. accuracy=5")
+    c.add_argument("--verdict", default="", help="review: approved | rejected")
+    c.add_argument("--reviewer", default="", help="review: who decided")
+    c.add_argument("--notes", default="")
+    c.set_defaults(fn=cmd_candidates)
     v = sub.add_parser("validate-cards", help="fetch and check card variants from a running site")
     v.add_argument("base_url", help="e.g. http://127.0.0.1:3300")
     v.add_argument("--limit", type=int, default=10)
