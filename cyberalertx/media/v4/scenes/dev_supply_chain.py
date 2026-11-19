@@ -16,6 +16,7 @@ plain text and only those the headline names; no logos, no editor UI."""
 from __future__ import annotations
 
 import random
+import re
 
 from ..brief import EditorialBrief, mentions
 from .. import type as T
@@ -77,16 +78,35 @@ def _key(doc: Doc, x: float, y: float, s: float, ang: float, holder: str, danger
             doc.rect(bx + 30, by + th - 14, tw - 30, 14, danger, opacity=0.9)
 
 
+_KEY_STATED = re.compile(r"stolen (?:[\w-]+ ){0,3}(?:api |access )?(?:key|token)|(?:key|token)s? (?:was |were )?(?:stolen|"
+                         r"leaked|exposed)|leaked (?:[\w-]+ ){0,3}(?:api |access )?(?:key|token)|key we had issued|"
+                         r"issued to [\w ]+ was (?:stolen|exposed)|викраден\w* ключ")
+
+
+def _key_stated(text: str) -> bool:
+    return _KEY_STATED.search(text) is not None
+
+
+def _roles(brief: EditorialBrief) -> tuple[str, str, str]:
+    """(key holder, extension name, marketplace), each only as the sources state it:
+    the holder of a stolen key, the extension's own name, a marketplace by name."""
+    ents, text = list(brief.entities), brief.text or ""
+    holder = ""
+    if _key_stated(text):
+        holder = next((e for e in ents if f"key we had issued to {e.lower()}" in text
+                       or re.search(re.escape(e.lower()) + r"(?:'s)? (?:api |access )?(?:key|token)", text)), "")
+    ext = next((e for e in ents if e != holder and re.search(re.escape(e.lower()) + r" extension", text)), "")
+    ext = "Claude Code" if "claude code extension" in text else (ext or "Extension")
+    market = next((e for e in ents if re.search(re.escape(e.lower()) + r"(?:'s)? (?:extension )?marketplace", text)), "")
+    return holder, ext, market
+
+
 @scene("dev_supply_chain")
 def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     p = doc.pal
     background(doc, light=(0.62, 0.3))
-    ents = list(brief.entities)
     text = brief.text or ""
-    holder = next((e for e in ents if mentions(f"{e} ai", text) or f"key we had issued to {e.lower()}" in text),
-                  ents[0] if len(ents) > 1 else "")
-    ext = "Claude Code" if "Claude" in ents else "Extension"
-    market = next((e for e in ents if e not in (holder, "Claude")), "")
+    holder, ext, market = _roles(brief)
     attack = brief.status in _ATTACK
     trojan = "trojaniz" in text or "троян" in text
 
@@ -97,8 +117,8 @@ def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> Non
     doc.shadow(card.x, card.y, card.w, card.h, 28, 1.5)
     doc.rect(card.x, card.y, card.w, card.h, doc.lin([(0, "#1E2A42", 1), (1, "#111827", 1)], 0, 0, 0.4, 1), 28,
              stroke="#33425F", sw=2)
-    doc.text((market.upper() + " MARKETPLACE") if market else "EXTENSION MARKETPLACE", card.x + 64, card.y + 78, 24,
-             "#8C9AB5", "ui_bold", tracking=4)
+    if market:                           # only a marketplace the sources name
+        doc.text(market.upper() + " MARKETPLACE", card.x + 64, card.y + 78, 24, "#8C9AB5", "ui_bold", tracking=4)
     # extension icon: a generic terminal glyph, not a logo
     ix, iy, isz = card.x + 64, card.y + 118, 150
     doc.rect(ix, iy, isz, isz, doc.lin([(0, "#2C3B5C", 1), (1, "#1B263D", 1)], 0, 0, 1, 1), 32)
@@ -125,12 +145,30 @@ def dev_supply_chain(doc: Doc, brief: EditorialBrief, rng: random.Random) -> Non
         doc.rect(card.x + 92, cy + 24 + i * 30, (card.w - 184) * w, 14, "#3A2232", 5)
     doc.text("contents not described in the reports", card.x + 64, cy + 158, 22, "#C9A0A8", "mono")
 
-    # ---- the stolen key, turned in the listing's publishing lock
-    lx, ly = card.x, card.y + 250
-    doc.rect(lx - 34, ly - 50, 68, 100, "#0B111C", 14, stroke="#33425F", sw=2)
-    doc.circle(lx, ly - 8, 12, "#000")
-    doc.rect(lx - 5, ly - 8, 10, 30, "#000", 3)
-    _key(doc, 200, 470, 98, -12.8, holder, p.danger)
+    # ---- the stolen key, turned in the listing's publishing lock: only when the
+    # sources say a key or token was stolen (never invented for a compromise)
+    if _key_stated(text):
+        lx, ly = card.x, card.y + 250
+        doc.rect(lx - 34, ly - 50, 68, 100, "#0B111C", 14, stroke="#33425F", sw=2)
+        doc.circle(lx, ly - 8, 12, "#000")
+        doc.rect(lx - 5, ly - 8, 10, 30, "#000", 3)
+        _key(doc, 200, 470, 98, -12.8, holder, p.danger)
 
     vignette(doc, 0.45)
     doc.focus = Box(90, 90, 1470, 827)
+
+
+def alt_for(brief: EditorialBrief) -> tuple[str, str]:
+    """The listing as drawn: the key only when the sources state one was stolen."""
+    holder, ext, market = _roles(brief)
+    text = brief.text or ""
+    trojan = "trojaniz" in text or "троян" in text
+    word = "TROJANIZED" if trojan else ("MALICIOUS VERSION" if brief.status in _ATTACK else "REPORTED")
+    where_en = f" in the {market} marketplace" if market else ""
+    where_ua = f" у маркетплейсі {market}" if market else ""
+    en = f"Illustration: a listing for the {ext} extension{where_en}, marked '{word}', its contents not described"
+    ua = f"Ілюстрація: сторінка розширення {ext}{where_ua} з позначкою «{word}», вміст не описано"
+    if _key_stated(text):
+        en += ", and a stolen key" + (f" tagged {holder}" if holder else "") + " turned in its lock"
+        ua += ", і викрадений ключ" + (f" з биркою {holder}" if holder else "") + " у його замку"
+    return en + ".", ua + "."

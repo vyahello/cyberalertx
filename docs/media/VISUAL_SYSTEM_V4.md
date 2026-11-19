@@ -319,6 +319,15 @@ picture that asserted more than the sources do. The rules:
     shows PATCHING URGED unless a source states availability ("fixed
     versions … came out", "patches", "updates released").
   * Secondary products are listed only when the source headline names them.
+  * **Supply chain.** A package-registry compromise (PyPI, npm and others)
+    has no faithful V4.1 scene and is drawn by V3. The extension scene
+    needs extension or marketplace wording in the headline:
+    * a marketplace is named only when the sources say "X marketplace";
+    * the extension's name is only the word directly before "extension";
+    * the stolen key, and its holder, appear only when the sources state a
+      stolen or leaked key or token.
+
+    Theft of a signing key is the code-signing scene.
 * **Recognition (hybrid policy).** V4 draws a story only when the drawing
   names something of it, or shows a verified library photograph. That
   means an entity, figure, identifier or acting authority. Unlabelled

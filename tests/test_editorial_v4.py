@@ -1022,3 +1022,58 @@ def test_a_precise_headline_amount_keeps_its_own_qualifier() -> None:
 
 def test_counts_step_over_hyphenated_product_names() -> None:
     assert B.extract_facts("N-able Patches 17 N-central Flaws", "", "")["flaws"] == "17"
+
+
+# ------------------------------------------------------------------ supply chain: registries vs extensions vs signing keys
+
+PYPI = ("Microsoft’s Agent Framework PyPI package compromised to steal credentials",
+        "Hackers compromised Microsoft's official Agent Framework Python package on PyPI, publishing two malicious "
+        "versions designed to steal cloud credentials and other sensitive information from developers' systems.")
+
+
+@pytest.mark.parametrize("title,body", [
+    PYPI,
+    ("Malicious npm packages steal developer tokens", "Attackers published typosquatted npm packages."),
+    ("Шкідливі пакети в PyPI викрадають ключі розробників", ""),
+])
+def test_a_package_registry_compromise_is_never_drawn_as_an_extension(monkeypatch: pytest.MonkeyPatch, title: str,
+                                                                    body: str) -> None:
+    plan = _plan(monkeypatch, title, body)
+    assert plan.renderer == "cax-svg-3"                                    # no faithful V4.1 scene: V3
+    assert B.build(story(title, body)).scene != "dev_supply_chain"
+
+
+def test_the_pypi_story_draws_no_marketplace_no_key_and_no_extension() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    b = replace(B.build(story(*PYPI)), scene="dev_supply_chain", palette="midnight", status="compromise")
+    labels = render_doc(b).labels                                         # even if forced into the scene
+    assert not any("MARKETPLACE" in x for x in labels) and "ISSUED TO" not in labels
+    assert "stolen key" not in B.alt_text(b)["en"]
+
+
+def test_a_browser_extension_names_only_what_the_sources_state() -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story("Malicious Chrome extension steals passwords from 10,000 users",
+                      "A browser Chrome extension in the Chrome Web Store stole saved passwords."))
+    labels = render_doc(b).labels
+    assert b.scene == "dev_supply_chain" and "Chrome" in labels and "Malicious" not in labels
+    assert "ISSUED TO" not in labels and not any("MARKETPLACE" in x for x in labels)   # no key, no marketplace stated
+    assert check_brief(b, labels) == []
+
+
+def test_a_stated_stolen_key_and_named_marketplace_are_drawn() -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story("Stolen Fireworks AI Key Led to Cursor Data Breach and Trojanized Claude Code Extension",
+                      "An access key Cursor had issued to Fireworks AI was stolen; attackers pushed a trojanized "
+                      "Claude Code extension through the Cursor marketplace."))
+    labels = render_doc(b).labels
+    assert {"CURSOR MARKETPLACE", "Claude Code", "TROJANIZED", "ISSUED TO", "Fireworks AI"} <= set(labels)
+    assert "stolen key tagged Fireworks AI" in B.alt_text(b)["en"] and check_brief(b, labels) == []
+
+
+def test_signing_key_theft_is_the_code_signing_scene_not_a_marketplace() -> None:
+    b = B.build(story("Hackers stole Acme code-signing key to sign malware",
+                      "Attackers stole the company code-signing key and signed malware with it."))
+    assert b.scene == "code_signing"

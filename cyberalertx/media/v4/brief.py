@@ -243,7 +243,7 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "its contents are not described.",
        "Ілюстрація: викрадений ключ у замку сторінки розширення редактора коду з позначкою «троян»; його "
        "вміст не описано.",
-       head_requires=r"extension|marketplace|\bnpm\b|PyPI|package|VS Code|plugin|\bkey\b|розширен|пакет"),
+       head_requires=r"extension|marketplace|VS Code|plugin|add-?on|розширен"),
     _s("ransomware_impact", [(r"ransomware|програм\w*-?вимагач|вимагач|encrypt\w* (files|servers)|"
                               r"зашифрува", 7)], "ember",
        "systems encrypted by ransomware", "files and servers are made unavailable",
@@ -474,7 +474,7 @@ _NOT_ENTITY = {"The", "A", "An", "And", "Or", "Of", "In", "On", "To", "For", "Wi
                "Command", "Injection", "Cloud", "Employee", "Provider", "Library", "Hide", "Activity", "Modified",
                "Linux", "Cryptomining", "Compromises", "Firm", "Russian", "Code", "Signing", "Trojanized",
                "Extension", "Fully", "Automated", "Warns", "Coming", "Soon", "Finds", "Agents", "Run",
-               "Exploits", "Patch", "Second", "Life", "Spreading", "Vulnerability", "Zero"}
+               "Exploits", "Patch", "Second", "Life", "Spreading", "Vulnerability", "Zero", "Malicious", "Fake", "Rogue"}
 
 
 #: Generic technology, role and place terms. Alone they never name an
@@ -676,6 +676,12 @@ def reports_incident(headline: str) -> bool:
     return _INCIDENT.search(_HYPOTHETICAL.sub(" ", headline)) is not None
 
 
+#: Package registries: a compromised package there is not a browser/editor extension.
+_REGISTRY = re.compile(r"\b(?:pypi|npm|rubygems|crates\.io|nuget|maven|packagist|python package|pip package|"
+                       r"npm package|packages?|пакет\w*)\b", re.I)
+_EXTENSION = re.compile(r"extension|marketplace|VS Code|plugin|add-?on|розширен", re.I)
+
+
 def advisory_without_incident(headline: str, status: str) -> bool:
     """O55: the headline announces a flaw, fix or warning, and neither the
     evidence status nor the headline reports an attack. Such a story is drawn
@@ -697,7 +703,11 @@ def build(story: Any) -> EditorialBrief:
     ev = assess(anchor)
     category = str(anchor.category or "other").lower()
     status = ("compromise" if ev.compromise == "confirmed" else ev.exploitation or "not_reported")
-    if advisory_without_incident(title, status):
+    if _REGISTRY.search(title) and not _EXTENSION.search(title):
+        # A package-registry compromise (PyPI, npm ...) has no faithful V4.1 scene:
+        # the extension picture would invent a marketplace and a stolen key. V3 draws it.
+        ranked = []
+    elif advisory_without_incident(title, status):
         # O55: an advisory never wins an incident scene; the next-ranked scene decides.
         ranked = [r for r in ranked if r[1].id not in INCIDENT_SCENES]
     elif status not in ATTACK_STATUSES and not reports_incident(title):
