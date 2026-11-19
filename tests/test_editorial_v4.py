@@ -945,3 +945,40 @@ def test_a_picture_that_names_nothing_of_the_story_stays_on_v3(monkeypatch: pyte
     fugaku = renderer.plan_for(story("Japan takes Fugaku supercomputer offline after cyberattack",
                                      "RIKEN took Fugaku offline after a security breach."))
     assert fugaku.renderer == "cax-editorial-4"                           # a verified photo of the subject
+
+
+# ------------------------------------------------------------------ canary 5 review fixes
+
+def test_a_protocol_version_stays_in_the_product_name_and_never_stands_alone() -> None:
+    from cyberalertx.media.v4.render import render_doc
+    labels = render_doc(B.build(story("10-Year-Old NGINX HTTP/2 Flaw Lets Unauthenticated Attackers Execute Code",
+                                      "A flaw in NGINX's HTTP/2 support. Fixed versions 1.31.9 and 1.30.7 came out "
+                                      "today."))).labels
+    assert "NGINX HTTP/2" in labels and "NGINX HTTP" not in labels
+    labels2 = render_doc(B.build(story("Apache HTTP Server patches critical HTTP/2 remote code execution flaw"))).labels
+    assert not any(x.startswith("+") and "HTTP/2" in x for x in labels2)
+
+
+def test_kev_alt_text_lists_every_cve_the_catalogue_draws() -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    body = ("CISA has added new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog. "
+            "CVE-2026-1001 Acme CVE-2026-1002 Beta CVE-2026-1003 Gamma CVE-2026-1004 Delta")
+    b = replace(B.build(story("CISA Adds Four Known Exploited Vulnerabilities to Catalog", body)), status="confirmed")
+    alt = B.alt_text(b)["en"]
+    assert all(f"CVE-2026-100{i}" in alt for i in range(1, 5))
+    assert check_brief(b, render_doc(b).labels) == []
+    b6 = replace(B.build(story("CISA Adds Six Known Exploited Vulnerabilities to Catalog", body)), status="confirmed")
+    labels6 = render_doc(b6).labels
+    assert "+2 more" in labels6 and "'+2 more'" in B.alt_text(b6)["en"]
+    assert check_brief(b6, labels6) == []
+
+
+def test_a_figure_only_in_our_summary_needs_a_source_that_states_it() -> None:
+    from types import SimpleNamespace as NS
+    s = story("CISA Urges Immediate Patching of Java4Shell Flaw", "CISA urged organizations to patch.",
+              post="Oracle's Java update targets 11 flaws reachable without any login")
+    assert "flaws" not in B.build(s).facts                          # no source states 11: dropped
+    member = NS(title="Oracle to Patch 11 Java Flaws Today", raw_content="The 11 vulnerabilities carry a maximum")
+    s.members = [s.anchor, member]
+    assert B.build(s).facts.get("flaws") == "11"                    # a member article states it: kept

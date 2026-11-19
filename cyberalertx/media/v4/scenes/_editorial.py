@@ -57,8 +57,10 @@ def primary_product(brief: EditorialBrief) -> tuple[str, list[str]]:
         return "", []
     ranked = [g for g in groups if g.split()[0] not in _REPORTERS] or groups
     main = ranked[0]
-    # Reporters and tools (CISA, Google, Claude) are never listed as affected products.
-    return main, [g for g in groups if g != main and g.split()[0] not in _REPORTERS]
+    # Reporters and tools (CISA, Google, Claude) are never listed as affected products,
+    # nor is a bare protocol version ("HTTP/2"): it belongs to a product's name.
+    return main, [g for g in groups if g != main and g.split()[0] not in _REPORTERS
+                  and not re.fullmatch(r"[A-Z]+/\d(?:\.\d)?", g)]
 
 
 def ascii_ids(text: str, limit: int = 3) -> list[str]:

@@ -115,7 +115,7 @@ def _crop_box(svg: str) -> list[float]:
 
 
 def collect(session: Path, stories: Sequence[Any], *, store: MediaStore, eligible: Any,
-            recent: int = 0, now: datetime | None = None) -> dict[str, Any]:
+            recent: int = 0, refresh: Sequence[str] = (), now: datetime | None = None) -> dict[str, Any]:
     """Render V4.1 candidates for the new eligible stories (and, with
     `recent`, that many of the newest existing stories that have no V4.1
     image). `eligible(story) -> bool` is the production eligibility test.
@@ -134,11 +134,23 @@ def collect(session: Path, stories: Sequence[Any], *, store: MediaStore, eligibl
     manifest: dict[str, Any] = _read(session / MANIFEST, {})
     current = illustrations(store)
     added, routed, extra = [], [], 0
+    redo = set(refresh)
+    unknown = redo - set(manifest)
+    if unknown:
+        raise CandidateError(f"not candidates of this session: {sorted(unknown)}")
     for story in sorted(stories, key=lambda s: s.anchor.published_at, reverse=True):
-        if story.key in manifest or not eligible(story):
+        if story.key in redo:
+            # a corrected candidate replaces the reviewed one; the old file is kept beside it
+            old = manifest.pop(story.key)
+            if old.get("file") and (session / old["file"]).exists():
+                (session / old["file"]).rename(session / f"{old['file'][:-4]}.{old['svg_sha256'][:8]}.svg")
+            redo.discard(story.key)
+            new = bool(old.get("new"))
+        elif story.key in manifest or not eligible(story):
             continue
-        new = story.key not in baseline
-        if not new:
+        else:
+            new = story.key not in baseline
+        if not new and story.key not in refresh:
             if extra >= recent or current.get(f"illus:{story.key}", ("", "", ""))[1] == V4:
                 continue
         plan = plan_for(story, V4)
@@ -163,7 +175,7 @@ def collect(session: Path, stories: Sequence[Any], *, store: MediaStore, eligibl
             "production_image": current.get(f"illus:{story.key}", ("", "", ""))[0],
         }
         added.append(story.key)
-        if not new:
+        if not new and story.key not in refresh:
             extra += 1
     if index_digest(store) != before:
         raise CandidateError("the image index changed during collection: aborting (no candidate saved)")

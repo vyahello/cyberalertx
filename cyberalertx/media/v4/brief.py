@@ -439,7 +439,8 @@ def extract_facts(title: str, excerpt: str, post: str) -> dict[str, Any]:
     return facts
 
 
-_NAME = re.compile(r"\b([A-Z][A-Za-z0-9$]*(?:[-.][A-Za-z0-9]+)*|[A-Z]{2,}[0-9]*)\b")
+#: A protocol version stays part of the name: "HTTP/2", "HTTP/3".
+_NAME = re.compile(r"\b([A-Z][A-Za-z0-9$]*(?:[-.][A-Za-z0-9]+)*(?:/\d(?:\.\d)?\b)?|[A-Z]{2,}[0-9]*(?:/\d\b)?)")
 _NOT_ENTITY = {"The", "A", "An", "And", "Or", "Of", "In", "On", "To", "For", "With", "By", "As", "At", "From", "How",
                "Why", "What", "New", "Inside", "This", "That", "Over", "Hackers", "Attackers", "Court", "FBI", "AI",
                "Says", "Patches", "Exploit", "Exploits", "Linked", "Found", "Way", "Around", "Close", "Gap",
@@ -667,6 +668,25 @@ def advisory_without_incident(headline: str, status: str) -> bool:
             and not reports_incident(headline))
 
 
+def _sourced(facts: dict[str, Any], from_sources: dict[str, Any], story: Any) -> dict[str, Any]:
+    """A figure only our own published summary states is kept when a source
+    article of the story states it too (title or full text of any member);
+    otherwise it is dropped. Figures from the headline and excerpt stay."""
+    texts = " ".join(f"{getattr(m, 'title', '')} {getattr(m, 'raw_content', '') or ''}"
+                     for m in (getattr(story, "members", None) or [story.anchor]))
+    digits_in_sources = {re.sub(r"[^\d]", "", n) for n in re.findall(r"\d[\d,. ]*\d|\d", texts)}
+    out = dict(facts)
+    for key, value in facts.items():
+        if key.endswith(("_plus", "_approx", "_noun")) or key in from_sources:
+            continue
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if not all(re.sub(r"[^\d]", "", str(v)) in digits_in_sources or str(v).upper() in texts.upper()
+                   for v in values):
+            for k in (key, key + "_plus", key + "_approx", key + "_noun"):
+                out.pop(k, None)
+    return out
+
+
 def build(story: Any) -> EditorialBrief:
     from ...pipeline.evidence import assess
 
@@ -701,7 +721,7 @@ def build(story: Any) -> EditorialBrief:
             # Only the excerpt/post supports a scene: too weak to depict it.
             why = [f"weak support for '{spec0.id}' ({top:.0f}, not in the headline)", *why0]
     lib = library.find(" ".join((title, excerpt, post))) if spec.id == "hpc_hall" else None
-    facts = extract_facts(title, excerpt, post)
+    facts = _sourced(extract_facts(title, excerpt, post), extract_facts(title, excerpt, ""), story)
     # Entities are drawn in the image, so they come from the headline and the
     # source text only: rewording our own post must not change the picture.
     names = extract_entities(title, excerpt)

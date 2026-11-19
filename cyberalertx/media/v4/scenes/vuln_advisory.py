@@ -57,6 +57,8 @@ class _Adv:
     kev: bool
     wallet: bool = False
     extra: dict[str, str] = field(default_factory=dict)
+    #: KEV additions the headline counts ("Adds Six ..."); 0 when it gives none.
+    kev_total: int = 0
 
 
 def _facts(brief: EditorialBrief) -> _Adv:
@@ -117,7 +119,10 @@ def _facts(brief: EditorialBrief) -> _Adv:
     cves = [str(c) for c in brief.facts.get("cves", [])][:4]
     if cves and others and not kev and not _cve_near(t, cves[0], name):
         cves = []                        # several products, CVE not tied to the named one: never attribute it
-    return _Adv(name=name, others=others[:3], cves=cves,
+    words = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+    tm = re.search(r"\badds? (\w+) (?:new )?(?:known exploited|vulnerabilit|flaws)", head)
+    kev_total = (int(tm.group(1)) if tm.group(1).isdigit() else words.get(tm.group(1), 0)) if tm else 0
+    return _Adv(name=name, others=others[:3], cves=cves, kev_total=kev_total if kev else 0,
                 flaws=flaws, flaws_approx=bool(brief.facts.get("flaws_approx")), exploited=exploited,
                 patched=patched, proof=proof, sev=sev, kind=_kind(t, name), kev=kev,
                 wallet=bool(re.search(r"wallet|crypto|seed phrase|гаманц", t)))
@@ -430,6 +435,9 @@ def _catalogue(doc: Doc, a: _Adv, rng: random.Random) -> None:
             doc.text(a.cves[i], x0 + 40, ry + rh / 2 + 19, 54, "#FFFFFF", "mono_bold")
             pill(doc, x1 - 30, ry + rh / 2 - 19, "added", fg="#0A0F1A", bg=p.danger, size=20, font="ui_bold",
                  anchor="end", pad=14)
+        elif i == len(a.cves) and a.kev_total > len(a.cves):
+            # the headline counts more additions than the sources list: say so, never pad
+            doc.text(f"+{a.kev_total - len(a.cves)} more", x0 + 40, ry + rh / 2 + 17, 48, p.muted, "mono_bold")
         else:
             doc.rect(x0 + 40, ry + rh / 2 - 8, 420, 16, p.line, 8, opacity=0.8)
             doc.rect(x0 + 520, ry + rh / 2 - 8, 260 + rng.randrange(200), 16, p.line, 8, opacity=0.6)
@@ -458,8 +466,12 @@ def alt_for(brief: EditorialBrief) -> tuple[str, str]:
     a = _facts(brief)
     status = _status(a, PALETTES["midnight"])[0]
     if a.kev and a.cves:
-        return (f"Illustration: a CISA KEV catalogue entry marked 'EXPLOITED', listing {a.cves[0]}.",
-                f"Ілюстрація: запис каталогу CISA KEV із позначкою «EXPLOITED» і номером {a.cves[0]}.")
+        ids = ", ".join(a.cves)          # every CVE the catalogue rows show
+        more = a.kev_total - len(a.cves) if a.kev_total > len(a.cves) else 0
+        return (f"Illustration: the CISA KEV catalogue marked 'EXPLOITED', listing {ids}"
+                + (f", and a row reading '+{more} more'." if more else "."),
+                f"Ілюстрація: каталог CISA KEV із позначкою «EXPLOITED», у ньому {ids}"
+                + (f" і рядок «+{more} more»." if more else "."))
     what_en = f"a security advisory for {a.name}" if a.name != "Advisory" else "a security advisory"
     what_ua = f"бюлетень безпеки для {a.name}" if a.name != "Advisory" else "бюлетень безпеки"
     sev_en = f" and '{a.sev}'" if a.sev else ""

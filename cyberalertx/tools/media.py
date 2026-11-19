@@ -178,7 +178,8 @@ def cmd_candidates(args: argparse.Namespace) -> int:
             print(json.dumps({"session": str(path), **C.load(path)}, ensure_ascii=False, indent=2)[:1200])
         elif args.action == "collect":
             _, _, _, stories, eligible = _story_set()
-            res = C.collect(Path(args.session), stories, store=store, eligible=eligible, recent=args.recent)
+            res = C.collect(Path(args.session), stories, store=store, eligible=eligible, recent=args.recent,
+                            refresh=args.refresh)
             C.gallery(Path(args.session))
             print(json.dumps(res, ensure_ascii=False, indent=2))
         elif args.action == "gallery":
@@ -229,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--recent", type=int, default=0,
                    help="collect: also this many of the newest existing stories without a V4.1 image")
     c.add_argument("--story", action="append", default=[], help="review/promote: story key (repeatable for promote)")
+    c.add_argument("--refresh", action="append", default=[],
+                   help="collect: redraw this candidate with the deployed code (keeps its cohort; old file kept)")
     c.add_argument("--score", action="append", default=[], help="review: gate=score, e.g. accuracy=5")
     c.add_argument("--verdict", default="", help="review: approved | rejected")
     c.add_argument("--reviewer", default="", help="review: who decided")

@@ -162,3 +162,22 @@ def test_engine_only_touches_the_listed_stories(prod: Any, monkeypatch: pytest.M
     assert res.generated == ["s:old2"] and "s:old1" not in res.reused
     after = C.illustrations(store)
     assert after["illus:s:old1"] == before["illus:s:old1"] and after["illus:s:old2"] != before["illus:s:old2"]
+
+
+def test_refresh_redraws_a_candidate_in_place_and_keeps_its_cohort(prod: Any, tmp_path: Path) -> None:
+    store, old = prod
+    session = _session(tmp_path, store, old)
+    C.collect(session, old, store=store, eligible=lambda s: True, now=NOW, recent=1)
+    key = next(iter(C._read(session / C.MANIFEST, {})))
+    first = C._read(session / C.MANIFEST, {})[key]
+    data = C._read(session / C.MANIFEST, {})
+    data[key]["svg_sha256"] = "f" * 64                               # pretend the reviewed file differed
+    C._write(session / C.MANIFEST, data)
+    before = store.index.read_bytes()
+    res = C.collect(session, old, store=store, eligible=lambda s: True, now=NOW, refresh=[key])
+    m = C._read(session / C.MANIFEST, {})[key]
+    assert res["added"] == [key] and m["new"] is first["new"] and m["svg_sha256"] == first["svg_sha256"]
+    assert (session / f"{first['file'][:-4]}.ffffffff.svg").exists()   # the reviewed file is kept beside it
+    assert store.index.read_bytes() == before
+    with pytest.raises(C.CandidateError, match="not candidates"):
+        C.collect(session, old, store=store, eligible=lambda s: True, now=NOW, refresh=["s:nope"])

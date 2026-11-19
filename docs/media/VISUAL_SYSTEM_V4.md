@@ -299,6 +299,14 @@ picture that asserted more than the sources do. The rules:
   * A third party that warns *of* another product is not the product.
   * "Hackers target X" is exploitation.
 * **Sentences.** A sentence handed down is not "faces up to".
+* **Canary 5 review fixes:**
+  * A protocol version stays in the product name ("NGINX HTTP/2"); it is
+    never listed as a product of its own.
+  * KEV alt text lists every CVE the catalogue draws. When the headline
+    counts more additions than the sources list, the catalogue shows
+    "+N more" instead of padding.
+  * A figure that only our own published summary states is kept only when
+    a source article of the story states it (`brief._sourced`).
 * **Recognition (hybrid policy).** V4 draws a story only when the drawing
   names something of it, or shows a verified library photograph. That
   means an entity, figure, identifier or acting authority. Unlabelled
