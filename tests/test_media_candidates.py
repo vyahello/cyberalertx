@@ -28,8 +28,8 @@ def _weak(key: str) -> Any:
 
 @pytest.fixture()
 def prod(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[MediaStore, list[Any]]:
-    """A production index with V3 images for two existing stories."""
-    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
+    """A production index with V3 images for two existing stories (made before V4.1 became the default)."""
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "svg-3")
     old = [critical_story("s:old1"), critical_story("s:old2", products=("Gadget Hub",))]
     fake_intel(monkeypatch, old)
     store = MediaStore(tmp_path / "media")
@@ -59,12 +59,14 @@ def test_collect_writes_candidates_outside_the_index_and_never_serves_them(prod:
     assert "176 px feed crop" in C.gallery(session).read_text()
 
 
-def test_existing_stories_are_not_candidates_unless_asked_and_v3_routing_is_kept(prod: Any, tmp_path: Path) -> None:
+def test_existing_stories_are_not_candidates_unless_asked_and_weak_ones_get_the_v41_cover(prod: Any,
+                                                                                          tmp_path: Path) -> None:
     store, old = prod
     session = _session(tmp_path, store, old)
     weak = _weak("s:weak")
     res = C.collect(session, old + [weak], store=store, eligible=lambda s: True, now=NOW)
-    assert res["added"] == [] and res["routed_to_v3"] == ["s:weak"]   # hybrid policy: no V4 for a weak story
+    assert res["added"] == ["s:weak"] and res["routed_to_v3"] == []    # V4.1 draws every story; no V3 route
+    assert C._read(session / C.MANIFEST, {})["s:weak"]["scene"] == "dossier"
     res2 = C.collect(session, old, store=store, eligible=lambda s: True, now=NOW, recent=1)
     assert len(res2["added"]) == 1 and res2["added"][0] in {"s:old1", "s:old2"}
 
@@ -115,7 +117,7 @@ def test_promote_publishes_only_approved_candidates_and_keeps_old_urls(prod: Any
     assert a is not None and a.generation_model == "cax-editorial-4" and a.storage_key.startswith(m["svg_sha256"])
     assert v3_new1 in a.previous_storage_keys and store.open_file(v3_new1[:16]) is not None   # old URL works
     assert out["promoted"][0]["story"] == "s:new1"
-    assert os.environ.get("CYBERALERTX_ILLUSTRATION_RENDERER") is None        # production setting restored
+    assert os.environ.get("CYBERALERTX_ILLUSTRATION_RENDERER") == "svg-3"     # production setting restored
 
 
 def test_promote_refuses_a_candidate_the_deployed_code_no_longer_draws(prod: Any, tmp_path: Path,

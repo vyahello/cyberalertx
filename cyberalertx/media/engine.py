@@ -55,6 +55,8 @@ class MediaRunResult:
     reused: list[str] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
     failed: list[dict[str, Any]] = field(default_factory=list)
+    #: Stale claims removed: an article listed by a dissolved story's image.
+    released: list[dict[str, str]] = field(default_factory=list)
     calls: int = 0
     cost_usd: float = 0.0
     provider: str = "none"
@@ -210,9 +212,11 @@ def run(
             card = card_asset(payload, loc, story.key)
             if card is not None:
                 cards.append(card)
-    if not dry_run:
+    if not dry_run and only is None:
+        # A scoped run (`only`: the quarantine's promote, an edition backfill)
+        # changes nothing outside its stories, card records included.
         store.put_many(cards)
-    res.cards = len(cards)
+    res.cards = len(cards) if only is None else 0
 
     budget = budget or Budget.from_env()
     day_spent, month_spent, avg_cost = spent(store, now)
@@ -258,8 +262,12 @@ def run(
                 store.put(existing)
             res.reused.append(story.key)
             continue
-        same_inputs_failed = (existing is not None and existing.status == "failed"
-                              and existing.content_hash == inputs_hash)
+        # A validated image whose regeneration failed is kept (see below); its
+        # failed attempts still count towards the retry limit.
+        prior = existing if existing is not None and existing.status in ("validated", "published") else None
+        same_inputs_failed = existing is not None and (
+            (existing.status == "failed" and existing.content_hash == inputs_hash)
+            or (prior is not None and existing.failed_hash == inputs_hash))
         attempts = existing.attempts if same_inputs_failed and existing else 0
         if attempts >= max_attempts:
             res.skipped.append({"story_key": story.key, "reason": f"retry limit reached ({attempts})"})
@@ -309,9 +317,21 @@ def run(
                 raise MediaValidationError("; ".join(errors) or "no image")
             sha, mime, iw, ih = store.save_bytes(img.data, declared_mime=img.mime)
         except (MediaValidationError, OSError) as exc:
-            asset.status, asset.last_error = "failed", f"{type(exc).__name__}: {exc}"[:500]
-            store.put(asset)
-            res.failed.append({"story_key": story.key, "error": asset.last_error, "attempt": asset.attempts})
+            error = f"{type(exc).__name__}: {exc}"[:500]
+            if prior is not None:
+                # Fail safely: never fall back to another renderer, never leave the
+                # story without its current validated image. The failure is
+                # recorded on the kept image and reported with its articles.
+                kept = MediaAsset.from_dict(prior.to_dict())
+                kept.failed_hash, kept.attempts = inputs_hash, asset.attempts
+                kept.last_error = f"{plan.renderer} regeneration failed; the previous image is kept: {error}"[:500]
+                store.put(kept)
+            else:
+                asset.status, asset.last_error = "failed", error
+                store.put(asset)
+            res.failed.append({"story_key": story.key, "error": error, "attempt": asset.attempts,
+                               "renderer": plan.renderer, "articles": members,
+                               "kept_previous_image": prior is not None})
             _record_usage(store, {"at": now.isoformat(), "story_key": story.key, "provider": res.provider,
                                   "ok": False, "error": asset.last_error})
             continue
@@ -336,12 +356,44 @@ def run(
         _record_usage(store, {"at": now.isoformat(), "story_key": story.key, "method": img.method,
                               "model": img.model, "ok": True, "cost_usd": img.cost_usd,
                               **({"fallback_from": errors} if errors else {})})
+    if not dry_run:
+        # With `only`, the release is limited to the selected stories' articles too.
+        scope = None if only is None else {m.fingerprint for st in intel.stories if st.key in only
+                                            for m in st.members}
+        res.released = _release_stale_members(store, intel.stories, scope)
     return res
+
+
+def _release_stale_members(store: MediaStore, stories: Sequence[Any],
+                           scope: set[str] | None = None) -> list[dict[str, str]]:
+    """An illustration of a story that no longer exists (articles re-clustered
+    into another story) stops listing an article once that article's current
+    story has a validated illustration of its own. Files and URLs are kept;
+    only the stale claim on the article goes, so the article's own story's
+    image is the one the site and Telegram/Threads show."""
+    live = {st.key for st in stories}
+    owner = {m.fingerprint: st.key for st in stories for m in st.members}
+    covered: set[str] = set()
+    for a in store.all():
+        if (a.asset_type == "editorial_illustration" and a.status in ("validated", "published")
+                and a.story_key in live):
+            covered.update(fp for fp in a.members if owner.get(fp) == a.story_key)
+    released: list[dict[str, str]] = []
+    for a in store.all():
+        if a.asset_type != "editorial_illustration" or a.story_key in live:
+            continue
+        drop = [fp for fp in a.members if fp in covered and (scope is None or fp in scope)]
+        if drop:
+            a.members = [fp for fp in a.members if fp not in covered]
+            store.put(a)
+            released += [{"asset": a.asset_id, "article": fp, "now": owner[fp]} for fp in drop]
+    return released
 
 
 def illustration_payload(store: MediaStore, fingerprint: str) -> dict[str, Any] | None:
     """The `media.illustration` block the public API adds to a post — only for
-    a validated illustration of the story this article belongs to."""
+    a validated illustration of the story this article belongs to. The website
+    (hero, cards, article) and Telegram/Threads all read this one block."""
     a = store.illustration_for_member(fingerprint)
     if a is None:
         return None

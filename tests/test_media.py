@@ -559,6 +559,7 @@ def test_local_worker_failure_falls_back_to_svg_in_the_same_run(monkeypatch: pyt
 
 
 def test_reuse_until_the_brief_changes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "svg-3")      # the V3 brief's reuse rules
     _run(monkeypatch, tmp_path, None)
     res, _ = _run(monkeypatch, tmp_path, None)
     assert res.reused == ["s:crit"] and not res.generated               # idempotent: nothing regenerated

@@ -64,7 +64,8 @@ def _s(id: str, pats: list[tuple[str, float]], palette: str, subject: str, actio
 
 # Order matters only for ties: more specific scenes first.
 CATALOGUE: tuple[SceneSpec, ...] = (
-    _s("weekly_recap", [(r"weekly recap|week in review|тижнев\w* (огляд|дайджест)|дайджест", 9)], "midnight",
+    _s("weekly_recap", [(r"weekly recap|week in review|тижнев\w* (огляд|дайджест)|дайджест|ThreatsDay|"
+                         r"\+\s*\d+ more stories", 9)], "midnight",
        "several unrelated products, each with its own new flaw", "a roundup of the week's vulnerabilities",
        "a board of product tiles", "one marker per product named in the roundup",
        "Illustration: a lightning bolt splitting four product tiles, each flagged with a new vulnerability.",
@@ -112,7 +113,9 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "Illustration: a software fix projected into the teeth of a key: automated agents turning a patch "
        "into an exploit.",
        "Ілюстрація: виправлення коду проєктується на зубці ключа: автоматизовані агенти перетворюють патч на"
-       " експлойт.", requires=r"\bAI\b|ШІ|штучн|agent"),
+       " експлойт.",
+       # The picture asserts a patch turned into an exploit: the sources must say both.
+       requires=r"(?=[\s\S]*(?:\bAI\b|ШІ|штучн|agent))(?=[\s\S]*(?:patch|патч|виправлен|\bfix))"),
     _s("disclosure_deadline", [(r"disclosure (deadline|policy|window)|Project Zero|розкритт", 7)], "paper",
        "a vulnerability disclosure timeline", "the time vendors get to ship a fix is being shortened",
        "a bug-tracker timeline", "report -> fix deadline -> public disclosure",
@@ -307,6 +310,18 @@ CATALOGUE: tuple[SceneSpec, ...] = (
        "Illustration: abstract source code under a scan line, with a magnifying lens over one flagged line.",
        "Ілюстрація: абстрактний вихідний код під лінією сканування, лупа над однією позначеною рядком.",
        requires=r"\bAI\b|ШІ|LLM|machine learning"),
+    _s("malware_campaign", [(r"\bRAT\b|remote access trojan|info-?stealer|\bstealers?\b|\bloaders?\b|"
+                             r"backdoors?|trojan|malware|шкідлив\w* ПЗ|троян|стилер|бекдор", 5),
+                            (r"campaign|кампані|variant|варіант", 2),
+                            (r"ClickFix|phishing|lures?|fake|impersonat|фішинг|підробн", 2)], "forest",
+       "a malware family named by the sources", "the malware is delivered to and runs on a victim's computer",
+       "a delivery channel and a victim's laptop", "delivery as stated by the sources (else none drawn)",
+       "Illustration: a malicious payload travelling to a laptop.",
+       "Ілюстрація: шкідливе навантаження на шляху до ноутбука.",
+       head_requires=r"\bRAT\b|trojan|stealer|loader|backdoor|malware|шкідлив|троян|стилер|бекдор",
+       excludes=r"ransomware|\bUSB\b|worm|cryptomin|\bminer|PyPI|\bnpm\b|extension|розширен|"
+                r"cloud service|хмарн\w* сервіс|Google Drive|OneDrive|Dropbox|"
+                r"ThreatsDay|weekly recap|week in review|roundup|\+\s*\d+ more stories|дайджест"),
     _s("vuln_advisory", [(r"vulnerabilit|flaws?|вразлив|CVE-\d{4}-\d+|zero-day|0-day|patch|exploits?\b|"
                           r"cumulative updates?|security updates?|\bKB\d{7}\b", 4),
                          (r"reverse shells?", 2)], "midnight",
@@ -647,6 +662,7 @@ INCIDENT_SCENES = frozenset({
     "kernel_dos", "edge_wiper", "ransomware_impact", "gpu_cryptominer", "crypto_theft", "payment_skimmer",
     "compromised_sites", "session_theft", "usb_worm", "cloud_breach", "breach_notice", "espionage_backdoor",
     "dev_supply_chain", "code_signing", "third_party_script", "deepfake_call", "credential_phish",
+    "malware_campaign",
 })
 #: Incident scenes that show a specific victim's damage. They need a reported
 #: incident even when the headline is not an advisory.
@@ -684,6 +700,32 @@ _CLAIMED = re.compile(r"\bclaim(?:s|ed|ing)?\b|\balleg\w*|leak site|says it (?:h
                       r"intrusion|claims?|reports?)|"
                       r"нібито|заяв\w*|розслідує|стверджу\w*", re.I)
 _CONFIRMS = re.compile(r"\bconfirm(?:s|ed)\b|підтверди\w*", re.I)
+
+
+#: Analysis, guidance, research or opinion: the headline explains or advises;
+#: it does not report an attack. Such a story never gets a scene that shows one.
+_ANALYSIS = re.compile(
+    r"\bwhy\b|\bhow (?:to|attackers|hackers|threat actors|it works|they)\b|\bchecklist\b|questions to ask|"
+    r"warning signs|\btips\b|what (?:you |to )?(?:need to )?know|\bexplain|\bguide\b|"
+    r"researchers (?:show|demonstrate)|\bshows? how\b|\bshowed how\b|\bwho runs\b|isn.t the main|"
+    r"could be your|\bwebinar\b|\bopinion\b|"
+    r"чому|\bяк (?:захист|працю|виглядал|хакери|це працювал|непомітно)|що потрібно знати|показал\w* як|поради",
+    re.I)
+
+
+#: A closing question that explains a reported incident ("... How did it work?")
+#: does not turn the incident into analysis.
+_EXPLAINER_TAIL = re.compile(r"[.!?]\s*(?:як це працювал\w*|how (?:did )?it work\w*|що відомо|what we know)\??\s*$",
+                             re.I)
+
+
+def analysis_piece(headline: str) -> bool:
+    return _ANALYSIS.search(_EXPLAINER_TAIL.sub("", headline)) is not None
+
+
+def ics_advisory(item: Any) -> bool:
+    """A CISA ICS advisory: its headline is the affected product's name."""
+    return "/ics-advisories/" in str(getattr(item, "url", "") or "")
 
 
 def claimed_only(headline: str) -> bool:
@@ -725,7 +767,12 @@ def build(story: Any) -> EditorialBrief:
     ev = assess(anchor)
     category = str(anchor.category or "other").lower()
     status = ("compromise" if ev.compromise == "confirmed" else ev.exploitation or "not_reported")
-    if claimed_only(title) and not _CONFIRMS.search(f"{title} {excerpt}"):
+    if ics_advisory(anchor):
+        # The headline is the product: an industrial-controller scene when the
+        # sources support one, else the advisory scene, with that name.
+        if not (ranked and ranked[0][1].id in ("ics_controller", "refrigeration_controller")):
+            ranked = [(20.0, SPECS["vuln_advisory"], ["title: CISA ICS advisory for the named product"])]
+    elif claimed_only(title) and not _CONFIRMS.search(f"{title} {excerpt}"):
         # O59: a claim is not an incident (whatever the evidence heuristics read into
         # "the group says it stole 2 TB"); only a confirmation in the sources lifts it. Only the breach scene's sealed "ALLEGED"
         # envelope may draw it; no locked systems, leaking records or wiped hosts.
@@ -748,6 +795,9 @@ def build(story: Any) -> EditorialBrief:
         # piece or a profile of a ransomware group.
         ranked = [r for r in ranked if r[1].id not in IMPACT_SCENES]
 
+    if analysis_piece(title):
+        # Analysis, guidance or research: nothing that shows an attack happening.
+        ranked = [r for r in ranked if r[1].id not in INCIDENT_SCENES and r[1].id != "patch_to_exploit"]
     spec, why, conf = FALLBACK, ["no catalogue scene is supported by the sources"], "low"
     if ranked:
         top, spec0, why0 = ranked[0]
@@ -780,6 +830,8 @@ def build(story: Any) -> EditorialBrief:
     for e in extract_entities(post_title, excerpt):
         if e not in names and re.search(r"(?<!\w)" + re.escape(e) + r"(?!\w)", excerpt):
             names.append(e)
+    if ics_advisory(anchor) and title.strip():
+        names = [title.strip()]                   # the advisory's subject is exactly the product it names
     entities = tuple(names[:6])
     reason = (f"'{spec.id}' scored highest ({ranked[0][0]:.0f}) on " + ", ".join(why[:4])
               if spec is not FALLBACK and ranked else "fallback: " + "; ".join(why[:3]))

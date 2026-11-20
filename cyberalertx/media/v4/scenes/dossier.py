@@ -59,13 +59,17 @@ _TOPICS: tuple[tuple[str, str], ...] = (
     (r"оприлюдн|leak|злив", "LEAK"), (r"застосун|\bapp\b", "APP"), (r"\bші\b|штучн\w* інтел|\bai\b", "AI"),
     (r"сайт|website", "WEBSITE"), (r"кібератак|cyberattack", "CYBERATTACK"),
     (r"кібербезпек|cybersecurity", "CYBERSECURITY"), (r"шахрай|fraud|scam", "FRAUD"),
+    (r"deepfake|діпфейк|дипфейк", "DEEPFAKES"), (r"helpdesk|служб\w* підтримки", "HELPDESK"),
+    (r"pentest|пентест", "PENTESTING"), (r"\bmaps?\b|мап[аиу]", "MAP"), (r"conference|конференц", "CONFERENCE"), (r"ransomware|вимагач", "RANSOMWARE"),
+    (r"espionage|шпигун", "ESPIONAGE"), (r"phishing|фішинг", "PHISHING"),
     (r"хакер|hacker|злам", "HACKERS"),
 )
 
 
 def _subject(brief: EditorialBrief) -> tuple[str, list[str]]:
     """(lead identifier, secondary identifiers), all from the story itself."""
-    names = [g for g in product_groups(brief) if g not in _NOT_SUBJECT and g.split()[0] not in _NOT_SUBJECT]
+    names = [g for g in product_groups(brief) if g not in _NOT_SUBJECT and g.split()[0] not in _NOT_SUBJECT
+             and not re.fullmatch(r"[A-Z][a-z]", g)]            # "St" from "St. Petersburg" is not a name
     if names:
         return names[0], names[1:3]
     ids = ascii_ids(brief.text, 2)
@@ -161,6 +165,10 @@ def _poster(doc: Doc, look: _Look, lead: str, rest: list[str], status: str, fig:
     kx = _kicker(doc, 110, 200, look, "#F3F1EC")
     size = fit_size(lead, 330, 1340)
     base = 600 if not rest and not fig[0] else 560
+    if status:
+        # The status tag sits above the lead: keep the lead's caps clear of it.
+        while size > 120 and base - T.cap_height(size, "display") < 345:
+            size -= 10
     doc.text(lead, 100, base, size, "#FFFFFF", "display")
     keep = [_tb(lead, 100, base, size, "display"), Box(110, 170, kx - 110, 34)]
     y = base + 90
@@ -244,13 +252,36 @@ def _split(doc: Doc, look: _Look, lead: str, rest: list[str], status: str, fig: 
     _focus_on(doc, keep)
 
 
+def status_label(brief: EditorialBrief) -> str:
+    """The tag the cover sets: what the headline is (a claim, an investigation,
+    analysis) before what the evidence assessment found."""
+    from ..brief import analysis_piece, claimed_only
+    head = brief.headline or ""
+    if claimed_only(head) and not re.search(r"\bconfirm(?:s|ed)\b|підтверди", head, re.I):
+        return "UNDER INVESTIGATION" if re.search(r"investigat|розслід", head, re.I) else "UNVERIFIED CLAIM"
+    if analysis_piece(head):
+        return "ANALYSIS"
+    label = _STATUS.get(brief.status, "")
+    # A cover asserts an attack or a compromise only when the headline reports
+    # one: an evidence hint read from the article body ("compromise") on an
+    # opinion piece or an unrelated story must never become a status tag.
+    from ..brief import reports_incident
+    if label and not (reports_incident(head) or re.search(r"exploit|експлуат|under attack|in the wild|breach|"
+                                                          r"hack(?:ed|s)|злам", head, re.I)):
+        return ""
+    return label
+
+
 @scene("dossier")
 def dossier(doc: Doc, brief: EditorialBrief, rng: random.Random) -> None:
     look = _LOOKS.get(brief.category, _LOOKS["other"])
     lead, rest = _subject(brief)
     if not lead:
-        lead = look.word.capitalize()
-    status = _STATUS.get(brief.status, "")
+        lead = "Briefing" if look.word in ("REPORT", "ANALYSIS") else look.word.capitalize()
+    status = status_label(brief)
+    if status == "ANALYSIS":
+        # Analysis, guidance or opinion: the kicker says so, never an incident category.
+        look, status = _Look("ANALYSIS", "file", look.field0, look.field1, look.accent), ""
     fig = _figure(brief)
     layout = rng.choice((_poster, _band, _split))
     layout(doc, look, lead, rest, status, fig, rng)

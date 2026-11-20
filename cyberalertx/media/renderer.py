@@ -2,13 +2,14 @@
 
 Two renderers ship side by side:
 
-  * `cax-svg-3`      — the V3 isometric renderer (media/svg_art.py). Default.
-  * `cax-editorial-4` — the V4 editorial system (media/v4/): structured visual
-    brief, scene library, verified photo library.
+  * `cax-editorial-4` — the V4.1 editorial system (media/v4/): structured visual
+    brief, scene library, verified photo library. Default.
+  * `cax-svg-3`      — the V3 isometric renderer (media/svg_art.py). Rollback
+    only: `CYBERALERTX_ILLUSTRATION_RENDERER=svg-3`.
 
-`CYBERALERTX_ILLUSTRATION_RENDERER=editorial-4` selects V4 as a hybrid
-policy: stories whose V4 brief found an evidence-backed scene are drawn by
-V4, low-confidence ones (the generic `dossier` fallback) by V3 (`plan_for`).
+Under V4.1 every story is drawn by V4.1: a catalogue scene when the sources
+support one, otherwise the V4.1 editorial cover (`dossier`), which sets only
+the story's own identifiers and status. There is no V3 fallback (`plan_for`).
 Changing the setting never
 replaces an existing image by itself: the engine keeps any validated image an
 older/other renderer made until `tools.media backfill --batch` is run
@@ -35,8 +36,10 @@ _ALIASES = {"editorial-4": V4, "cax-editorial-4": V4, "v4": V4, "svg-3": V3, "ca
 
 
 def active() -> str:
+    """V4.1 unless V3 is explicitly selected (the documented rollback):
+    CYBERALERTX_ILLUSTRATION_RENDERER=svg-3."""
     raw = (os.getenv("CYBERALERTX_ILLUSTRATION_RENDERER") or "").strip().lower()
-    return _ALIASES.get(raw, V3)
+    return _ALIASES.get(raw, V4)
 
 
 @dataclass
@@ -47,7 +50,7 @@ class Plan:
     inputs_hash: str
     #: Tier A provenance (empty for original illustrations).
     source: str = "generated:svg"
-    #: Why a V4 request was served by V3 ("" when it was not), see `plan_for`.
+    #: How V4.1 drew a story without a story-specific scene ("" when it had one).
     routed: str = ""
     license: str = "CyberAlertX (generated on our server)"
     credit: dict[str, str] = field(default_factory=dict)
@@ -66,11 +69,12 @@ def plan_for(story: Any, renderer: str | None = None) -> Plan:
         from .v4 import brief as v4
         from .v4 import library
         b = v4.build(story)
-        if not v4_applies(b):
-            plan = _v3_plan(story)
-            plan.routed = f"low-confidence V4 brief ({b.scene}): served by {V3}"
-            return plan
+        # Every story is drawn by V4.1: an evidence-backed scene, or the V4.1
+        # editorial cover (`dossier`) built only from the story's identifiers.
+        # V3 is never a silent fallback; it draws only when selected explicitly.
         plan = Plan(V4, b, v4.alt_text(b), v4.inputs_hash(b))
+        if not v4_applies(b):
+            plan.routed = f"V4.1 {'cover' if b.scene == v4.FALLBACK.id else 'generic scene'} ({b.scene})"
         lib = library.get(b.library_id) if b.library_id else None
         if lib is not None:
             plan.source = f"library:{lib.id}+generated:svg"

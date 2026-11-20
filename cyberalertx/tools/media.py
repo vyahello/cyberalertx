@@ -18,6 +18,7 @@ import argparse
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from ..config import DATA_DIR
@@ -45,20 +46,40 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_backfill(args: argparse.Namespace) -> int:
-    """Historical illustrations: plan (default) or generate in budgeted batches."""
+    """Historical illustrations: plan (default) or generate in budgeted batches.
+
+    `--only-file` limits the batch to the story keys listed in the file (one per
+    line, `#` comments ignored), e.g. the visible edition from
+    `ops/media/edition_stories.py`, the one resolver of edition membership.
+    `--store` runs against another media store (a review copy)."""
+    from ..media.assets import MediaStore
     from ..media.engine import backfill_plan, run
 
     items = JsonNewsStore(DATA_DIR / "items.json").all()
     sheets, posts = _stores()
-    plan = backfill_plan(items, sheets=sheets, posts=posts)
-    print(json.dumps({"plan": plan}, ensure_ascii=False, indent=2))
+    store = MediaStore(Path(args.store)) if args.store else MediaStore()
+    only = None
+    if args.only_file:
+        keys = [ln.strip() for ln in Path(args.only_file).read_text(encoding="utf-8").splitlines()]
+        only = frozenset(k for k in keys if k and not k.startswith("#"))
+        if not only:
+            print("no story keys in --only-file", file=sys.stderr)
+            return 2
+    plan = backfill_plan(items, store=store, sheets=sheets, posts=posts)
+    print(json.dumps({"plan": plan, "store": str(store.root),
+                      "only": len(only) if only is not None else "all"}, ensure_ascii=False, indent=2))
     if args.dry_run or not args.batch:
         return 0
-    # The explicit step that replaces images made by an older renderer.
-    res = run(items, sheets=sheets, posts=posts, max_calls=args.batch, now=datetime.now(timezone.utc),
-              upgrade_renderer=True)
+    # The explicit step that replaces images made by an older renderer. Every
+    # story outside `only` is left exactly as it is; replaced files keep their URLs.
+    res = run(items, store=store, sheets=sheets, posts=posts, max_calls=args.batch,
+              now=datetime.now(timezone.utc), upgrade_renderer=True, only=only)
     print(json.dumps({"batch": res.summary()}, ensure_ascii=False, indent=2))
-    return 1 if res.failed and not res.generated else 0
+    for f in res.failed:
+        print(f"FAILED {f['story_key']} ({f.get('renderer', '')}): articles {', '.join(f.get('articles', []))}; "
+              f"{'previous image kept' if f.get('kept_previous_image') else 'no image'}; {f['error']}",
+              file=sys.stderr)
+    return 1 if res.failed else 0
 
 
 def cmd_brief(args: argparse.Namespace) -> int:
@@ -213,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("backfill", help="illustrations for existing public stories: plan, or --batch N to generate")
     b.add_argument("--dry-run", action="store_true", help="plan only (counts, cost); the default without --batch")
     b.add_argument("--batch", type=int, default=0, help="generate at most N images now (newest first, within budget)")
+    b.add_argument("--only-file", default="",
+                   help="only these story keys (one per line), e.g. from ops/media/edition_stories.py")
+    b.add_argument("--store", default="", help="media store directory (default: production); e.g. a review copy")
     b.set_defaults(fn=cmd_backfill)
     sub.add_parser("status", help="asset counts and failures").set_defaults(fn=cmd_status)
     g = sub.add_parser("regenerate", help="redo a story's illustration on the next run")

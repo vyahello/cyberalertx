@@ -31,6 +31,9 @@ _NOISE = {
     "Patched", "Fixed", "Update", "Updates", "Released", "Cumulative", "Multi-Stage", "Benchmark",
 }
 # Names that report on a product rather than being it.
+#: An actor's attribution, never a product: "China-Linked", "Russia-backed", "Iran-nexus".
+_ACTOR_ADJ = re.compile(r"^[A-Z][a-z]+-(?:linked|backed|nexus|aligned|sponsored|affiliated)$", re.I)
+
 _REPORTERS = {"CISA", "FBI", "Google", "Claude", "Opus", "Anthropic", "Kaspersky", "Microsoft-owned", "NIST"}
 
 
@@ -39,7 +42,7 @@ def product_groups(brief: EditorialBrief) -> list[str]:
     adjacent capitalised words joined ("Red Hat Quay")."""
     # a CVE identifier is not a product name (the advisory draws it on its own line)
     ents = [e for e in brief.entities if e not in _NOISE and T.supported(e, "display") == e
-            and not re.match(r"CVE-\d", e, re.I)]
+            and not re.match(r"CVE-\d", e, re.I) and not _ACTOR_ADJ.match(e)]
     text = brief.text
     groups: list[list[str]] = []
     for e in ents:

@@ -2,11 +2,11 @@
 
     venv/bin/python ops/media/alt_audit.py [--json OUT.json] [--svg DIR]
 
-For every story currently eligible for an illustration, builds the V4
-(`cax-editorial-4`) brief from the live stores. Stories the hybrid policy
-serves with V3 (`renderer.v4_applies` false: the low-confidence `dossier`
-fallback) are counted and skipped; the rest are rendered in memory and
-checked:
+For every story currently eligible for an illustration, builds the V4.1
+(`cax-editorial-4`) brief from the live stores and renders it in memory: a
+catalogue scene, or the V4.1 editorial cover (`dossier`) when no scene is
+supported. Every story is checked; covers and generic scenes are counted
+separately (V4.1 draws all of them, there is no V3 fallback):
 
 * **alt**: `v4.consistency.check_brief` problems (a number, quoted label or
   name in the alt text that the image does not draw; a figure claimed but
@@ -61,8 +61,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         b = build(st)
         if not v4_applies(b):
-            routed.append(st.key)          # hybrid policy: V3 draws it, nothing of V4 is shown
-            continue
+            routed.append(st.key)          # drawn by V4.1 without a story-specific scene (cover / generic)
         doc = render_doc(b)
         problems = check_brief(b, doc.labels)
         review = [x for x in doc.labels if x.lower() in bare]
@@ -76,8 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(rows, ensure_ascii=False, indent=1, default=list), encoding="utf-8")
     bad = {k: r for k, r in rows.items() if r["problems"]}
-    print(f"{len(rows) + len(routed)} eligible stories: {len(rows)} drawn by V4 audited, {len(bad)} with problems; "
-          f"{len(routed)} low-confidence routed to V3")
+    print(f"{len(rows)} eligible stories audited (all drawn by V4.1), {len(bad)} with problems; "
+          f"{len(rows) - len(routed)} story-specific scenes, {len(routed)} covers or generic scenes")
     print("by scene:", dict(Counter(str(r["scene"]) for r in rows.values()).most_common()))
     for k, r in bad.items():
         for p in r["problems"]:

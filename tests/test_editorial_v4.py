@@ -223,14 +223,17 @@ def test_sanitizer_accepts_only_inline_rasters() -> None:
             sanitize_svg(f'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900">{bad}</svg>'.encode())
 
 
-# ------------------------------------------------------------------ the renderer switch (V3 stays default)
+# ------------------------------------------------------------------ the renderer switch (V4.1 is the default)
 
-def test_v3_is_the_default_and_v4_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_v41_is_the_default_and_v3_is_only_an_explicit_rollback(monkeypatch: pytest.MonkeyPatch) -> None:
     from cyberalertx.media import renderer
     monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
-    assert renderer.active() == "cax-svg-3"
-    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "editorial-4")
     assert renderer.active() == "cax-editorial-4"
+    for junk in ("", "bogus", "v5"):
+        monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", junk)
+        assert renderer.active() == "cax-editorial-4"
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "svg-3")
+    assert renderer.active() == "cax-svg-3"
 
 
 def test_switching_renderers_never_replaces_images_by_itself(monkeypatch: pytest.MonkeyPatch,
@@ -241,12 +244,12 @@ def test_switching_renderers_never_replaces_images_by_itself(monkeypatch: pytest
     fake_intel(monkeypatch, stories)
     store = MediaStore(tmp_path / "media")
     anchors = [s.anchor for s in stories]
-    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "svg-3")
     assert len(engine.run(anchors, store=store, now=NOW).generated) == 2
     v3 = {a.asset_id: a.storage_key for a in store.all() if a.asset_type == "editorial_illustration"}
 
-    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "editorial-4")
-    assert engine.run(anchors, store=store, now=NOW).generated == []          # the hourly pass keeps V3
+    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)    # the release default: V4.1
+    assert engine.run(anchors, store=store, now=NOW).generated == []          # deploying never replaces images
     plan = engine.backfill_plan(anchors, store=store)
     assert plan["to_generate"] == 2 and plan["renderer"] == "cax-editorial-4"
     assert len(engine.run(anchors, store=store, now=NOW, upgrade_renderer=True).generated) == 2
@@ -662,13 +665,14 @@ def test_confident_scenes_are_drawn_by_v4(monkeypatch: pytest.MonkeyPatch, title
     ("Hospital chain says a fire alarm fault disrupted services",
      "Attackers used ransomware to encrypt files at another firm, researchers said."),
 ])
-def test_low_confidence_stories_stay_on_v3(monkeypatch: pytest.MonkeyPatch, title: str, body: str) -> None:
-    from cyberalertx.media import renderer
+def test_low_confidence_stories_get_the_v41_cover_never_v3_or_a_scene(monkeypatch: pytest.MonkeyPatch, title: str,
+                                                                        body: str) -> None:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
     plan = _plan(monkeypatch, title, body)
-    assert plan.renderer == "cax-svg-3" and "low-confidence" in plan.routed
-    v3 = renderer.plan_for(story(title, body), renderer.V3)
-    # exactly the V3 plan: same alt text and inputs hash, so a V3 image is reused, never redrawn
-    assert (plan.alt, plan.inputs_hash) == (v3.alt, v3.inputs_hash)
+    assert plan.renderer == "cax-editorial-4" and plan.brief.scene == "dossier" and "cover" in plan.routed
+    labels = render_doc(plan.brief).labels
+    assert check_brief(plan.brief, labels) == [] and not {"RANSOMWARE", "EXPLOITED"} & set(labels)
     assert "AI" not in B.build(story(title, body)).entities
 
 
@@ -682,8 +686,8 @@ def test_headline_decides_over_the_body_in_routing(monkeypatch: pytest.MonkeyPat
     assert plan2.brief.scene != "police_takedown"
 
 
-def test_canary_draws_confident_stories_with_v4_and_keeps_weak_ones_on_v3(monkeypatch: pytest.MonkeyPatch,
-                                                                          tmp_path: Path) -> None:
+def test_existing_images_stay_until_regenerated_and_new_weak_stories_get_the_v41_cover(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from cyberalertx.media import engine
     from tests.test_media import NOW, critical_story, fake_intel
     strong = critical_story("s:strong")
@@ -691,25 +695,25 @@ def test_canary_draws_confident_stories_with_v4_and_keeps_weak_ones_on_v3(monkey
     weak.anchor.title, weak.anchor.raw_content = "What security teams should plan for next year", ""
     store = MediaStore(tmp_path / "media")
     anchors = [strong.anchor, weak.anchor]
-    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
+    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "svg-3")
     fake_intel(monkeypatch, [weak])
     engine.run([weak.anchor], store=store, now=NOW)                        # the weak story already has V3
     fake_intel(monkeypatch, [strong, weak])
     before = store.get("illus:s:weak")
     assert before is not None and before.generation_model == "cax-svg-3"
 
-    monkeypatch.setenv("CYBERALERTX_ILLUSTRATION_RENDERER", "editorial-4")
+    monkeypatch.delenv("CYBERALERTX_ILLUSTRATION_RENDERER", raising=False)
     res = engine.run(anchors, store=store, now=NOW)
     assert res.generated == ["s:strong"]                                   # the weak V3 image is reused
     assert store.get("illus:s:strong").generation_model == "cax-editorial-4"  # type: ignore[union-attr]
     after = store.get("illus:s:weak")
     assert after is not None and (after.storage_key, after.generation_model) == (before.storage_key, "cax-svg-3")
-    # a brand-new weak story under the canary is drawn by V3
+    # a brand-new weak story is drawn by V4.1 (its editorial cover), never by V3
     new = critical_story("s:new-weak")
     new.anchor.title, new.anchor.raw_content = "Why AI matters for security leaders", ""
     fake_intel(monkeypatch, [strong, weak, new])
     assert engine.run(anchors + [new.anchor], store=store, now=NOW).generated == ["s:new-weak"]
-    assert store.get("illus:s:new-weak").generation_model == "cax-svg-3"   # type: ignore[union-attr]
+    assert store.get("illus:s:new-weak").generation_model == "cax-editorial-4"  # type: ignore[union-attr]
 
 
 # ------------------------------------------------------------------ O55: advisories are never drawn as incidents
@@ -942,11 +946,14 @@ def test_disclosed_flaws_are_not_drawn_as_patched() -> None:
     assert "30+ flaws disclosed" in labels and not any("patched" in x for x in labels)
 
 
-def test_a_picture_that_names_nothing_of_the_story_stays_on_v3(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_mechanism_the_sources_do_not_state_is_never_drawn(monkeypatch: pytest.MonkeyPatch) -> None:
     from cyberalertx.media import renderer
     plan = _plan(monkeypatch, "Російські хакери здійснили першу повністю автоматизовану ШІ-атаку",
                  "Штучний інтелект провів кібератаку без участі людини.")
-    assert plan.renderer == "cax-svg-3"                                   # unlabelled gears: not recognisable
+    # no patch in the sources: never the patch-to-exploit picture; the V4.1 cover instead
+    assert plan.renderer == "cax-editorial-4" and plan.brief.scene == "dossier"
+    google = _plan(monkeypatch, "Google Finds Hackers Using AI Agents to Build and Run Exploits From Software Patches")
+    assert google.brief.scene == "patch_to_exploit"
     fugaku = renderer.plan_for(story("Japan takes Fugaku supercomputer offline after cyberattack",
                                      "RIKEN took Fugaku offline after a security breach."))
     assert fugaku.renderer == "cax-editorial-4"                           # a verified photo of the subject
@@ -1038,9 +1045,12 @@ PYPI = ("Microsoft’s Agent Framework PyPI package compromised to steal credent
 ])
 def test_a_package_registry_compromise_is_never_drawn_as_an_extension(monkeypatch: pytest.MonkeyPatch, title: str,
                                                                     body: str) -> None:
+    from cyberalertx.media.v4.render import render_doc
     plan = _plan(monkeypatch, title, body)
-    assert plan.renderer == "cax-svg-3"                                    # no faithful V4.1 scene: V3
-    assert B.build(story(title, body)).scene != "dev_supply_chain"
+    # no faithful V4.1 scene: the V4.1 cover, which names the story and draws no extension or marketplace
+    assert plan.renderer == "cax-editorial-4" and plan.brief.scene == "dossier"
+    labels = render_doc(plan.brief).labels
+    assert not any("MARKETPLACE" in x or "Extension" in x for x in labels) and "ISSUED TO" not in labels
 
 
 def test_the_pypi_story_draws_no_marketplace_no_key_and_no_extension() -> None:
@@ -1101,11 +1111,22 @@ def test_a_claim_or_investigation_is_never_drawn_as_a_confirmed_incident(monkeyp
     else:
         assert b.scene not in B.IMPACT_SCENES
     plan = _plan(monkeypatch, title, body, category="ransomware")
-    assert plan.renderer == "cax-svg-3" or plan.brief.scene == "breach_notice"
+    assert plan.renderer == "cax-editorial-4"
+    if plan.brief.scene == "dossier":
+        from cyberalertx.media.v4.render import render_doc
+        labels = render_doc(plan.brief).labels
+        assert {"UNVERIFIED CLAIM", "UNDER INVESTIGATION"} & set(labels)       # the claim is labelled as one
+        assert not {"SUSPECTED", "CONFIRMED", "COMPROMISE CONFIRMED", "EXPLOITED"} & set(labels)
+    else:
+        assert plan.brief.scene == "breach_notice"
 
 
-def test_the_nvidia_investigation_falls_back_to_v3(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _plan(monkeypatch, *NVIDIA, category="ransomware").renderer == "cax-svg-3"
+def test_the_nvidia_investigation_is_a_labelled_v41_cover(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cyberalertx.media.v4.render import render_doc
+    plan = _plan(monkeypatch, *NVIDIA, category="ransomware")
+    labels = render_doc(plan.brief).labels
+    assert plan.renderer == "cax-editorial-4" and plan.brief.scene == "dossier"
+    assert "UNDER INVESTIGATION" in labels and "NVIDIA" in labels
 
 
 def test_a_breach_claim_keeps_the_alleged_treatment_where_supported() -> None:
@@ -1145,3 +1166,120 @@ def test_n_able_is_drawn_as_an_rmm_console_only_when_the_headline_is_about_rmm(t
     assert b.scene != "rmm_console"
     if scene != "not_rmm":
         assert b.scene == scene
+
+
+# ------------------------------------------------------------------ V4.1 migration: full coverage, no V3 fallback
+
+def _labels(title: str, body: str = "", **kw: Any) -> tuple[Any, list[str]]:
+    from cyberalertx.media.v4.consistency import check_brief
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(story(title, body, **kw))
+    labels = render_doc(b).labels
+    assert check_brief(b, labels) == []
+    return b, labels
+
+
+@pytest.mark.parametrize("title,family,extras", [
+    ("ROMULUS ClickFix Attacks Deliver RAT That Can Spy on Users and Control PCs", "ROMULUS",
+     {"ClickFix", "remote access"}),
+    ("New EggStreme Malware Variant Goes Silent to Evade Security Tools in Government Attacks", "EggStreme",
+     {"government targets"}),
+    ("Three China-Nexus Espionage Campaigns Linked Through Sparrow Malware Ecosystem", "Sparrow", set()),
+])
+def test_malware_campaigns_name_only_what_the_headline_states(title: str, family: str, extras: set[str]) -> None:
+    b, labels = _labels(title, "Check Point researchers described the campaign.", category="malware")
+    assert b.scene == "malware_campaign" and family in labels and extras <= set(labels)
+    assert "Check Point" not in labels                     # a name from the body is never the family
+    assert not {"phishing", "fake site", "steals data"} - extras & set(labels)
+
+
+def test_a_generic_noun_before_malware_is_not_a_family() -> None:
+    b, labels = _labels("186 Fake AI Domains Redirect Users to ClickFix Lures, Browser Malware, and Search Hijackers",
+                        category="phishing")
+    assert b.scene == "malware_campaign" and "Browser" not in labels and "Malware campaign" in labels
+
+
+def test_roundups_are_never_a_single_malware_or_advisory_story() -> None:
+    for t in ("ThreatsDay: GPT-6.2 Jailbreak Flaws, BubbleLoader PNG Malware, $500M Ransom Demand + 20 More Stories",
+              "ThreatsDay: 59 Linux Kernel Bugs, Falcon Spyware, GSocket Backdoors + 17 More Stories"):
+        assert B.build(story(t, category="malware")).scene == "weekly_recap"
+
+
+@pytest.mark.parametrize("title,body", [
+    ("Autonomy Logic OpenPLC Runtime", "Successful exploitation of this vulnerability could allow several "
+     "unauthenticated admin accounts to be created. OpenPLC Runtime <=4.2.4 (CVE-2026-126088)"),
+    ("libumqtt", "Successful exploitation of this vulnerability could allow a remote attacker to cause a denial of "
+     "service. libumqtt <=1.1.1 (CVE-2026-125132)"),
+])
+def test_a_cisa_ics_advisory_names_exactly_its_product(title: str, body: str) -> None:
+    from cyberalertx.models import NewsItem
+    from datetime import datetime, timezone
+    it = NewsItem(title=title, source="CISA Alerts", url="https://www.cisa.gov/news-events/ics-advisories/icsa-26-1",
+                  published_at=datetime(2026, 11, 19, tzinfo=timezone.utc), raw_content=body, category="vulnerability")
+    from cyberalertx.media.v4.render import render_doc
+    b = B.build(SimpleNamespace(key="s:ics", anchor=it, members=[it], posts={}))
+    labels = render_doc(b).labels
+    assert b.scene == "vuln_advisory" and title in labels
+    assert sum(title in x or x in title for x in labels if x not in ("SECURITY ADVISORY", "CRITICAL")) <= 2
+
+
+@pytest.mark.parametrize("title,body", [
+    ("Five warning signs of ransomware breach before encryption or data theft", "Sponsored by Acronis."),
+    ("AI Pentesting Checklist for Web Apps: 15 Questions to Ask Before Choosing a Vendor", ""),
+    ("Microsoft Researchers Show AI Agents Can Be Backdoored by Editing Fewer Than 10 Neurons", ""),
+    ("From Deepfakes to Helpdesk Impersonation: Why Stronger Verification Matters", ""),
+])
+def test_analysis_and_guidance_never_show_an_attack(title: str, body: str) -> None:
+    b, labels = _labels(title, body, category="ransomware")
+    assert b.scene not in B.INCIDENT_SCENES and b.scene != "patch_to_exploit"
+    if b.scene == "dossier":
+        assert "ANALYSIS" in labels and not {"COMPROMISE CONFIRMED", "EXPLOITED", "ATTACKS OBSERVED"} & set(labels)
+
+
+def test_an_incident_with_an_explainer_question_is_still_an_incident() -> None:
+    assert not B.analysis_piece("Російські хакери зламали пошту держустанов і непомітно перехоплювали листи. "
+                                "Як це працювало?")
+
+
+def test_what_a_flaw_lets_attackers_do_is_not_exploitation() -> None:
+    b, labels = _labels("Drupal Patches Critical Installer Flaw That Could Give Unauthenticated Attackers Control",
+                        "Fixed releases for all supported branches shipped. The flaw lets unauthenticated attackers "
+                        "abuse the installer to reinstall sites.", category="vulnerability")
+    assert "EXPLOITED" not in labels and "PATCH AVAILABLE" in labels
+    b2, labels2 = _labels("Hackers exploit Drupal installer flaw", "Attackers exploit the flaw in the wild.",
+                          category="vulnerability")
+    assert "EXPLOITED" in labels2
+
+
+def test_an_actors_attribution_is_never_the_product() -> None:
+    b, labels = _labels("China-Linked Hackers Exploit Critical VMware vCenter Zero-Day to Gain Admin Access",
+                        "Broadcom fixed the VMware vCenter flaw.", category="exploit")
+    assert "China-Linked" not in labels and "VMware" in labels
+
+
+@pytest.mark.parametrize("title,body", [
+    ("Everything Is a Web Application, Including Your Firewall", "Attackers compromised firewalls and exfiltrated data."),
+    ("Забудьте про крадіжки відеокарт: у Бразилії бізнесмен намагався підірвати конкурента бомбою в Xbox",
+     "Data was stolen and accounts compromised."),
+])
+def test_a_cover_asserts_an_incident_only_when_the_headline_reports_one(title: str, body: str) -> None:
+    b, labels = _labels(title, body, category="other")
+    assert b.scene == "dossier"
+    assert not {"COMPROMISE CONFIRMED", "ATTACKS OBSERVED", "EXPLOITED", "CONFIRMED", "SUSPECTED"} & set(labels)
+
+
+def test_the_canonical_asset_is_the_newest_generation_whatever_was_touched_last(tmp_path: Path) -> None:
+    from cyberalertx.media.assets import MediaAsset
+    store = MediaStore(tmp_path / "media")
+    def put(aid: str, story: str, model: str, updated: str) -> None:
+        a = MediaAsset(asset_id=aid, story_key=story, asset_type="editorial_illustration", members=["fp1"],
+                       status="validated", generation_model=model, storage_key=f"{aid[-1] * 64}.svg")
+        store.put(a)
+        raw = json.loads(store.index.read_text())
+        raw[aid]["updated_at"] = updated
+        store.index.write_text(json.dumps(raw))
+    put("illus:s:old", "s:old", "cax-svg-2", "2026-11-20T09:00:00+00:00")      # touched last
+    put("illus:s:new", "s:new", "cax-editorial-4", "2026-11-19T09:00:00+00:00")
+    assert store.illustration_for_member("fp1").asset_id == "illus:s:new"      # type: ignore[union-attr]
+    put("illus:s:v4b", "s:v4b", "cax-editorial-4", "2026-11-20T10:00:00+00:00")  # same generation: newest update
+    assert store.illustration_for_member("fp1").asset_id == "illus:s:v4b"      # type: ignore[union-attr]

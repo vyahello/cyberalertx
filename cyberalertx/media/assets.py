@@ -44,6 +44,9 @@ ASSET_TYPES = ("branded_card", "editorial_illustration")
 STATUSES = ("pending", "generating", "generated", "validated", "published", "failed", "skipped")
 
 #: Accepted source formats for illustrations, by magic bytes.
+#: Renderer generations, oldest to newest: an older generation never wins over a newer one.
+_GENERATION = {"cax-svg-1": 1, "cax-svg-2": 2, "cax-svg-3": 3, "cax-editorial-4": 4}
+
 ALLOWED_MIME = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 MAX_BYTES = 8 * 1024 * 1024
 MIN_SIDE = 768
@@ -92,6 +95,9 @@ class MediaAsset:
     status: str = "pending"
     attempts: int = 0
     last_error: str = ""
+    #: Inputs hash of a regeneration that failed while this (still valid) image
+    #: was kept: counts its attempts; "" when the last regeneration succeeded.
+    failed_hash: str = ""
     cost_usd: float = 0.0
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
@@ -256,10 +262,23 @@ class MediaStore:
         return [a for a in self.all() if a.story_key == story_key]
 
     def illustration_for_member(self, fingerprint: str) -> MediaAsset | None:
-        """The validated illustration of the story this article belongs to."""
+        """The validated illustration of the story this article belongs to.
+
+        Identity first: only an illustration whose `members` list this exact
+        article fingerprint qualifies, and only a successfully generated one
+        (`validated`/`published`; a failed or in-progress record never does).
+        The engine keeps `members` current for live stories and removes an
+        article from a dissolved story's illustration once its current story has
+        a validated one (`engine._release_stale_members`), so a stale story key
+        cannot keep an old image attached. Among the remaining candidates the
+        newest renderer generation wins (V4.1 over V3 over V2), then the most
+        recent update, then the asset id, so the choice is deterministic. The
+        website (hero, cards, article) and Telegram/Threads all read this one."""
         found = [a for a in self.all() if a.asset_type == "editorial_illustration"
                  and a.status in ("validated", "published") and fingerprint in a.members]
-        return max(found, key=lambda a: a.updated_at) if found else None
+        if not found:
+            return None
+        return max(found, key=lambda a: (_GENERATION.get(a.generation_model, 0), a.updated_at, a.asset_id))
 
     # -- bytes ---------------------------------------------------------------
 

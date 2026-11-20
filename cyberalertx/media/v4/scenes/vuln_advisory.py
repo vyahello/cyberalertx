@@ -72,9 +72,14 @@ def _facts(brief: EditorialBrief) -> _Adv:
     # sources report use in the wild, it is drawn as a proof of concept.
     research = bool(re.search(r"researchers? (claim|demonstrat|show|found|develop|publish)|proof[- ]of[- ]concept|"
                               r"\bPoC\b|дослідник\w* (показал|продемонстр|заявля)", t, re.I))
-    in_wild = in_wild or bool(re.search(
-        r"(hackers|attackers|threat actors|cybercriminals|criminals|gangs?) (now )?(target|exploit|abuse|hijack|breach)",
-        t))
+    # "Attackers exploit X" reports attacks; "lets attackers abuse X" / "could let
+    # hackers hijack" describes what the flaw allows and is not exploitation.
+    for m in re.finditer(r"(hackers|attackers|threat actors|cybercriminals|criminals|gangs?) (now )?"
+                         r"(target|exploit|abuse|hijack|breach)", t):
+        if not re.search(r"\b(?:lets?|could|can|may|might|would|allows?|enables?|enabling|letting|allowing)\b"
+                         r"(?:\s+\S+){0,3}\s*$", t[max(0, m.start() - 60):m.start()]):
+            in_wild = True
+            break
     proof = research and not in_wild
     exploited = not proof and (brief.status in _EXPLOITED or in_wild)
     # A fix counts only when the sources say it exists ("patches", "fixed in",
